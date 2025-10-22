@@ -6,7 +6,7 @@
 #include <conio.h>
 #include <fstream>
 #include <windows.h>
-#include <algorithm>   // for std::sort, std::transform
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -15,35 +15,56 @@ static void redraw(const std::string& prompt, const std::string& line) {
     std::cout << "\r\033[K" << prompt << line;
 }
 
-// case-insensitive tab completion
-static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
-    std::vector<std::string> matches;
-    std::string lowerPrefix = prefix;
-    std::transform(lowerPrefix.begin(), lowerPrefix.end(), lowerPrefix.begin(), ::tolower);
+static std::vector<std::string> split_command(const std::string& line) {
+    std::istringstream iss(line);
+    std::vector<std::string> parts;
+    std::string token;
+    while (iss >> token)
+        parts.push_back(token);
+    return parts;
+}
 
-    for (const auto& entry : fs::directory_iterator(fs::current_path())) {
-        std::string name = entry.path().filename().string();
-        std::string lowerName = name;
-        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-
-        if (lowerName.rfind(lowerPrefix, 0) == 0)
-            matches.push_back(name);
+static bool handle_redirection(std::string& line, FILE** redirectFile, bool& appendMode) {
+    size_t pos = line.find(">>");
+    if (pos != std::string::npos) {
+        appendMode = true;
+    } else {
+        pos = line.find('>');
+        if (pos == std::string::npos)
+            return false;
     }
 
-    std::sort(matches.begin(), matches.end());
-    return matches;
+    std::string command = line.substr(0, pos);
+    std::string file = line.substr(pos + (appendMode ? 2 : 1));
+    // trim spaces
+    file.erase(0, file.find_first_not_of(" \t"));
+    file.erase(file.find_last_not_of(" \t") + 1);
+
+    if (file.empty()) {
+        std::cerr << "Syntax error: missing filename after >\n";
+        return false;
+    }
+
+    *redirectFile = fopen(file.c_str(), appendMode ? "a" : "w");
+    if (!*redirectFile) {
+        std::cerr << "Error: cannot open file '" << file << "'\n";
+        return false;
+    }
+
+    line = command;
+    return true;
 }
 // ────────────────────────────────────────────────────────
 
+
 int main() {
     std::string line;
-    std::cout << "Winix Shell v0.3\n";
+    std::cout << "Winix Shell v0.4\n";
 
     std::vector<std::string> searchPaths = { ".", "build", "bin" };
-    std::vector<std::string> history;
 
-    // Load command history
-    {
+    std::vector<std::string> history;
+    {   // load history
         std::ifstream histFile("winix_history.txt");
         std::string histLine;
         while (std::getline(histFile, histLine))
@@ -55,100 +76,24 @@ int main() {
     while (true) {
         std::string prompt = "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
         std::cout << prompt;
-        line.clear();
-        int ch;
+        std::getline(std::cin, line);
 
-        // cursor floor to protect prompt
-        CONSOLE_SCREEN_BUFFER_INFO info;
-        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
-        SHORT promptStartX = info.dwCursorPosition.X;
+        if (line.empty()) continue;
 
-        bool tabOnce = false;
-        std::string lastPrefix;
+        // save to history
+        history.push_back(line);
+        historyIndex = -1;
 
-        // -------- raw input loop ----------
-        while ((ch = _getch()) != '\r') {
-            if (ch == 27) { // ESC clear
-                line.clear();
-                redraw(prompt, line);
-                tabOnce = false;
-                continue;
-            }
+        // handle output redirection
+        FILE* redirectFile = nullptr;
+        bool appendMode = false;
+        bool redirected = handle_redirection(line, &redirectFile, appendMode);
 
-            if (ch == 8) { // Backspace
-                GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
-                if (!line.empty() && info.dwCursorPosition.X > promptStartX) {
-                    line.pop_back();
-                    std::cout << "\b \b";
-                } else {
-                    redraw(prompt, line);
-                }
-                tabOnce = false;
-                continue;
-            }
-
-            if (ch == 0 || ch == 224) {
-                ch = _getch();
-                if (ch == 72) { // Up
-                    if (historyIndex < (int)history.size() - 1) historyIndex++;
-                    if (historyIndex >= 0)
-                        line = history[(int)history.size() - 1 - historyIndex];
-                } else if (ch == 80) { // Down
-                    if (historyIndex > 0) historyIndex--;
-                    else if (historyIndex == 0) historyIndex = -1;
-                    if (historyIndex >= 0)
-                        line = history[(int)history.size() - 1 - historyIndex];
-                    else
-                        line.clear();
-                }
-                redraw(prompt, line);
-                tabOnce = false;
-                continue;
-            }
-
-            // --- TAB completion ---
-            if (ch == '\t') {
-                size_t cut = line.find_last_of(' ');
-                std::string prefix = (cut == std::string::npos) ? line : line.substr(cut + 1);
-                auto matches = complete_in_cwd(prefix);
-
-                if (matches.empty()) { tabOnce = false; continue; }
-
-                if (matches.size() == 1) {
-                    line = (cut == std::string::npos)
-                         ? matches[0]
-                         : line.substr(0, cut + 1) + matches[0];
-                    redraw(prompt, line);
-                    tabOnce = false;
-                    continue;
-                }
-
-                if (tabOnce && lastPrefix == prefix) {
-                    std::cout << "\n";
-                    int col = 0;
-                    for (const auto& m : matches) {
-                        std::cout << m << "\t";
-                        if (++col % 4 == 0) std::cout << "\n";
-                    }
-                    std::cout << "\n";
-                    redraw(prompt, line);
-                    tabOnce = false;
-                } else {
-                    tabOnce = true;
-                    lastPrefix = prefix;
-                }
-                continue;
-            }
-
-            std::cout << (char)ch;
-            line.push_back((char)ch);
-            tabOnce = false;
+        int old_fd = -1;
+        if (redirected) {
+            old_fd = _dup(_fileno(stdout));
+            _dup2(_fileno(redirectFile), _fileno(stdout));
         }
-        // ----------------------------------
-
-        std::cout << "\n";
-
-        if (!line.empty()) { history.push_back(line); historyIndex = -1; }
 
         std::istringstream iss(line);
         std::string cmd;
@@ -156,48 +101,61 @@ int main() {
 
         if (cmd == "exit" || cmd == "quit") {
             std::cout << "Goodbye.\n";
+            if (redirected) {
+                fflush(stdout);
+                _dup2(old_fd, _fileno(stdout));
+                fclose(redirectFile);
+                _close(old_fd);
+            }
             break;
         }
-        if (cmd == "pwd") { std::cout << fs::current_path().string() << "\n"; continue; }
-        if (cmd == "echo") {
-            std::string rest; std::getline(iss, rest);
+
+        if (cmd == "pwd") {
+            std::cout << fs::current_path().string() << "\n";
+        } else if (cmd == "echo") {
+            std::string rest;
+            std::getline(iss, rest);
             if (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
-            std::cout << rest << "\n"; continue;
-        }
-        if (cmd == "cd") {
+            std::cout << rest << "\n";
+        } else if (cmd == "cd") {
             std::string path;
-            if (!(iss >> path)) { std::cout << "Usage: cd <dir>\n"; continue; }
-            try { fs::current_path(path); }
-            catch (std::exception& e) { std::cerr << "cd: " << e.what() << "\n"; }
-            continue;
-        }
-#ifdef _WIN32
-        if (cmd == "clear") { system("cls"); continue; }
-#else
-        if (cmd == "clear") { system("clear"); continue; }
-#endif
-        if (cmd == "help") {
+            if (!(iss >> path)) { std::cout << "Usage: cd <dir>\n"; }
+            else {
+                try { fs::current_path(path); }
+                catch (std::exception &e) { std::cerr << "cd: " << e.what() << "\n"; }
+            }
+        } else if (cmd == "clear") {
+            system("cls");
+        } else if (cmd == "help") {
             std::cout << "Built-in commands:\n"
-                      << "  cd <dir>\n  pwd\n  echo <text>\n  clear\n  help\n  exit\n";
-            continue;
+                      << "  cd <dir>\n  pwd\n  echo <text>\n"
+                      << "  clear\n  help\n  exit\n";
+        } else {
+            // external executables
+            bool found = false;
+            for (const auto &p : searchPaths) {
+                std::string full = (fs::path(p) / (cmd + ".exe")).string();
+                if (fs::exists(full)) {
+                    std::string args = line.substr(cmd.size());
+                    if (!args.empty() && args[0] == ' ') args.erase(0, 1);
+                    std::string fullCmd = full + " " + args;
+                    if (std::system(fullCmd.c_str()) == -1)
+                        std::cerr << "Error executing: " << full << "\n";
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                std::cerr << cmd << ": command not found\n";
         }
 
-        // external executables
-        bool found = false;
-        for (const auto& p : searchPaths) {
-            std::string full = (fs::path(p) / (cmd + ".exe")).string();
-            if (fs::exists(full)) {
-                std::string args = line.substr(cmd.size());
-                if (!args.empty() && args[0] == ' ') args.erase(0, 1);
-                std::string fullCmd = full + " " + args;
-                if (std::system(fullCmd.c_str()) == -1)
-                    std::cerr << "Error executing: " << full << "\n";
-                found = true;
-                break;
-            }
+        // restore stdout
+        if (redirected) {
+            fflush(stdout);
+            _dup2(old_fd, _fileno(stdout));
+            fclose(redirectFile);
+            _close(old_fd);
         }
-        if (!found && !cmd.empty())
-            std::cerr << cmd << ": command not found\n";
     }
 
     // save history
