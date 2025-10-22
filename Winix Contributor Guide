@@ -1,0 +1,185 @@
+Winix Contributor Guide
+Welcome
+
+Thank you for contributing to Winix — a native, open-source Unix-like command environment for Windows.
+Your work helps create a permanent bridge between Windows and Unix tooling, done right.
+
+Winix is open to all contributors, but not open-ended — the goal is clarity, consistency, and direction.
+This guide explains how to contribute without fragmenting the mission.
+
+1. Guiding Principles
+
+One Direction, One Vision
+All contributions must align with the core goal: a native, modular, C/C++ implementation of a Unix-style environment for Windows.
+If it doesn’t serve that mission, it doesn’t belong here.
+
+Behavioral Compatibility
+GNU utilities define behavior; Winix defines the implementation. Match expected CLI results — not code.
+
+Simplicity & Clarity
+Write readable, testable, maintainable C and C++ — no clever hacks, no unnecessary dependencies.
+
+Independence
+Every file should compile and run standalone under Windows. No reliance on WSL, MSYS, or runtime layers.
+
+2. Project Structure
+C:\Winix\
+  ├── usr\
+  │   ├── bin\        # Core utilities (C executables)
+  │   └── lib\        # Shared libraries (.a or .dll)
+  ├── etc\            # Configuration and profile scripts
+  ├── var\            # Logs and runtime data
+  ├── src\
+  │   ├── coreutils\  # C source for utilities
+  │   ├── shell\      # C++ source for shell
+  │   ├── common\     # Shared C libraries (I/O, arg parsing, error handling)
+  │   └── include\    # Headers
+  ├── build\          # Temporary build output
+  └── tests\          # Behavioral and regression tests
+
+3. Coding Standards
+Languages
+
+Core utilities → C (C99)
+
+Shell → C++ (C++17 minimum)
+
+Shared libraries → C (portable, static-linkable)
+
+Style
+
+Tabs = 4 spaces.
+
+K&R brace style for C, Allman for C++.
+
+Clear variable names, no abbreviations (srcPath, not sp).
+
+No magic numbers — use #define or constexpr.
+
+Comment why, not what.
+
+File Naming
+
+Lowercase, underscores for C: file_ops.c, arg_parser.c.
+
+PascalCase for C++ classes: CommandParser.cpp.
+
+Executables should match utility names: ls.exe, cp.exe, etc.
+
+Header Conventions
+
+Each C file has a matching .h with function prototypes.
+
+Use include guards:
+
+#ifndef WINIX_FILEOPS_H
+#define WINIX_FILEOPS_H
+...
+#endif
+
+4. Submitting Code
+Fork → Branch → Pull Request
+
+Fork the main repo.
+
+Create a feature branch:
+
+git checkout -b feature/ls-enhancements
+
+
+Build and test locally (cmake --build .).
+
+Submit a pull request with:
+
+Short description of what changed.
+
+Reference to related issue (if any).
+
+Confirmation it builds cleanly on Windows.
+
+PRs will not be merged without:
+
+Passing build and functional tests.
+
+Adherence to style and directory layout.
+
+Clear intent (no “experiment” or “test” branches).
+
+5. Communication & Governance
+Decision Process
+
+Minor changes: reviewed and merged by core maintainers.
+
+Major proposals: require an RFC (Request for Comments) posted under /docs/rfcs/.
+
+The RFC must define:
+
+Problem being solved.
+
+Proposed solution.
+
+Compatibility impact.
+
+Estimated complexity.
+
+Final decisions rest with the core maintainers, whose role is to preserve consistency and direction.
+
+Contact & Collaboration
+
+Discussions happen in the GitHub Issues and Discussions tabs.
+
+Be professional, be clear, stay on topic.
+
+Respect “No” answers — decisions are technical, not personal.
+
+6. Licensing
+
+All contributions are covered under the MIT License.
+By submitting code, you agree:
+
+Your work is original.
+
+You grant permission for inclusion and redistribution under MIT.
+
+You will not introduce third-party GPL or restrictive-licensed code unless approved.
+
+7. Getting Started
+
+Clone the repo.
+
+Run the setup script (scripts/setup_env.bat) to initialize CMake.
+
+Build everything:
+
+cmake -B build
+cmake --build build
+
+
+Test a utility:
+
+build\usr\bin\ls.exe C:\Winix
+
+
+Start the shell:
+
+build\winix.exe
+
+8. Expected Behavior
+
+Winix utilities should:
+
+Return proper exit codes (0 = success, 1+ = error).
+
+Support --help and --version.
+
+Output text cleanly formatted, no color codes unless requested.
+
+Never crash on bad input — always fail gracefully.
+
+9. The Spirit of the Project
+
+This is not just software; it’s a legacy build.
+The goal is for Winix to survive decades — simple, elegant, open, and dependable.
+Your contributions make that possible.
+
+Winix belongs to the community — but it must always speak with one voice.
