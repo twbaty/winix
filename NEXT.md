@@ -79,5 +79,22 @@
 - Increment **patch** (x.y.z) for fixes or optimizations.  
 - Don’t bump **major** until you’re feature-complete and stable.
 
+# Coreutils Roadmap
+
+## cp
+- [x] Basic copy (works)
+- [ ] Add recursive copy (-r)
+- [ ] Preserve timestamps (-p)
+- [ ] Error on directory to file copy
+
+## chmod
+- [x] Stub implementation
+- [ ] Implement SetFileAttributes() mapping (read-only/hidden)
+- [ ] Add sidecar POSIX permission emulation (.meta)
+
+## chown
+- [ ] Stub for Windows
+- [ ] Map usernames using GetUserNameEx()
+- [ ] Integrate future Windows SID translation
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
