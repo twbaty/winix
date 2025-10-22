@@ -4,6 +4,7 @@
 #include <vector>
 #include <filesystem>
 #include <conio.h>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
