@@ -82,9 +82,19 @@ int main() {
 
         
         // fallback: try to execute as system command
-        int result = std::system(line.c_str());
-        if (result == -1)
-            std::cerr << "Command failed: " << cmd << "\n";
+        bool found = false;
+        for (const auto &p : searchPaths) {
+            std::string full = p + "/" + cmd + ".exe";
+            if (fs::exists(full)) {
+                system(full.c_str());
+                found = true;
+                break;
+            }
+        }
+
+if (!found) {
+    std::cerr << cmd << ": command not found\n";
+}
     }
     return 0;
 }
