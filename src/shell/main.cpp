@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <conio.h>
 #include <fstream>
+#include <windows.h>   // <-- added for cursor position
 
 namespace fs = std::filesystem;
 
@@ -29,23 +30,34 @@ int main() {
     int historyIndex = -1;
 
     while (true) {
-        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+        std::string prompt = "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
+        std::cout << prompt;
         line.clear();
         int ch;
+
+        // save starting cursor position to protect prompt area
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
+        SHORT promptStartX = info.dwCursorPosition.X;
 
         // ── raw input loop ───────────────────────────────
         while ((ch = _getch()) != '\r') {          // Enter
             if (ch == 27) {                        // Escape clears line
                 line.clear();
-                std::cout << "\r\033[K\033[1;32m[Winix]\033[0m "
-                          << fs::current_path().string() << " > ";
+                std::cout << "\r\033[K" << prompt;
                 continue;
             }
-            if (ch == 8 && !line.empty()) {        // Backspace
-                line.pop_back();
-                std::cout << "\b \b";
+
+            if (ch == 8) {                         // Backspace
+                GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
+                // only allow erase if cursor is beyond prompt
+                if (!line.empty() && info.dwCursorPosition.X > promptStartX) {
+                    line.pop_back();
+                    std::cout << "\b \b";
+                }
                 continue;
             }
+
             if (ch == 0 || ch == 224) {            // Arrow keys
                 ch = _getch();
                 if (ch == 72) {                    // Up
@@ -60,8 +72,7 @@ int main() {
                     else line.clear();
                 }
 
-                std::cout << "\r\033[K\033[1;32m[Winix]\033[0m "
-                          << fs::current_path().string() << " > " << line;
+                std::cout << "\r\033[K" << prompt << line;
                 continue;
             }
 
