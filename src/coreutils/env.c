@@ -3,10 +3,9 @@
 
 int main(void) {
 #ifdef _WIN32
-    extern char **_environ;   // Windows-specific name
-    char **environ = _environ;
+    char **environ = *_environ;   // Use function-style deref
 #else
-    extern char **environ;    // POSIX
+    extern char **environ;
 #endif
 
     for (char **p = environ; *p; ++p)
