@@ -62,6 +62,18 @@ int main() {
             continue;
         }
 
+        // ---- help ----
+        if (cmd == "help") {
+            std::cout << "Built-in commands:\n"
+                      << "  cd <dir>     - change directory\n"
+                      << "  pwd          - print current directory\n"
+                      << "  echo <text>  - print text\n"
+                      << "  clear        - clear the screen\n"
+                      << "  help         - show this help message\n"
+                      << "  exit         - exit Winix shell\n";
+            continue;
+        }
+
         
         // fallback: try to execute as system command
         int result = std::system(line.c_str());
