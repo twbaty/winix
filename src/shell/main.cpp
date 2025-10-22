@@ -84,11 +84,22 @@ int main() {
         // fallback: try to execute as system command
         bool found = false;
         for (const auto &p : searchPaths) {
-            std::string full = (fs::path(p) / (cmd + ".exe")).string();
-            if (fs::exists(full)) {
-                system(full.c_str());
-                found = true;
-                break;
+        std::string full = (fs::path(p) / (cmd + ".exe")).string();
+        if (fs::exists(full)) {
+            // Capture the rest of the line after the command name
+            std::string args = line.substr(cmd.size());
+            if (!args.empty() && args[0] == ' ')
+                args.erase(0, 1);
+
+            // Build full command line with args
+            std::string fullCmd = full + " " + args;
+
+            int result = std::system(fullCmd.c_str());
+            if (result == -1)
+                std::cerr << "Error executing: " << full << "\n";
+
+            found = true;
+            break;
             }
         }
 
