@@ -55,4 +55,7 @@ target_link_libraries(whoami winixcommon)
 add_executable(sleep src/coreutils/sleep.c)
 target_link_libraries(sleep winixcommon)
 
+add_executable(cp src/coreutils/cp.c)
+target_link_libraries(cp winixcommon)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
