@@ -6,40 +6,35 @@
 #include <conio.h>
 #include <fstream>
 #include <windows.h>
-#include <algorithm>
+#include <algorithm>   // for std::sort, std::transform
 
 namespace fs = std::filesystem;
 
-// --- helpers ---
+// ── helpers ─────────────────────────────────────────────
 static void redraw(const std::string& prompt, const std::string& line) {
     std::cout << "\r\033[K" << prompt << line;
 }
 
-#include <iostream>
-#include <string>
-#include <sstream>
-#include <vector>
-#include <filesystem>
-#include <conio.h>
-#include <fstream>
-#include <windows.h>
-
-namespace fs = std::filesystem;
-
-// --- helpers ---
-static void redraw(const std::string& prompt, const std::string& line) {
-    std::cout << "\r\033[K" << prompt << line;
-}
-
+// case-insensitive tab completion
 static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
     std::vector<std::string> matches;
+    std::string lowerPrefix = prefix;
+    std::transform(lowerPrefix.begin(), lowerPrefix.end(), lowerPrefix.begin(), ::tolower);
+
     for (const auto& entry : fs::directory_iterator(fs::current_path())) {
         std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0) matches.push_back(name);
+        std::string lowerName = name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+
+        if (lowerName.rfind(lowerPrefix, 0) == 0)
+            matches.push_back(name);
     }
+
     std::sort(matches.begin(), matches.end());
     return matches;
 }
+// ────────────────────────────────────────────────────────
+
 
 int main() {
     std::string line;
