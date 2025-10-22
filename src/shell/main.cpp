@@ -10,6 +10,12 @@ int main() {
     std::string line;
     std::cout << "Winix Shell v0.3\n";
 
+    std::vector<std::string> searchPaths = {
+        ".",        // current directory
+        "build",    // build output folder
+        "bin"       // future installed binaries
+    };
+    
     while (true) {
         std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
         if (!std::getline(std::cin, line) || line.empty())
