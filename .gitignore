@@ -39,3 +39,17 @@
 
 # debug information files
 *.dwo
+
+# CMake build directories
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+Makefile
+
+# Generated binaries and libraries
+/bin/
+/usr/bin/
+/lib/
+/*.exe
+/*.a
