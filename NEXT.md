@@ -59,5 +59,25 @@
 - [ ] Package release as `Winix v0.4-alpha`  
 
 ---
+---
+
+## 🧮 Version Milestones
+
+| Version | Stage | Highlights |
+|----------|--------|-------------|
+| **0.3** | Current | Working shell, prompt color, core file ops |
+| **0.4** | In Progress | History, input cleanup, `set` command, case toggle |
+| **0.5** | Planned | Argument parsing, better error handling, extended `help` |
+| **0.6** | Future | Add piping and chaining (`cmd1 | cmd2`), install target |
+| **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
+| **1.0** | Stable | Windows-native Unix parity — clean, documented, extensible |
+
+---
+
+📌 *Rule of thumb:*  
+- Increment **minor** (x.y) when new features appear.  
+- Increment **patch** (x.y.z) for fixes or optimizations.  
+- Don’t bump **major** until you’re feature-complete and stable.
+
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
