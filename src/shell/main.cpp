@@ -49,26 +49,32 @@ while ((ch = _getch()) != '\r') { // Enter key ends input
         std::cout << "\b \b";
         continue;
     }
-    if (ch == 0 || ch == 224) { // Arrow keys
-        ch = _getch();
-        if (ch == 72 && !history.empty()) { // Up
-            if (historyIndex < (int)history.size() - 1) historyIndex++;
+if (ch == 0 || ch == 224) { // Arrow keys
+    ch = _getch();
+
+    if (ch == 72) { // Up arrow
+        if (historyIndex < (int)history.size() - 1)
+            historyIndex++;
+        if (historyIndex >= 0)
             line = history[history.size() - 1 - historyIndex];
-            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << line;
-        } else if (ch == 80 && historyIndex > 0) { // Down
-            historyIndex--;
-            line = history[history.size() - 1 - historyIndex];
-            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << line;
-        } else if (ch == 80 && historyIndex == 0) { // clear after bottom
-            historyIndex = -1;
-            line.clear();
-            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
-        }
-        continue;
     }
-    std::cout << (char)ch;
-    line.push_back((char)ch);
+    else if (ch == 80) { // Down arrow
+        if (historyIndex > 0)
+            historyIndex--;
+        else if (historyIndex == 0)
+            historyIndex = -1;
+
+        if (historyIndex >= 0)
+            line = history[history.size() - 1 - historyIndex];
+        else
+            line.clear();
+    }
+
+    std::cout << "\r\033[K\033[1;32m[Winix]\033[0m "
+              << fs::current_path().string() << " > " << line;
+    continue;
 }
+
 
         std::cout << "\n";
         // Save command to in-memory history immediately after input
