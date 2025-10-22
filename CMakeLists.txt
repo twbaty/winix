@@ -22,4 +22,7 @@ target_link_libraries(ls winixcommon)
 add_executable(winix src/shell/main.cpp)
 target_link_libraries(winix winixcommon)
 
+add_executable(cat src/coreutils/cat.c)
+target_link_libraries(cat winixcommon)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
