@@ -72,6 +72,36 @@ int main() {
                     else line.clear();
                 }
 
+                if (ch == 9) { // Tab
+    std::string prefix = line;
+    size_t lastSpace = line.find_last_of(' ');
+    if (lastSpace != std::string::npos)
+        prefix = line.substr(lastSpace + 1);
+
+    std::vector<std::string> matches;
+    for (const auto& entry : fs::directory_iterator(fs::current_path())) {
+        std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0)
+            matches.push_back(name);
+    }
+
+    if (matches.size() == 1) {
+        // Single match → auto-complete inline
+        size_t lastSpace = line.find_last_of(' ');
+        if (lastSpace != std::string::npos)
+            line = line.substr(0, lastSpace + 1) + matches[0];
+        else
+            line = matches[0];
+        std::cout << "\r\033[K" << prompt << line;
+    }
+    else if (matches.size() > 1) {
+        std::cout << "\n";
+        for (auto& m : matches) std::cout << m << "  ";
+        std::cout << "\n" << prompt << line;
+    }
+    continue;
+}
+                
                 std::cout << "\r\033[K" << prompt << line;
                 continue;
             }
