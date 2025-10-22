@@ -146,6 +146,12 @@ std::cout << "\n";
 if (!found) {
     std::cerr << cmd << ": command not found\n";
 }
+    // Save non-empty command to history
+if (!line.empty()) {
+    history.push_back(line);
+    historyIndex = -1;
+}
+
     }
     return 0;
 }
