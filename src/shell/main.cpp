@@ -11,7 +11,7 @@ int main() {
     std::cout << "Winix Shell v0.3\n";
 
     while (true) {
-        std::cout << "[Winix] " << fs::current_path().string() << " > ";
+        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
         if (!std::getline(std::cin, line) || line.empty())
             continue;
 
