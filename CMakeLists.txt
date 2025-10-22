@@ -64,4 +64,10 @@ target_link_libraries(chmod winixcommon)
 add_executable(chown src/coreutils/chown.c)
 target_link_libraries(chown winixcommon)
 
+# Tier 1–4 coreutils
+foreach(cmd stat wc du df sort uniq grep tee sleep alias export history ps kill uname uptime env ver)
+    add_executable(${cmd} src/coreutils/${cmd}.c)
+    target_link_libraries(${cmd} winixcommon)
+endforeach()
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
