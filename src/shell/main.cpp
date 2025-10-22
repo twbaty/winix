@@ -3,6 +3,7 @@
 #include <sstream>
 #include <vector>
 #include <filesystem>
+#include <conio.h>
 
 namespace fs = std::filesystem;
 
@@ -15,11 +16,50 @@ int main() {
         "build",    // build output folder
         "bin"       // future installed binaries
     };
+
+    std::vector<std::string> history;
+    int historyIndex = -1;
     
     while (true) {
         std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
-        if (!std::getline(std::cin, line) || line.empty())
-            continue;
+line.clear();
+int ch;
+
+while ((ch = _getch()) != '\r') { // Enter key ends input
+    if (ch == 27) { // Escape key clears line
+        line.clear();
+        std::cout << "\r\033[K"; // clear line
+        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+        continue;
+    }
+    if (ch == 8 && !line.empty()) { // Backspace
+        line.pop_back();
+        std::cout << "\b \b";
+        continue;
+    }
+    if (ch == 0 || ch == 224) { // Arrow keys
+        ch = _getch();
+        if (ch == 72 && !history.empty()) { // Up
+            if (historyIndex < (int)history.size() - 1) historyIndex++;
+            line = history[history.size() - 1 - historyIndex];
+            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << line;
+        } else if (ch == 80 && historyIndex > 0) { // Down
+            historyIndex--;
+            line = history[history.size() - 1 - historyIndex];
+            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << line;
+        } else if (ch == 80 && historyIndex == 0) { // clear after bottom
+            historyIndex = -1;
+            line.clear();
+            std::cout << "\r\033[K\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+        }
+        continue;
+    }
+    std::cout << (char)ch;
+    line.push_back((char)ch);
+}
+
+std::cout << "\n";
+
 
         std::istringstream iss(line);
         std::string cmd;
