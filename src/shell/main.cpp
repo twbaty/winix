@@ -18,6 +18,17 @@ int main() {
     };
 
     std::vector<std::string> history;
+    // Load history from file
+{
+    std::ifstream histFile("winix_history.txt");
+    std::string histLine;
+    while (std::getline(histFile, histLine)) {
+        if (!histLine.empty())
+            history.push_back(histLine);
+    }
+    histFile.close();
+}
+
     int historyIndex = -1;
     
     while (true) {
@@ -153,5 +164,13 @@ if (!line.empty()) {
 }
 
     }
+// Save history to file
+{
+    std::ofstream histFile("winix_history.txt", std::ios::trunc);
+    for (const auto& cmd : history)
+        histFile << cmd << "\n";
+    histFile.close();
+}
+
     return 0;
 }
