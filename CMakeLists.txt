@@ -37,4 +37,22 @@ target_link_libraries(mkdir winixcommon)
 add_executable(rmdir src/coreutils/rmdir.c)
 target_link_libraries(rmdir winixcommon)
 
+add_executable(touch src/coreutils/touch.c)
+target_link_libraries(touch winixcommon)
+
+add_executable(head src/coreutils/head.c)
+target_link_libraries(head winixcommon)
+
+add_executable(tail src/coreutils/tail.c)
+target_link_libraries(tail winixcommon)
+
+add_executable(date src/coreutils/date.c)
+target_link_libraries(date winixcommon)
+
+add_executable(whoami src/coreutils/whoami.c)
+target_link_libraries(whoami winixcommon)
+
+add_executable(sleep src/coreutils/sleep.c)
+target_link_libraries(sleep winixcommon)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
