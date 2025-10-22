@@ -17,4 +17,3 @@ int main(int argc,char*argv[]){
     for(int i=0;i<n;i++){fputs(lines[i],stdout);free(lines[i]);}
     return 0;
 }
-s
