@@ -48,15 +48,19 @@ int main() {
                 continue;
             }
 
-            if (ch == 8) {                         // Backspace
-                GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
-                // only allow erase if cursor is beyond prompt
-                if (!line.empty() && info.dwCursorPosition.X > promptStartX) {
-                    line.pop_back();
-                    std::cout << "\b \b";
-                }
-                continue;
-            }
+if (ch == 8) { // Backspace
+    if (!line.empty()) {
+        line.pop_back();
+        std::cout << "\b \b";
+    } else {
+        // ensure we don't delete past the prompt
+        std::cout << "\r" << "\033[K"
+                  << "\033[1;32m[Winix]\033[0m "
+                  << fs::current_path().string() << " > ";
+    }
+    continue;
+}
+
 
             if (ch == 0 || ch == 224) {            // Arrow keys
                 ch = _getch();
