@@ -70,9 +70,12 @@ while ((ch = _getch()) != '\r') { // Enter key ends input
     line.push_back((char)ch);
 }
 
-std::cout << "\n";
-
-
+        std::cout << "\n";
+        // Save command to in-memory history immediately after input
+        if (!line.empty()) {
+            history.push_back(line);
+            historyIndex = -1;
+        }
         std::istringstream iss(line);
         std::string cmd;
         iss >> cmd;
