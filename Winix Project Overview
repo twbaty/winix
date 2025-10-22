@@ -1,0 +1,76 @@
+Winix Project Overview
+Mission
+
+Winix is an open-source initiative to build a native, fast, Unix-like command environment for Windows — delivering the familiarity and power of GNU utilities without relying on compatibility layers like MSYS, MinGW, or WSL.
+
+Our mission is simple:
+
+Bring the clarity and strength of Linux command-line tooling to Windows — natively, cleanly, and permanently.
+
+Purpose & Direction
+
+Winix aims to:
+
+Provide a modular suite of native Windows command-line utilities written in C.
+
+Deliver a modern C++ shell that behaves like Bash but integrates cleanly with Windows internals.
+
+Maintain behavioral compatibility with GNU utilities where appropriate, while using completely independent, clean-room implementations.
+
+Follow a Unix-style directory structure under C:\Winix:
+
+/usr/bin  – core utilities  
+/usr/lib  – shared libraries  
+/etc      – configuration  
+/var      – logs, runtime data
+
+
+The end goal: a self-contained, first-class CLI ecosystem that feels like Unix but runs purely on Windows.
+
+Guiding Principles
+
+Native First: All binaries are compiled for Windows — no MSYS, no WSL.
+
+Behavioral Parity, Not Code Parity: GNU defines the behavioral baseline, not the implementation.
+
+Simplicity Over Cleverness: Readable, maintainable code is the goal.
+
+Open Collaboration, Single Direction: Contributions are welcome — divergence is not.
+
+Transparency & Longevity: Everything is open-source (MIT License) and designed to outlive its creators.
+
+Governance & Collaboration
+
+Core Team: Defines architecture, approves merges, and maintains project integrity.
+
+Contributors: Submit code, tests, or documentation aligned with the unified roadmap.
+
+RFC Model: Major feature changes or design shifts require an open proposal and discussion before approval.
+
+All contributions must align with the project’s primary goal — a cohesive, native Unix-like experience for Windows users.
+
+Initial Technical Direction
+Layer	Language	Description
+Core Utilities	C	Standalone executables mirroring essential GNU tools (ls, cp, mv, rm, cat, etc.)
+Shell	C++	Interactive REPL with parsing, execution, redirection, and environment management
+Shared Library	C	Common argument parsing, error handling, and I/O routines
+Build System	CMake	Unified cross-platform build and packaging framework
+Roadmap (Simplified)
+
+Phase 1: Core utilities (echo, ls, pwd, cp, mv, rm, mkdir, rmdir, cat).
+
+Phase 2: Core shell prototype (REPL, execution, built-ins).
+
+Phase 3: Pipes, redirection, and environment handling.
+
+Phase 4: Packaging, documentation, and open contributor onboarding.
+
+License
+
+MIT License — fully open, allowing commercial and community use with attribution.
+
+Winix belongs to everyone who builds it — but its direction remains unified.
+
+Tagline
+
+Winix — The Unix Windows Should Have Had.
