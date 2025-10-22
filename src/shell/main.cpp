@@ -6,6 +6,7 @@
 #include <conio.h>
 #include <fstream>
 #include <windows.h>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
