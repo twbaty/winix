@@ -37,6 +37,32 @@ int main() {
             continue;
         }
 
+        // ---- cd ----
+        if (cmd == "cd") {
+            std::string path;
+            if (!(iss >> path)) {
+                std::cout << "Usage: cd <directory>\n";
+            continue;
+        }
+        try {
+            std::filesystem::current_path(path);
+        } catch (std::exception &e) {
+            std::cerr << "cd: " << e.what() << "\n";
+        }
+        continue;
+        }
+
+        // ---- clear ----
+        if (cmd == "clear") {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+            continue;
+        }
+
+        
         // fallback: try to execute as system command
         int result = std::system(line.c_str());
         if (result == -1)
