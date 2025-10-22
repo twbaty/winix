@@ -1,5 +1,11 @@
 #include <stdio.h>
+
+#ifdef _WIN32
+#include <direct.h>  // for _mkdir
+#else
 #include <sys/stat.h>
+#include <sys/types.h>
+#endif
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
