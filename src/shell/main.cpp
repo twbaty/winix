@@ -15,6 +15,22 @@ static void redraw(const std::string& prompt, const std::string& line) {
     std::cout << "\r\033[K" << prompt << line;
 }
 
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <vector>
+#include <filesystem>
+#include <conio.h>
+#include <fstream>
+#include <windows.h>
+
+namespace fs = std::filesystem;
+
+// --- helpers ---
+static void redraw(const std::string& prompt, const std::string& line) {
+    std::cout << "\r\033[K" << prompt << line;
+}
+
 static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
     std::vector<std::string> matches;
     for (const auto& entry : fs::directory_iterator(fs::current_path())) {
@@ -24,6 +40,34 @@ static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
     std::sort(matches.begin(), matches.end());
     return matches;
 }
+
+int main() {
+    std::string line;
+    std::cout << "Winix Shell v0.3\n";
+
+    std::vector<std::string> searchPaths = { ".", "build", "bin" };
+
+    std::vector<std::string> history;
+    {   // load history
+        std::ifstream histFile("winix_history.txt");
+        std::string histLine;
+        while (std::getline(histFile, histLine))
+            if (!histLine.empty()) history.push_back(histLine);
+    }
+
+    int historyIndex = -1;
+
+    while (true) {
+        std::string prompt = "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
+        std::cout << prompt;
+        line.clear();
+        int ch;
+
+        // cursor floor to protect prompt
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
+        SHORT promptStartX = info.dwCursorPosition.X;
+
 
 int main() {
     std::string line;
