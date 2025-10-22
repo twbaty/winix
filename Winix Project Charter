@@ -1,0 +1,85 @@
+Winix Project Charter
+1. Purpose
+
+Winix exists to provide a native, fast, and open-source Unix-like command environment for Windows — a system that brings the familiarity of GNU-style utilities and shell behavior without depending on compatibility layers like MSYS, MinGW, or WSL.
+
+Winix will be:
+
+Native: All binaries compiled for Windows using C and C++.
+
+Lightweight: Self-contained and efficient, with no external runtime dependencies.
+
+Consistent: Behaves predictably across Windows versions.
+
+Extendable: Built on a modular architecture that allows others to add new utilities and capabilities easily.
+
+Our goal is to build a first-class command-line environment that feels like Linux but runs natively in Windows, uniting the strengths of both ecosystems.
+
+2. Vision
+
+To create an open, maintainable, long-lived command platform that:
+
+Offers developers a clean, reliable command-line experience.
+
+Provides familiar Unix semantics on Windows.
+
+Becomes a legitimate alternative to Git Bash and other emulation layers.
+
+Lives on as a community project guided by transparent design principles.
+
+In short:
+
+“Winix — the Unix you wish Windows had built in.”
+
+3. Guiding Principles
+
+Compatibility without dependence:
+GNU utilities define our behavioral baseline, not our codebase.
+
+Native first:
+Every component compiles and runs cleanly under Windows, with no MSYS or WSL translation.
+
+Clarity over complexity:
+Simple design, minimal dependencies, and readable code over cleverness.
+
+Shared ownership, single direction:
+Contributions are welcome — but must align with the unified vision of a native, modular, Unix-like shell.
+
+Open by design:
+Source under the MIT License, encouraging collaboration and adoption across organizations and platforms.
+
+4. Governance
+
+Core maintainers (initially you) will set roadmap, approve architectural decisions, and ensure project coherence.
+
+Contributors may submit utilities, patches, or documentation under review.
+
+Community proposals (new features, ports, or integration ideas) must go through a structured Request for Comment (RFC) process to maintain focus and direction.
+
+Goal: open collaboration, not chaos.
+
+5. Technical Direction
+Layer	Language	Description
+Core Utilities	C	Reimplement essential GNU-like tools natively for Windows.
+Shell	C++	Interactive REPL handling parsing, execution, redirection, and environment.
+Libraries	C	Shared argument parsing, I/O, and filesystem abstractions.
+Packaging	CMake	Unified build and install system.
+
+The system layout will follow a Unix-style directory structure rooted at C:\Winix:
+
+/usr/bin    → core utilities
+/usr/lib    → shared libraries
+/etc        → configuration
+/var        → logs, runtime data
+
+6. Roadmap (High-Level)
+
+Phase 1: Establish build system, compile 5–7 core utilities.
+Phase 2: Develop Winix shell (C++).
+Phase 3: Add 15–20 utilities, improve pipeline and redirection.
+Phase 4: Package for public use and begin community onboarding.
+Phase 5: Documentation, versioned releases, and contributor guide.
+
+7. Long-Term Objective
+
+To make Winix the standard open-source Unix-like environment for Windows — fully independent, transparent, and community-driven — capable of living on long after its founders.
