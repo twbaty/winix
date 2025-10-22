@@ -70,4 +70,11 @@ foreach(cmd stat wc du df sort uniq grep tee alias export history ps kill uname 
     target_link_libraries(${cmd} winixcommon)
 endforeach()
 
+add_executable(printf src/coreutils/printf.c)
+add_executable(basename src/coreutils/basename.c)
+add_executable(dirname src/coreutils/dirname.c)
+add_executable(which src/coreutils/which.c)
+add_executable(true src/coreutils/true.c)
+add_executable(false src/coreutils/false.c)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
