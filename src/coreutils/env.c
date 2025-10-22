@@ -3,13 +3,13 @@
 
 int main(void) {
 #ifdef _WIN32
-    char **environ = *_environ;   // Use function-style deref
+    char **environ = *_p__environ();   // MS runtime accessor
 #else
     extern char **environ;
 #endif
 
     for (char **p = environ; *p; ++p)
-        printf("%s\n", *p);
+        puts(*p);
 
     return 0;
 }
