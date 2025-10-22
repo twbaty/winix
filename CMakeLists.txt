@@ -15,6 +15,9 @@ target_link_libraries(echo winixcommon)
 add_executable(pwd src/coreutils/pwd.c)
 target_link_libraries(pwd winixcommon)
 
+add_executable(ls src/coreutils/ls.c)
+target_link_libraries(ls winixcommon)
+
 # The shell (future)
 add_executable(winix src/shell/main.cpp)
 target_link_libraries(winix winixcommon)
