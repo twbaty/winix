@@ -1,0 +1,106 @@
+Winix Developer Quick Start
+Purpose
+
+This guide walks you through setting up your local development environment, building your first native Winix utility, and preparing your first pull request.
+
+If you can compile and run echo.exe by the end, you’re ready to contribute.
+
+1. Requirements
+
+Windows 10/11 (x64)
+
+Git – git-scm.com/downloads
+
+CMake – 3.20+
+
+MinGW-w64 – GCC compiler for Windows (install via MSYS2
+ or Chocolatey)
+
+choco install mingw cmake git
+
+
+Visual Studio Code (optional) with C/C++ extension for editing and IntelliSense.
+
+2. Clone the Repository
+git clone https://github.com/<yourusername>/winix.git
+cd winix
+
+3. Directory Overview
+winix/
+ ├── src/
+ │   ├── coreutils/     ← C utilities (e.g., ls.c, cp.c)
+ │   ├── shell/         ← C++ shell sources
+ │   ├── common/        ← Shared C libs (arg parsing, file ops)
+ │   └── include/       ← Shared headers
+ ├── usr/
+ │   ├── bin/           ← Built binaries
+ │   └── lib/           ← Compiled libraries
+ ├── etc/               ← Config (profile, aliases)
+ ├── var/               ← Logs, runtime data
+ ├── tests/             ← Behavioral tests
+ ├── build/             ← CMake build output
+ ├── CMakeLists.txt     ← Main build configuration
+ └── README.md
+
+4. Build Environment
+
+Generate and build using CMake:
+
+cmake -B build -G "MinGW Makefiles"
+cmake --build build
+
+
+If successful, you’ll have:
+
+build/usr/bin/echo.exe
+build/usr/bin/pwd.exe
+build/winix.exe
+
+
+Add to PATH temporarily for testing:
+
+set PATH=%CD%\build\usr\bin;%PATH%
+
+5. Run a Test
+echo.exe Hello from Winix!
+pwd.exe
+
+
+If both respond, your environment is configured.
+
+6. Add a New Utility
+
+Copy an existing one (e.g., src/coreutils/echo.c) as a template.
+
+Implement your logic.
+
+Add it to CMakeLists.txt:
+
+add_executable(ls src/coreutils/ls.c)
+target_link_libraries(ls winixcommon)
+install(TARGETS ls DESTINATION usr/bin)
+
+
+Build again:
+
+cmake --build build
+
+7. Submit Your Work
+git checkout -b feature/new-utility
+git add .
+git commit -m "Add new utility <name>"
+git push origin feature/new-utility
+
+
+Then open a pull request on GitHub.
+
+8. Next Steps
+
+Explore /docs/CONTRIBUTING.md for collaboration rules.
+
+Use /tests/ to validate behavior parity with standard Unix commands.
+
+Join the project’s GitHub Discussions for questions or proposals.
+
+Winix — The Unix Windows Should Have Had.
+Build it right, build it together.
