@@ -84,7 +84,7 @@ int main() {
         // fallback: try to execute as system command
         bool found = false;
         for (const auto &p : searchPaths) {
-            std::string full = p + "/" + cmd + ".exe";
+            std::string full = (fs::path(p) / (cmd + ".exe")).string();
             if (fs::exists(full)) {
                 system(full.c_str());
                 found = true;
