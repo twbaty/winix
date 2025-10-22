@@ -35,15 +35,15 @@ static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
 }
 // ────────────────────────────────────────────────────────
 
-
 int main() {
     std::string line;
     std::cout << "Winix Shell v0.3\n";
 
     std::vector<std::string> searchPaths = { ".", "build", "bin" };
-
     std::vector<std::string> history;
-    {   // load history
+
+    // Load command history
+    {
         std::ifstream histFile("winix_history.txt");
         std::string histLine;
         while (std::getline(histFile, histLine))
@@ -63,35 +63,6 @@ int main() {
         GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
         SHORT promptStartX = info.dwCursorPosition.X;
 
-
-int main() {
-    std::string line;
-    std::cout << "Winix Shell v0.3\n";
-
-    std::vector<std::string> searchPaths = { ".", "build", "bin" };
-
-    std::vector<std::string> history;
-    {   // load history
-        std::ifstream histFile("winix_history.txt");
-        std::string histLine;
-        while (std::getline(histFile, histLine))
-            if (!histLine.empty()) history.push_back(histLine);
-    }
-
-    int historyIndex = -1;
-
-    while (true) {
-        std::string prompt = "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
-        std::cout << prompt;
-        line.clear();
-        int ch;
-
-        // cursor floor to protect prompt
-        CONSOLE_SCREEN_BUFFER_INFO info;
-        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
-        SHORT promptStartX = info.dwCursorPosition.X;
-
-        // tab state
         bool tabOnce = false;
         std::string lastPrefix;
 
@@ -104,7 +75,7 @@ int main() {
                 continue;
             }
 
-            if (ch == 8) { // Backspace (don’t chew prompt)
+            if (ch == 8) { // Backspace
                 GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
                 if (!line.empty() && info.dwCursorPosition.X > promptStartX) {
                     line.pop_back();
@@ -116,7 +87,6 @@ int main() {
                 continue;
             }
 
-            // Arrow / function keys
             if (ch == 0 || ch == 224) {
                 ch = _getch();
                 if (ch == 72) { // Up
@@ -126,7 +96,6 @@ int main() {
                 } else if (ch == 80) { // Down
                     if (historyIndex > 0) historyIndex--;
                     else if (historyIndex == 0) historyIndex = -1;
-
                     if (historyIndex >= 0)
                         line = history[(int)history.size() - 1 - historyIndex];
                     else
@@ -137,20 +106,15 @@ int main() {
                 continue;
             }
 
-            // --- TAB completion (single = complete, double = list) ---
+            // --- TAB completion ---
             if (ch == '\t') {
                 size_t cut = line.find_last_of(' ');
                 std::string prefix = (cut == std::string::npos) ? line : line.substr(cut + 1);
-
                 auto matches = complete_in_cwd(prefix);
 
-                if (matches.empty()) {
-                    tabOnce = false; // nothing to do
-                    continue;
-                }
+                if (matches.empty()) { tabOnce = false; continue; }
 
                 if (matches.size() == 1) {
-                    // replace token with full match
                     line = (cut == std::string::npos)
                          ? matches[0]
                          : line.substr(0, cut + 1) + matches[0];
@@ -159,7 +123,6 @@ int main() {
                     continue;
                 }
 
-                // multiple matches
                 if (tabOnce && lastPrefix == prefix) {
                     std::cout << "\n";
                     int col = 0;
@@ -177,7 +140,6 @@ int main() {
                 continue;
             }
 
-            // printable char
             std::cout << (char)ch;
             line.push_back((char)ch);
             tabOnce = false;
@@ -199,7 +161,7 @@ int main() {
         if (cmd == "pwd") { std::cout << fs::current_path().string() << "\n"; continue; }
         if (cmd == "echo") {
             std::string rest; std::getline(iss, rest);
-            if (!rest.empty() && rest[0] == ' ') rest.erase(0,1);
+            if (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
             std::cout << rest << "\n"; continue;
         }
         if (cmd == "cd") {
@@ -220,13 +182,13 @@ int main() {
             continue;
         }
 
-        // external executables (searchPaths)
+        // external executables
         bool found = false;
         for (const auto& p : searchPaths) {
             std::string full = (fs::path(p) / (cmd + ".exe")).string();
             if (fs::exists(full)) {
                 std::string args = line.substr(cmd.size());
-                if (!args.empty() && args[0] == ' ') args.erase(0,1);
+                if (!args.empty() && args[0] == ' ') args.erase(0, 1);
                 std::string fullCmd = full + " " + args;
                 if (std::system(fullCmd.c_str()) == -1)
                     std::cerr << "Error executing: " << full << "\n";
