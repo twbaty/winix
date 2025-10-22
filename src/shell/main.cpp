@@ -2,52 +2,45 @@
 #include <string>
 #include <sstream>
 #include <vector>
-#include <cstdlib>
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
 int main() {
     std::string line;
-    std::cout << "Winix Shell v0.2\n";
+    std::cout << "Winix Shell v0.3\n";
 
     while (true) {
-        std::cout << "winix> ";
-        if (!std::getline(std::cin, line)) break;
+        std::cout << fs::current_path().string() << " > ";
+        if (!std::getline(std::cin, line) || line.empty())
+            continue;
 
-        // trim
-        if (line.empty()) continue;
+        std::istringstream iss(line);
+        std::string cmd;
+        iss >> cmd;
 
-        // exit
-        if (line == "exit" || line == "quit") {
+        if (cmd == "exit" || cmd == "quit") {
             std::cout << "Goodbye.\n";
             break;
         }
 
-        // help
-        if (line == "help") {
-            std::cout << "Available commands:\n"
-                      << "  pwd, echo, help, exit\n"
-                      << "You can also run any system command.\n";
+        if (cmd == "pwd") {
+            std::cout << fs::current_path().string() << "\n";
             continue;
         }
 
-        // Build executable path (prefer local ./build)
-        //std::string localPath = "build\\usr\\bin\\" + line + ".exe";
-        std::string localPath = "build\\" + line + ".exe";
-        std::string command;
-
-        if (fs::exists(localPath)) {
-            command = localPath;
-        } else {
-            command = line;  // try system PATH
+        if (cmd == "echo") {
+            std::string rest;
+            std::getline(iss, rest);
+            if (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
+            std::cout << rest << "\n";
+            continue;
         }
 
-        int result = std::system(command.c_str());
-        if (result == -1) {
-            std::cerr << "Command failed: " << line << "\n";
-        }
+        // fallback: try to execute as system command
+        int result = std::system(line.c_str());
+        if (result == -1)
+            std::cerr << "Command failed: " << cmd << "\n";
     }
-
     return 0;
 }
