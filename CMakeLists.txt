@@ -61,4 +61,7 @@ target_link_libraries(cp winixcommon)
 add_executable(chmod src/coreutils/chmod.c)
 target_link_libraries(chmod winixcommon)
 
+add_executable(chown src/coreutils/chown.c)
+target_link_libraries(chown winixcommon)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
