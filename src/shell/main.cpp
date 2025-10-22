@@ -33,7 +33,8 @@ int main() {
         }
 
         // Build executable path (prefer local ./build)
-        std::string localPath = "build\\usr\\bin\\" + line + ".exe";
+        //std::string localPath = "build\\usr\\bin\\" + line + ".exe";
+        std::string localPath = "build\\" + line + ".exe";
         std::string command;
 
         if (fs::exists(localPath)) {
