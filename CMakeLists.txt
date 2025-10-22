@@ -25,4 +25,7 @@ target_link_libraries(winix winixcommon)
 add_executable(cat src/coreutils/cat.c)
 target_link_libraries(cat winixcommon)
 
+add_executable(mv src/coreutils/mv.c)
+target_link_libraries(mv winixcommon)
+
 install(TARGETS echo pwd winix DESTINATION usr/bin)
