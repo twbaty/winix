@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <io.h>        // _get_osfhandle, _dup, _dup2, _close
 #include <algorithm>
+#include <fcntl.h>  // for _O_APPEND, _O_WRONLY
 
 namespace fs = std::filesystem;
 
