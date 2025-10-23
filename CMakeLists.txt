@@ -64,7 +64,7 @@ target_link_libraries(chmod winixcommon)
 add_executable(chown src/coreutils/chown.c)
 target_link_libraries(chown winixcommon)
 
-add_executable(chown src/coreutils/more.c)
+add_executable(more src/coreutils/more.c)
 target_link_libraries(more winixcommon)
 
 # Tier 1–4 coreutils
