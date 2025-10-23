@@ -64,6 +64,9 @@ target_link_libraries(chmod winixcommon)
 add_executable(chown src/coreutils/chown.c)
 target_link_libraries(chown winixcommon)
 
+add_executable(chown src/coreutils/more.c)
+target_link_libraries(more winixcommon)
+
 # Tier 1–4 coreutils
 foreach(cmd stat wc du df sort uniq grep tee alias export history ps kill uname uptime env ver)
     add_executable(${cmd} src/coreutils/${cmd}.c)
