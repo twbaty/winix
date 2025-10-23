@@ -3,167 +3,260 @@
 #include <sstream>
 #include <vector>
 #include <filesystem>
-#include <conio.h>
 #include <fstream>
 #include <windows.h>
-#include <io.h>   // for _dup, _dup2, _close (Windows)
+#include <io.h>        // _get_osfhandle, _dup, _dup2, _close
 #include <algorithm>
 
 namespace fs = std::filesystem;
 
-// ── helpers ─────────────────────────────────────────────
-static void redraw(const std::string& prompt, const std::string& line) {
-    std::cout << "\r\033[K" << prompt << line;
+// ----------------- helpers -----------------
+static inline void trim(std::string& s) {
+    const char* ws = " \t\r\n";
+    auto a = s.find_first_not_of(ws);
+    auto b = s.find_last_not_of(ws);
+    if (a == std::string::npos) { s.clear(); return; }
+    s = s.substr(a, b - a + 1);
 }
 
-static std::vector<std::string> split_command(const std::string& line) {
+static std::vector<std::string> split_tokens(const std::string& line) {
     std::istringstream iss(line);
-    std::vector<std::string> parts;
-    std::string token;
-    while (iss >> token)
-        parts.push_back(token);
-    return parts;
+    std::vector<std::string> t;
+    std::string tok;
+    while (iss >> tok) t.push_back(tok);
+    return t;
 }
 
-static bool handle_redirection(std::string& line, FILE** redirectFile, bool& appendMode) {
-    size_t pos = line.find(">>");
-    if (pos != std::string::npos) {
-        appendMode = true;
-    } else {
-        pos = line.find('>');
-        if (pos == std::string::npos)
-            return false;
+// Parse <, >, >> out of the command line.
+// Rebuilds a "clean" command string (no redir tokens) and returns file paths.
+static void parse_redirections(const std::string& line,
+                               std::string& cleanCmd,
+                               std::string& inPath,
+                               std::string& outPath,
+                               bool& append) {
+    auto toks = split_tokens(line);
+    std::vector<std::string> kept;
+    append = false;
+    inPath.clear(); outPath.clear();
+
+    for (size_t i = 0; i < toks.size(); ++i) {
+        const std::string& t = toks[i];
+        if (t == "<") {
+            if (i + 1 < toks.size()) inPath = toks[++i];
+        } else if (t == ">>") {
+            if (i + 1 < toks.size()) { outPath = toks[++i]; append = true; }
+        } else if (t == ">") {
+            if (i + 1 < toks.size()) { outPath = toks[++i]; append = false; }
+        } else {
+            kept.push_back(t);
+        }
     }
-
-    std::string command = line.substr(0, pos);
-    std::string file = line.substr(pos + (appendMode ? 2 : 1));
-    // trim spaces
-    file.erase(0, file.find_first_not_of(" \t"));
-    file.erase(file.find_last_not_of(" \t") + 1);
-
-    if (file.empty()) {
-        std::cerr << "Syntax error: missing filename after >\n";
-        return false;
+    // rebuild
+    std::ostringstream oss;
+    for (size_t i = 0; i < kept.size(); ++i) {
+        if (i) oss << ' ';
+        oss << kept[i];
     }
-
-    *redirectFile = fopen(file.c_str(), appendMode ? "a" : "w");
-    if (!*redirectFile) {
-        std::cerr << "Error: cannot open file '" << file << "'\n";
-        return false;
-    }
-
-    line = command;
-    return true;
+    cleanCmd = oss.str();
 }
-// ────────────────────────────────────────────────────────
 
+// Ensure a FILE*’s underlying HANDLE is inheritable for CreateProcess.
+static void make_inheritable(FILE* f) {
+    if (!f) return;
+    HANDLE h = (HANDLE)_get_osfhandle(_fileno(f));
+    SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+}
+
+// Spawn an external program with optional redirected stdin/stdout.
+static int spawn_external(const std::string& exePath,
+                          const std::string& args,
+                          FILE* inFile,
+                          FILE* outFile) {
+    // child std handles (default to parent console)
+    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
+
+    if (inFile)  { make_inheritable(inFile);  hIn  = (HANDLE)_get_osfhandle(_fileno(inFile)); }
+    if (outFile) { make_inheritable(outFile); hOut = (HANDLE)_get_osfhandle(_fileno(outFile)); }
+
+    STARTUPINFOA si{};
+    PROCESS_INFORMATION pi{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput  = hIn;
+    si.hStdOutput = hOut;
+    si.hStdError  = hErr;
+
+    // Build: "C:\...\prog.exe" + (optional) " " + args
+    std::string cmdline;
+    cmdline.reserve(exePath.size() + args.size() + 4);
+    cmdline.push_back('"'); cmdline += exePath; cmdline.push_back('"');
+    if (!args.empty()) { cmdline.push_back(' '); cmdline += args; }
+
+    // CreateProcess requires a modifiable buffer
+    std::vector<char> buf(cmdline.begin(), cmdline.end());
+    buf.push_back('\0');
+
+    BOOL ok = CreateProcessA(
+        /*app*/      NULL,
+        /*cmd*/      buf.data(),
+        /*procAttr*/ NULL,
+        /*thrAttr*/  NULL,
+        /*inherit*/  TRUE,                // inherit handles
+        /*flags*/    0,
+        /*env*/      NULL,
+        /*cwd*/      NULL,
+        /*si*/       &si,
+        /*pi*/       &pi
+    );
+
+    if (!ok) return -1;
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return (int)exitCode;
+}
+
+// -------------------------------------------
 
 int main() {
-    std::string line;
-    std::cout << "Winix Shell v0.4\n";
+    std::cout << "Winix Shell v0.5\n";
 
     std::vector<std::string> searchPaths = { ".", "build", "bin" };
 
+    // load history
     std::vector<std::string> history;
-    {   // load history
-        std::ifstream histFile("winix_history.txt");
-        std::string histLine;
-        while (std::getline(histFile, histLine))
-            if (!histLine.empty()) history.push_back(histLine);
+    {
+        std::ifstream f("winix_history.txt");
+        std::string line;
+        while (std::getline(f, line)) if (!line.empty()) history.push_back(line);
     }
 
-    int historyIndex = -1;
-
-    while (true) {
-        std::string prompt = "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
-        std::cout << prompt;
-        std::getline(std::cin, line);
-
+    for (std::string line; ; ) {
+        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+        if (!std::getline(std::cin, line)) break;
+        trim(line);
         if (line.empty()) continue;
-
-        // save to history
         history.push_back(line);
-        historyIndex = -1;
 
-        // handle output redirection
-        FILE* redirectFile = nullptr;
-        bool appendMode = false;
-        bool redirected = handle_redirection(line, &redirectFile, appendMode);
+        // parse redirections
+        std::string clean, inPath, outPath;
+        bool append = false;
+        parse_redirections(line, clean, inPath, outPath, append);
+        if (clean.empty()) continue;
 
-        int old_fd = -1;
-        if (redirected) {
-            old_fd = _dup(_fileno(stdout));
-            _dup2(_fileno(redirectFile), _fileno(stdout));
-        }
-
-        std::istringstream iss(line);
+        // split command + args
+        std::istringstream iss(clean);
         std::string cmd;
         iss >> cmd;
+        std::string args;
+        std::getline(iss, args);
+        if (!args.empty() && args[0] == ' ') args.erase(0, 1);
 
+        // open redirection files if any
+        FILE* inFile  = nullptr;
+        FILE* outFile = nullptr;
+        if (!inPath.empty()) {
+            inFile = fopen(inPath.c_str(), "rb");
+            if (!inFile) { std::cerr << "Error: cannot open input '" << inPath << "'\n"; continue; }
+        }
+        if (!outPath.empty()) {
+            outFile = fopen(outPath.c_str(), append ? "ab" : "wb");
+            if (!outFile) { std::cerr << "Error: cannot open output '" << outPath << "'\n"; if (inFile) fclose(inFile); continue; }
+        }
+
+        // built-ins
         if (cmd == "exit" || cmd == "quit") {
             std::cout << "Goodbye.\n";
-            if (redirected) {
-                fflush(stdout);
-                _dup2(old_fd, _fileno(stdout));
-                fclose(redirectFile);
-                _close(old_fd);
-            }
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
             break;
         }
+        else if (cmd == "pwd") {
+            // handle redirection for built-ins by temporarily swapping fds
+            int old_in = -1, old_out = -1;
+            if (inFile)  { old_in  = _dup(_fileno(stdin));  _dup2(_fileno(inFile),  _fileno(stdin)); }
+            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
 
-        if (cmd == "pwd") {
             std::cout << fs::current_path().string() << "\n";
-        } else if (cmd == "echo") {
-            std::string rest;
-            std::getline(iss, rest);
-            if (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
-            std::cout << rest << "\n";
-        } else if (cmd == "cd") {
-            std::string path;
-            if (!(iss >> path)) { std::cout << "Usage: cd <dir>\n"; }
-            else {
+
+            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
+            if (inFile)  { _dup2(old_in,  _fileno(stdin));  _close(old_in);  }
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            continue;
+        }
+        else if (cmd == "echo") {
+            int old_out = -1, old_in = -1;
+            if (inFile)  { old_in  = _dup(_fileno(stdin));  _dup2(_fileno(inFile),  _fileno(stdin)); }
+            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
+
+            std::cout << args << "\n";
+
+            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
+            if (inFile)  { _dup2(old_in,  _fileno(stdin));  _close(old_in);  }
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            continue;
+        }
+        else if (cmd == "cd") {
+            std::string path = args;
+            trim(path);
+            if (path.empty()) {
+                std::cout << "Usage: cd <dir>\n";
+            } else {
                 try { fs::current_path(path); }
-                catch (std::exception &e) { std::cerr << "cd: " << e.what() << "\n"; }
+                catch (std::exception& e) { std::cerr << "cd: " << e.what() << "\n"; }
             }
-        } else if (cmd == "clear") {
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            continue;
+        }
+        else if (cmd == "clear") {
             system("cls");
-        } else if (cmd == "help") {
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            continue;
+        }
+        else if (cmd == "help") {
+            int old_out = -1;
+            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
             std::cout << "Built-in commands:\n"
-                      << "  cd <dir>\n  pwd\n  echo <text>\n"
-                      << "  clear\n  help\n  exit\n";
-        } else {
-            // external executables
-            bool found = false;
-            for (const auto &p : searchPaths) {
-                std::string full = (fs::path(p) / (cmd + ".exe")).string();
-                if (fs::exists(full)) {
-                    std::string args = line.substr(cmd.size());
-                    if (!args.empty() && args[0] == ' ') args.erase(0, 1);
-                    std::string fullCmd = full + " " + args;
-                    if (std::system(fullCmd.c_str()) == -1)
-                        std::cerr << "Error executing: " << full << "\n";
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-                std::cerr << cmd << ": command not found\n";
+                      << "  cd <dir>\n  pwd\n  echo <text>\n  clear\n  help\n  exit\n";
+            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            continue;
         }
 
-        // restore stdout
-        if (redirected) {
-            fflush(stdout);
-            _dup2(old_fd, _fileno(stdout));
-            fclose(redirectFile);
-            _close(old_fd);
+        // external executable search
+        bool launched = false;
+        for (const auto& base : searchPaths) {
+            fs::path full = fs::path(base) / (cmd + ".exe");
+            if (fs::exists(full)) {
+                int rc = spawn_external(full.string(), args, inFile, outFile);
+                if (rc != 0)
+                    std::cerr << "Error executing: " << full.string() << "\n";
+                launched = true;
+                break;
+            }
         }
+        if (!launched) {
+            std::cerr << cmd << ": command not found\n";
+        }
+
+        if (inFile) fclose(inFile);
+        if (outFile) fclose(outFile);
     }
 
     // save history
     {
-        std::ofstream histFile("winix_history.txt", std::ios::trunc);
-        for (const auto& c : history) histFile << c << "\n";
+        std::ofstream f("winix_history.txt", std::ios::trunc);
+        for (auto& h : history) f << h << "\n";
     }
-
     return 0;
 }
