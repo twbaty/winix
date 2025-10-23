@@ -1,3 +1,4 @@
+// src/shell/main.cpp
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -5,22 +6,22 @@
 #include <filesystem>
 #include <fstream>
 #include <windows.h>
-#include <io.h>        // _get_osfhandle, _dup, _dup2, _close
+#include <io.h>
+#include <fcntl.h>
 #include <algorithm>
-#include <fcntl.h>  // for _O_APPEND, _O_WRONLY
 
 namespace fs = std::filesystem;
 
-// ----------------- helpers -----------------
-static inline void trim(std::string& s) {
-    const char* ws = " \t\r\n";
+// ---------------- helpers ----------------
+static inline void trim(std::string &s) {
+    const char *ws = " \t\r\n";
     auto a = s.find_first_not_of(ws);
-    auto b = s.find_last_not_of(ws);
     if (a == std::string::npos) { s.clear(); return; }
+    auto b = s.find_last_not_of(ws);
     s = s.substr(a, b - a + 1);
 }
 
-static std::vector<std::string> split_tokens(const std::string& line) {
+static std::vector<std::string> split_tokens(const std::string &line) {
     std::istringstream iss(line);
     std::vector<std::string> t;
     std::string tok;
@@ -28,153 +29,48 @@ static std::vector<std::string> split_tokens(const std::string& line) {
     return t;
 }
 
-// Parse <, >, >> out of the command line.
-// Rebuilds a "clean" command string (no redir tokens) and returns file paths.
-static void parse_redirections(const std::string& line,
-                               std::string& cleanCmd,
-                               std::string& inPath,
-                               std::string& outPath,
-                               bool& append) {
-    auto toks = split_tokens(line);
-    std::vector<std::string> kept;
-    append = false;
-    inPath.clear(); outPath.clear();
-
-    for (size_t i = 0; i < toks.size(); ++i) {
-        const std::string& t = toks[i];
-        if (t == "<") {
-            if (i + 1 < toks.size()) inPath = toks[++i];
-        } else if (t == ">>") {
-            if (i + 1 < toks.size()) { outPath = toks[++i]; append = true; }
-        } else if (t == ">") {
-            if (i + 1 < toks.size()) { outPath = toks[++i]; append = false; }
+static std::vector<std::string> split_pipeline(const std::string &line) {
+    std::vector<std::string> segs;
+    std::string cur;
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '|') {
+            trim(cur);
+            if (!cur.empty()) segs.push_back(cur);
+            cur.clear();
         } else {
-            kept.push_back(t);
+            cur.push_back(line[i]);
         }
     }
-    // rebuild
-    std::ostringstream oss;
-    for (size_t i = 0; i < kept.size(); ++i) {
-        if (i) oss << ' ';
-        oss << kept[i];
-    }
-    cleanCmd = oss.str();
+    trim(cur);
+    if (!cur.empty()) segs.push_back(cur);
+    return segs;
 }
 
-// Ensure a FILE*’s underlying HANDLE is inheritable for CreateProcess.
-static void make_inheritable(FILE* f) {
+// look for an executable in the search paths; returns empty string if not found
+static std::string find_executable(const std::string &cmd, const std::vector<std::string> &searchPaths) {
+    if (fs::path(cmd).has_extension() && fs::exists(cmd)) return cmd;
+    for (const auto &p : searchPaths) {
+        fs::path candidate = fs::path(p) / (cmd + ".exe");
+        if (fs::exists(candidate)) return candidate.string();
+    }
+    // fallback: maybe cmd is on PATH; return cmd so CreateProcess can try it
+    return cmd;
+}
+
+// Make a FILE* handle inheritable for child processes
+static void make_inheritable(FILE *f) {
     if (!f) return;
-    HANDLE h = (HANDLE)_get_osfhandle(_fileno(f));
+    intptr_t osfh = _get_osfhandle(_fileno(f));
+    if (osfh == -1) return;
+    HANDLE h = (HANDLE)osfh;
     SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
 }
 
-// Spawn an external program with optional redirected stdin/stdout.
-static int spawn_external(const std::string& exePath,
-                          const std::string& args,
-                          FILE* inFile,
-                          FILE* outFile) {
-    // child std handles (default to parent console)
-    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
-
-    if (inFile)  { make_inheritable(inFile);  hIn  = (HANDLE)_get_osfhandle(_fileno(inFile)); }
-    if (outFile) { make_inheritable(outFile); hOut = (HANDLE)_get_osfhandle(_fileno(outFile)); }
-
-    STARTUPINFOA si{};
-    PROCESS_INFORMATION pi{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput  = hIn;
-    si.hStdOutput = hOut;
-    si.hStdError  = hErr;
-
-    // Build: "C:\...\prog.exe" + (optional) " " + args
-    std::string cmdline;
-    cmdline.reserve(exePath.size() + args.size() + 4);
-    cmdline.push_back('"'); cmdline += exePath; cmdline.push_back('"');
-    if (!args.empty()) { cmdline.push_back(' '); cmdline += args; }
-
-    // CreateProcess requires a modifiable buffer
-    std::vector<char> buf(cmdline.begin(), cmdline.end());
-    buf.push_back('\0');
-
-    BOOL ok = CreateProcessA(
-        /*app*/      NULL,
-        /*cmd*/      buf.data(),
-        /*procAttr*/ NULL,
-        /*thrAttr*/  NULL,
-        /*inherit*/  TRUE,                // inherit handles
-        /*flags*/    0,
-        /*env*/      NULL,
-        /*cwd*/      NULL,
-        /*si*/       &si,
-        /*pi*/       &pi
-    );
-
-    if (!ok) return -1;
-
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD exitCode = 0;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return (int)exitCode;
-}
-
-// -------------------------------------------
-
-int main() {
-    std::cout << "Winix Shell v0.5\n";
-
-    std::vector<std::string> searchPaths = { ".", "build", "bin" };
-
-    // load history
-    std::vector<std::string> history;
-    {
-        std::ifstream f("winix_history.txt");
-        std::string line;
-        while (std::getline(f, line)) if (!line.empty()) history.push_back(line);
-    }
-
-    for (std::string line; ; ) {
-        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
-        if (!std::getline(std::cin, line)) break;
-        trim(line);
-        if (line.empty()) continue;
-        history.push_back(line);
-
-        // parse redirections
-        std::string clean, inPath, outPath;
-        bool append = false;
-        parse_redirections(line, clean, inPath, outPath, append);
-        if (clean.empty()) continue;
-
-        // split command + args
-        std::istringstream iss(clean);
-        std::string cmd;
-        iss >> cmd;
-        std::string args;
-        std::getline(iss, args);
-        if (!args.empty() && args[0] == ' ') args.erase(0, 1);
-
-// open redirection files if any
-FILE* inFile  = nullptr;
-FILE* outFile = nullptr;
-HANDLE hOut   = nullptr;
-
-if (!inPath.empty()) {
-    inFile = fopen(inPath.c_str(), "rb");
-    if (!inFile) {
-        std::cerr << "Error: cannot open input '" << inPath << "'\n";
-        continue;
-    }
-}
-
-if (!outPath.empty()) {
+// open output HANDLE/FILE for append or truncate using CreateFile for append correctness
+static FILE *open_output_file(const std::string &path, bool append) {
     if (append) {
-        hOut = CreateFileA(
-            outPath.c_str(),
+        HANDLE h = CreateFileA(
+            path.c_str(),
             FILE_APPEND_DATA,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             nullptr,
@@ -182,113 +78,322 @@ if (!outPath.empty()) {
             FILE_ATTRIBUTE_NORMAL,
             nullptr
         );
-        if (hOut == INVALID_HANDLE_VALUE) {
-            std::cerr << "Error: cannot open output '" << outPath << "'\n";
-            if (inFile) fclose(inFile);
-            continue;
-        }
-        SetFilePointer(hOut, 0, nullptr, FILE_END);
-        int fd = _open_osfhandle((intptr_t)hOut, _O_APPEND | _O_WRONLY);
-        outFile = _fdopen(fd, "ab");
+        if (h == INVALID_HANDLE_VALUE) return nullptr;
+        // position to end
+        SetFilePointer(h, 0, nullptr, FILE_END);
+        int fd = _open_osfhandle((intptr_t)h, _O_APPEND | _O_WRONLY);
+        if (fd == -1) { CloseHandle(h); return nullptr; }
+        FILE *f = _fdopen(fd, "ab");
+        if (!f) { _close(fd); return nullptr; }
+        return f;
     } else {
-        outFile = fopen(outPath.c_str(), "wb");
-        if (!outFile) {
-            std::cerr << "Error: cannot open output '" << outPath << "'\n";
-            if (inFile) fclose(inFile);
-            continue;
-        }
+        // truncate/overwrite
+        FILE *f = fopen(path.c_str(), "wb");
+        return f;
     }
 }
 
+static FILE *open_input_file(const std::string &path) {
+    return fopen(path.c_str(), "rb");
+}
 
-        // built-ins
-        if (cmd == "exit" || cmd == "quit") {
-            std::cout << "Goodbye.\n";
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            break;
-        }
-        else if (cmd == "pwd") {
-            // handle redirection for built-ins by temporarily swapping fds
-            int old_in = -1, old_out = -1;
-            if (inFile)  { old_in  = _dup(_fileno(stdin));  _dup2(_fileno(inFile),  _fileno(stdin)); }
-            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
+// Spawn a pipeline of external commands (segments). Each segment has its own
+// redirection tokens parsed inside the segment string.
+// Returns exit code of last process (or -1 on spawn error).
+static int winix_exec_pipeline(const std::vector<std::string> &segments,
+                               const std::vector<std::string> &searchPaths) {
+    size_t n = segments.size();
+    if (n == 0) return 0;
 
-            std::cout << fs::current_path().string() << "\n";
+    // Data structures for handles and PROCESS_INFORMATION
+    std::vector<HANDLE> childProcessHandles;
+    std::vector<PROCESS_INFORMATION> procs;
 
-            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
-            if (inFile)  { _dup2(old_in,  _fileno(stdin));  _close(old_in);  }
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            continue;
-        }
-        else if (cmd == "echo") {
-            int old_out = -1, old_in = -1;
-            if (inFile)  { old_in  = _dup(_fileno(stdin));  _dup2(_fileno(inFile),  _fileno(stdin)); }
-            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
+    // we'll create pipes between processes: for i'th process, its stdout goes to pipeWrite (if not last),
+    // and its stdin comes from previous pipeRead (if not first).
+    HANDLE prevRead = NULL;
 
-            std::cout << args << "\n";
-
-            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
-            if (inFile)  { _dup2(old_in,  _fileno(stdin));  _close(old_in);  }
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            continue;
-        }
-        else if (cmd == "cd") {
-            std::string path = args;
-            trim(path);
-            if (path.empty()) {
-                std::cout << "Usage: cd <dir>\n";
+    for (size_t i = 0; i < n; ++i) {
+        // Parse segment: tokens, and redirections (<, >, >>)
+        std::string seg = segments[i];
+        auto toks = split_tokens(seg);
+        std::vector<std::string> keep;
+        std::string inPath, outPath;
+        bool append = false;
+        for (size_t t = 0; t < toks.size(); ++t) {
+            if (toks[t] == "<") {
+                if (t + 1 < toks.size()) { inPath = toks[++t]; }
+            } else if (toks[t] == ">>") {
+                if (t + 1 < toks.size()) { outPath = toks[++t]; append = true; }
+            } else if (toks[t] == ">") {
+                if (t + 1 < toks.size()) { outPath = toks[++t]; append = false; }
             } else {
-                try { fs::current_path(path); }
-                catch (std::exception& e) { std::cerr << "cd: " << e.what() << "\n"; }
-            }
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            continue;
-        }
-        else if (cmd == "clear") {
-            system("cls");
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            continue;
-        }
-        else if (cmd == "help") {
-            int old_out = -1;
-            if (outFile) { old_out = _dup(_fileno(stdout)); _dup2(_fileno(outFile), _fileno(stdout)); }
-            std::cout << "Built-in commands:\n"
-                      << "  cd <dir>\n  pwd\n  echo <text>\n  clear\n  help\n  exit\n";
-            if (outFile) { fflush(stdout); _dup2(old_out, _fileno(stdout)); _close(old_out); }
-            if (inFile) fclose(inFile);
-            if (outFile) fclose(outFile);
-            continue;
-        }
-
-        // external executable search
-        bool launched = false;
-        for (const auto& base : searchPaths) {
-            fs::path full = fs::path(base) / (cmd + ".exe");
-            if (fs::exists(full)) {
-                int rc = spawn_external(full.string(), args, inFile, outFile);
-                if (rc != 0)
-                    std::cerr << "Error executing: " << full.string() << "\n";
-                launched = true;
-                break;
+                keep.push_back(toks[t]);
             }
         }
-        if (!launched) {
-            std::cerr << cmd << ": command not found\n";
+        if (keep.empty()) { // nothing to run
+            // clean up any handles created
+            if (prevRead) { CloseHandle(prevRead); prevRead = NULL; }
+            for (auto &pi : procs) { if (pi.hProcess) CloseHandle(pi.hProcess); if (pi.hThread) CloseHandle(pi.hThread); }
+            return -1;
         }
 
-        if (inFile) fclose(inFile);
-        if (outFile) fclose(outFile);
+        // build command and args
+        std::string cmd = keep[0];
+        std::string args;
+        for (size_t k = 1; k < keep.size(); ++k) {
+            if (!args.empty()) args.push_back(' ');
+            args += keep[k];
+        }
+
+        // If this is the only segment and it's a built-in, return control to caller (they can handle builtin).
+        // But here we're in external pipeline executor; handle only external binaries.
+        std::string exePath = find_executable(cmd, searchPaths);
+
+        // Prepare stdin handle for this process
+        HANDLE hChildStd_IN = GetStdHandle(STD_INPUT_HANDLE);
+        FILE *inFile = nullptr;
+        if (!inPath.empty()) {
+            inFile = open_input_file(inPath);
+            if (!inFile) {
+                std::cerr << "Error: cannot open input '" << inPath << "'\n";
+                // cleanup previous pipe
+                if (prevRead) { CloseHandle(prevRead); prevRead = NULL; }
+                for (auto &pi : procs) { if (pi.hProcess) CloseHandle(pi.hProcess); if (pi.hThread) CloseHandle(pi.hThread); }
+                return -1;
+            }
+            make_inheritable(inFile);
+            hChildStd_IN = (HANDLE)_get_osfhandle(_fileno(inFile));
+        } else if (prevRead != NULL) {
+            // take read end of previous pipe
+            hChildStd_IN = prevRead;
+        }
+
+        // Prepare stdout handle for this process
+        HANDLE hChildStd_OUT = GetStdHandle(STD_OUTPUT_HANDLE);
+        FILE *outFile = nullptr;
+        HANDLE nextPipeRead = NULL;
+        HANDLE nextPipeWrite = NULL;
+
+        if (!outPath.empty()) {
+            outFile = open_output_file(outPath, append);
+            if (!outFile) {
+                std::cerr << "Error: cannot open output '" << outPath << "'\n";
+                if (inFile) fclose(inFile);
+                if (prevRead) { CloseHandle(prevRead); prevRead = NULL; }
+                for (auto &pi : procs) { if (pi.hProcess) CloseHandle(pi.hProcess); if (pi.hThread) CloseHandle(pi.hThread); }
+                return -1;
+            }
+            make_inheritable(outFile);
+            hChildStd_OUT = (HANDLE)_get_osfhandle(_fileno(outFile));
+        } else if (i + 1 < n) {
+            // create a pipe for this process's stdout -> next process's stdin
+            SECURITY_ATTRIBUTES sa{};
+            sa.nLength = sizeof(sa);
+            sa.bInheritHandle = TRUE;
+            sa.lpSecurityDescriptor = nullptr;
+            if (!CreatePipe(&nextPipeRead, &nextPipeWrite, &sa, 0)) {
+                std::cerr << "Error: CreatePipe failed\n";
+                if (inFile) fclose(inFile);
+                if (prevRead) { CloseHandle(prevRead); prevRead = NULL; }
+                for (auto &pi : procs) { if (pi.hProcess) CloseHandle(pi.hProcess); if (pi.hThread) CloseHandle(pi.hThread); }
+                return -1;
+            }
+            // Ensure read handle is not inheritable by the child that writes to it? No: read end should be inherited by next child.
+            hChildStd_OUT = nextPipeWrite;
+        }
+
+        // Setup STARTUPINFO
+        STARTUPINFOA si{};
+        PROCESS_INFORMATION pi{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = hChildStd_IN;
+        si.hStdOutput = hChildStd_OUT;
+        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+
+        // Build command line: quote exePath in case of spaces
+        std::string cmdline;
+        cmdline.push_back('"');
+        cmdline += exePath;
+        cmdline.push_back('"');
+        if (!args.empty()) { cmdline.push_back(' '); cmdline += args; }
+
+        std::vector<char> cmdbuf(cmdline.begin(), cmdline.end());
+        cmdbuf.push_back('\0');
+
+        BOOL ok = CreateProcessA(
+            NULL,
+            cmdbuf.data(),
+            NULL,
+            NULL,
+            TRUE,   // inherit handles
+            0,
+            NULL,
+            NULL,
+            &si,
+            &pi
+        );
+
+        // After CreateProcess:
+        // Close handles we no longer need in parent:
+        // - if we created nextPipeWrite, parent should close it (child has it inherited)
+        if (!ok) {
+            std::cerr << "Error: CreateProcess failed for: " << cmdline << "\n";
+            if (inFile) fclose(inFile);
+            if (outFile) fclose(outFile);
+            if (nextPipeWrite) { CloseHandle(nextPipeWrite); nextPipeWrite = NULL; }
+            if (nextPipeRead)  { CloseHandle(nextPipeRead);  nextPipeRead = NULL; }
+            if (prevRead) { CloseHandle(prevRead); prevRead = NULL; }
+            for (auto &pinfo : procs) { if (pinfo.hProcess) CloseHandle(pinfo.hProcess); if (pinfo.hThread) CloseHandle(pinfo.hThread); }
+            return -1;
+        }
+
+        // Save PROCESS_INFORMATION to wait later
+        procs.push_back(pi);
+
+        // Parent should close handles it doesn't need:
+        if (inFile) {
+            // parent can close inFile after child started; child inherited it
+            fclose(inFile);
+            inFile = nullptr;
+        }
+        if (outFile) {
+            // parent can close outFile after child started; child inherited it
+            fclose(outFile);
+            outFile = nullptr;
+        }
+
+        if (prevRead) {
+            // parent can close prevRead; it's used by the child that we started
+            CloseHandle(prevRead);
+        }
+        // The write end of pipe is owned by child; parent should close its copy if created
+        if (nextPipeWrite) {
+            // parent must close its local copy of write end (we created it); otherwise child won't get EOF
+            CloseHandle(nextPipeWrite);
+        }
+
+        // next process should use nextPipeRead as its stdin
+        prevRead = nextPipeRead;
+    } // end for each segment
+
+    // Wait for all children to finish and collect last exit code
+    int lastExit = 0;
+    for (auto &pi : procs) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD exitCode = 0;
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        lastExit = static_cast<int>(exitCode);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+
+    return lastExit;
+}
+
+// -------------------------------------------
+// Main shell (keeps built-ins and interactive prompt)
+int main() {
+    std::cout << "Winix Shell (CreateProcess engine)\n";
+    std::vector<std::string> searchPaths = { ".", "build", "bin" };
+
+    // load history (simple)
+    std::vector<std::string> history;
+    {
+        std::ifstream hf("winix_history.txt");
+        std::string line;
+        while (std::getline(hf, line)) if (!line.empty()) history.push_back(line);
+    }
+
+    for (std::string line;;) {
+        std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+        if (!std::getline(std::cin, line)) break;
+        trim(line);
+        if (line.empty()) continue;
+        history.push_back(line);
+
+        // detect pipeline segments (pipe syntax has highest precedence)
+        auto segments = split_pipeline(line);
+        if (segments.empty()) continue;
+
+        // Special-case single segment built-ins with redirection handled in-process:
+        if (segments.size() == 1) {
+            // parse single segment's tokens and redirections
+            auto toks = split_tokens(segments[0]);
+            std::vector<std::string> keep;
+            std::string inPath, outPath;
+            bool append = false;
+            for (size_t t = 0; t < toks.size(); ++t) {
+                if (toks[t] == "<") { if (t+1 < toks.size()) inPath = toks[++t]; }
+                else if (toks[t] == ">>") { if (t+1 < toks.size()) outPath = toks[++t], append = true; }
+                else if (toks[t] == ">") { if (t+1 < toks.size()) outPath = toks[++t], append = false; }
+                else keep.push_back(toks[t]);
+            }
+            if (!keep.empty()) {
+                std::string cmd = keep[0];
+                std::string args;
+                for (size_t i = 1; i < keep.size(); ++i) { if (!args.empty()) args.push_back(' '); args += keep[i]; }
+
+                // built-ins: cd, pwd, echo, help, exit
+                if (cmd == "exit" || cmd == "quit") {
+                    std::cout << "Goodbye.\n";
+                    break;
+                } else if (cmd == "cd") {
+                    std::string path = args;
+                    trim(path);
+                    if (path.empty()) std::cout << "Usage: cd <dir>\n";
+                    else {
+                        try { fs::current_path(path); } catch (std::exception &e) { std::cerr << "cd: " << e.what() << "\n"; }
+                    }
+                    continue;
+                } else if (cmd == "pwd" || cmd == "echo" || cmd == "help") {
+                    // Prepare optional redirection FILE* and dup/restore
+                    FILE *inFile = nullptr, *outFile = nullptr;
+                    int oldStdin = -1, oldStdout = -1;
+                    if (!inPath.empty()) {
+                        inFile = open_input_file(inPath);
+                        if (!inFile) { std::cerr << "Error: cannot open input '" << inPath << "'\n"; continue; }
+                        oldStdin = _dup(_fileno(stdin));
+                        _dup2(_fileno(inFile), _fileno(stdin));
+                    }
+                    if (!outPath.empty()) {
+                        outFile = open_output_file(outPath, append);
+                        if (!outFile) { std::cerr << "Error: cannot open output '" << outPath << "'\n"; if (inFile) { _dup2(oldStdin, _fileno(stdin)); _close(oldStdin); fclose(inFile);} continue; }
+                        oldStdout = _dup(_fileno(stdout));
+                        _dup2(_fileno(outFile), _fileno(stdout));
+                    }
+
+                    // run built-in
+                    if (cmd == "pwd") {
+                        std::cout << fs::current_path().string() << "\n";
+                    } else if (cmd == "echo") {
+                        std::cout << args << "\n";
+                    } else if (cmd == "help") {
+                        std::cout << "Built-in commands:\n  cd <dir>\n  pwd\n  echo <text>\n  clear\n  help\n  exit\n";
+                    }
+
+                    // restore fds and cleanup
+                    if (outFile) { fflush(stdout); _dup2(oldStdout, _fileno(stdout)); _close(oldStdout); fclose(outFile); }
+                    if (inFile)  { _dup2(oldStdin, _fileno(stdin));  _close(oldStdin);  fclose(inFile); }
+                    continue;
+                }
+            }
+        }
+
+        // Otherwise, handle pipeline via CreateProcess
+        int rc = winix_exec_pipeline(segments, searchPaths);
+        if (rc != 0) {
+            // Non-fatal: print exit code for visibility
+            // std::cerr << "pipeline exit code: " << rc << "\n";
+        }
     }
 
     // save history
     {
-        std::ofstream f("winix_history.txt", std::ios::trunc);
-        for (auto& h : history) f << h << "\n";
+        std::ofstream hf("winix_history.txt", std::ios::trunc);
+        for (auto &h : history) hf << h << "\n";
     }
+
     return 0;
 }
