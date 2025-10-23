@@ -157,17 +157,48 @@ int main() {
         std::getline(iss, args);
         if (!args.empty() && args[0] == ' ') args.erase(0, 1);
 
-        // open redirection files if any
-        FILE* inFile  = nullptr;
-        FILE* outFile = nullptr;
-        if (!inPath.empty()) {
-            inFile = fopen(inPath.c_str(), "rb");
-            if (!inFile) { std::cerr << "Error: cannot open input '" << inPath << "'\n"; continue; }
+// open redirection files if any
+FILE* inFile  = nullptr;
+FILE* outFile = nullptr;
+HANDLE hOut   = nullptr;
+
+if (!inPath.empty()) {
+    inFile = fopen(inPath.c_str(), "rb");
+    if (!inFile) {
+        std::cerr << "Error: cannot open input '" << inPath << "'\n";
+        continue;
+    }
+}
+
+if (!outPath.empty()) {
+    if (append) {
+        hOut = CreateFileA(
+            outPath.c_str(),
+            FILE_APPEND_DATA,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
+        if (hOut == INVALID_HANDLE_VALUE) {
+            std::cerr << "Error: cannot open output '" << outPath << "'\n";
+            if (inFile) fclose(inFile);
+            continue;
         }
-        if (!outPath.empty()) {
-            outFile = fopen(outPath.c_str(), append ? "ab" : "wb");
-            if (!outFile) { std::cerr << "Error: cannot open output '" << outPath << "'\n"; if (inFile) fclose(inFile); continue; }
+        SetFilePointer(hOut, 0, nullptr, FILE_END);
+        int fd = _open_osfhandle((intptr_t)hOut, _O_APPEND | _O_WRONLY);
+        outFile = _fdopen(fd, "ab");
+    } else {
+        outFile = fopen(outPath.c_str(), "wb");
+        if (!outFile) {
+            std::cerr << "Error: cannot open output '" << outPath << "'\n";
+            if (inFile) fclose(inFile);
+            continue;
         }
+    }
+}
+
 
         // built-ins
         if (cmd == "exit" || cmd == "quit") {
