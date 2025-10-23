@@ -1,37 +1,36 @@
 #include <stdio.h>
 #include <string.h>
 
-static int grep_stream(const char* pat, FILE* f) {
-    char buf[4096];
-    int rc = 1; /* 0 if any match printed */
-    while (fgets(buf, sizeof buf, f)) {
-        if (strstr(buf, pat)) { fputs(buf, stdout); rc = 0; }
-    }
-    return rc;
-}
-
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: grep <pattern> [file...]\n");
         return 2;
     }
-    const char* pat = argv[1];
+
+    const char* pattern = argv[1];
+    char line[4096];
+
+    // No file arguments → read from stdin
     if (argc == 2) {
-        return grep_stream(pat, stdin);
+        while (fgets(line, sizeof(line), stdin)) {
+            if (strstr(line, pattern))
+                fputs(line, stdout);
+        }
+        return 0;
     }
-    int rc = 1;
+
+    // Loop through files
     for (int i = 2; i < argc; ++i) {
-        const char* path = argv[i];
-        if (strcmp(path, "-") == 0) {
-            int r = grep_stream(pat, stdin);
-            if (r == 0) rc = 0;
+        FILE* f = strcmp(argv[i], "-") == 0 ? stdin : fopen(argv[i], "r");
+        if (!f) {
+            fprintf(stderr, "grep: cannot open %s\n", argv[i]);
             continue;
         }
-        FILE* f = fopen(path, "rb");
-        if (!f) { fprintf(stderr, "grep: cannot open %s\n", path); continue; }
-        int r = grep_stream(pat, f);
-        if (r == 0) rc = 0;
-        fclose(f);
+        while (fgets(line, sizeof(line), f)) {
+            if (strstr(line, pattern))
+                fputs(line, stdout);
+        }
+        if (f != stdin) fclose(f);
     }
-    return rc;
+    return 0;
 }
