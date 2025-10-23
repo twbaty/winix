@@ -68,7 +68,7 @@ add_executable(more src/coreutils/more.c)
 target_link_libraries(more winixcommon)
 
 add_executable(less src/coreutils/less.c)
-target_link_libraries(less winixcommon)
+target_link_libraries(less PRIVATE winixcommon)
 
 # Tier 1–4 coreutils
 foreach(cmd stat wc du df sort uniq grep tee alias export history ps kill uname uptime env ver)
