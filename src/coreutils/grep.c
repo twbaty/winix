@@ -66,6 +66,18 @@ static void highlight_and_print(const char *line, const char *pattern) {
 }
 
 int main(int argc, char *argv[]) {
+    #ifdef _WIN32
+    // Enable ANSI color output on Windows 10+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
+
     parse_color_flag(&argc, argv);
     if (color_auto && isatty(STDOUT_FILENO))
         color_enabled = true;
