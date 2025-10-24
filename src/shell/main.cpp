@@ -8,8 +8,13 @@
 #include <cstdlib>
 #include <algorithm>
 #include <regex>
+#include <process.h>
+#include <fstream>
 
 namespace fs = std::filesystem;
+
+constexpr int HISTORY_LIMIT = 50;
+const std::string HISTORY_FILE = "winix_history.txt";
 
 // ──────────────────────────────────────────────
 // Enable UTF-8 and ANSI color output
@@ -27,13 +32,13 @@ static void enable_vt_mode() {
 }
 
 // ──────────────────────────────────────────────
-// Prompt
+// Print prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
 }
 
 // ──────────────────────────────────────────────
-// Tokenize (space-split, quote-aware)
+// Tokenize (quote-aware)
 static std::vector<std::string> split(const std::string &line) {
     std::vector<std::string> tokens;
     std::string token;
@@ -61,7 +66,7 @@ static std::vector<std::string> split(const std::string &line) {
 }
 
 // ──────────────────────────────────────────────
-// Wildcard (glob) expansion: * and ?
+// Wildcard expansion (*, ?)
 static std::vector<std::string> expand_wildcards(const std::vector<std::string>& tokens) {
     std::vector<std::string> expanded;
     for (const auto& t : tokens) {
@@ -115,7 +120,26 @@ static void redraw_line(const std::string& input) {
 }
 
 // ──────────────────────────────────────────────
-// Read input with history, arrows, tab
+// Load and save history
+static void load_history(std::vector<std::string>& history) {
+    std::ifstream file(HISTORY_FILE);
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) history.push_back(line);
+    }
+    if (history.size() > HISTORY_LIMIT)
+        history.erase(history.begin(), history.end() - HISTORY_LIMIT);
+}
+
+static void save_history(const std::vector<std::string>& history) {
+    std::ofstream file(HISTORY_FILE, std::ios::trunc);
+    size_t start = (history.size() > HISTORY_LIMIT) ? history.size() - HISTORY_LIMIT : 0;
+    for (size_t i = start; i < history.size(); ++i)
+        file << history[i] << "\n";
+}
+
+// ──────────────────────────────────────────────
+// Input with history, arrows, tab
 static std::string read_input(std::vector<std::string>& history, int& historyIndex) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
@@ -192,7 +216,7 @@ static std::string read_input(std::vector<std::string>& history, int& historyInd
 }
 
 // ──────────────────────────────────────────────
-// Execute command (with wildcard expansion)
+// Execute command (direct spawn)
 static void execute_command(const std::vector<std::string>& tokens) {
     if (tokens.empty()) return;
 
@@ -210,24 +234,26 @@ static void execute_command(const std::vector<std::string>& tokens) {
         exit(0);
     }
 
-    // Build command string
-    std::string cmd;
-    for (auto& t : tokens) {
-        if (!cmd.empty()) cmd += " ";
-        cmd += t;
-    }
+    // Convert to argv format for _spawnvp
+    std::vector<char*> argv;
+    for (auto& t : tokens)
+        argv.push_back(const_cast<char*>(t.c_str()));
+    argv.push_back(nullptr);
 
-    system(cmd.c_str());
+    int result = _spawnvp(_P_WAIT, argv[0], argv.data());
+    if (result == -1)
+        std::cerr << tokens[0] << ": command not found or failed\n";
 }
 
 // ──────────────────────────────────────────────
 // Main
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.2 (wildcards + redraw + stable input)\n";
+    std::cout << "Winix Shell v1.3 (spawn, history, UTF-8, completion)\n";
 
     std::vector<std::string> history;
-    int historyIndex = 0;
+    load_history(history);
+    int historyIndex = history.size();
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
@@ -237,8 +263,10 @@ int main() {
         print_prompt();
         std::string input = read_input(history, historyIndex);
         if (input.empty()) continue;
+
         history.push_back(input);
         historyIndex = history.size();
+        save_history(history);
 
         auto tokens = split(input);
         tokens = expand_wildcards(tokens);
