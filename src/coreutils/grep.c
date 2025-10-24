@@ -6,6 +6,10 @@
 #include <io.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #define COLOR_MATCH "\033[1;31m"
 #define COLOR_RESET "\033[0m"
 
