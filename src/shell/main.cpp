@@ -59,6 +59,12 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     std::string input;
     int ch;
 
+    // Disable line buffering and echo
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode;
+    GetConsoleMode(hStdin, &mode);
+    SetConsoleMode(hStdin, mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+
     while (true) {
         ch = _getch();
 
@@ -77,64 +83,63 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         }
 
         // TAB completion
-// TAB completion
-else if (ch == 9) {
-    // Find the part after the last space — the current word being typed
-    std::string prefix;
-    size_t pos = input.find_last_of(" ");
-    if (pos == std::string::npos)
-        prefix = input;
-    else
-        prefix = input.substr(pos + 1);
+        else if (ch == 9) {
+            std::string prefix;
+            size_t pos = input.find_last_of(" ");
+            prefix = (pos == std::string::npos) ? input : input.substr(pos + 1);
 
-    auto matches = complete_in_cwd(prefix);
-    if (matches.size() == 1) {
-        std::string suffix = matches[0].substr(prefix.size());
-        std::cout << suffix;
-        input += suffix;
-    } else if (!matches.empty()) {
-        std::cout << "\n";
-        for (auto &m : matches) std::cout << "  " << m << "\n";
-        print_prompt();
-        std::cout << input;
-    }
-}
+            auto matches = complete_in_cwd(prefix);
+            if (matches.size() == 1) {
+                std::string suffix = matches[0].substr(prefix.size());
+                std::cout << suffix;
+                input += suffix;
+            } else if (!matches.empty()) {
+                std::cout << "\n";
+                for (auto &m : matches) std::cout << "  " << m << "\n";
+                print_prompt();
+                std::cout << input;
+            }
+        }
 
         // ARROW KEYS
-else if (ch == 224) {
-    ch = _getch();
+        else if (ch == 224) {
+            ch = _getch();
 
-    // helper to redraw the current prompt line cleanly
-    auto clear_line = [&]() {
-        std::cout << "\r";
-        print_prompt();
-        std::cout << std::string(200, ' ') << "\r";
-        print_prompt();
-    };
+            // Swallow any CR/LF emitted by Windows console
+            if (_kbhit()) {
+                int next = _getch();
+                if (next == '\r' || next == '\n') continue;
+            }
 
-    if (ch == 72) { // UP
-        if (historyIndex > 0) {
-            historyIndex--;
-            input = history[historyIndex];
-            clear_line();
-            std::cout << input;
+            auto clear_line = [&]() {
+                std::cout << "\r";
+                print_prompt();
+                std::cout << std::string(200, ' ') << "\r";
+                print_prompt();
+            };
+
+            if (ch == 72) { // UP
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    input = history[historyIndex];
+                    clear_line();
+                    std::cout << input;
+                }
+            } else if (ch == 80) { // DOWN
+                if (historyIndex + 1 < (int)history.size()) {
+                    historyIndex++;
+                    input = history[historyIndex];
+                } else {
+                    historyIndex = history.size();
+                    input.clear();
+                }
+                clear_line();
+                std::cout << input;
+            }
+
+            std::cout.flush();
+            continue; // <-- swallow the stray key event
         }
-    } else if (ch == 80) { // DOWN
-        if (historyIndex + 1 < (int)history.size()) {
-            historyIndex++;
-            input = history[historyIndex];
-        } else {
-            historyIndex = history.size();
-            input.clear();
-        }
-        clear_line();
-        std::cout << input;
-    }
-
-    // flush to prevent stray CR/LF newlines
-    std::cout.flush();
-}
-
 
         // PRINTABLE CHARACTER
         else if (isprint(ch)) {
@@ -143,8 +148,12 @@ else if (ch == 224) {
         }
     }
 
+    // Restore console mode
+    SetConsoleMode(hStdin, mode);
+
     return input;
 }
+
 
 
 // ──────────────────────────────────────────────
