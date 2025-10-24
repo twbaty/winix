@@ -62,15 +62,22 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     while (true) {
         ch = _getch();
 
-        if (ch == '\r') {  // Enter
+        // ENTER
+        if (ch == '\r') {
             std::cout << "\n";
             break;
-        } else if (ch == 8) {  // Backspace
+        }
+
+        // BACKSPACE
+        else if (ch == 8) {
             if (!input.empty()) {
                 input.pop_back();
                 std::cout << "\b \b";
             }
-        } else if (ch == 9) {  // Tab
+        }
+
+        // TAB completion
+        else if (ch == 9) {
             auto matches = complete_in_cwd(input);
             if (matches.size() == 1) {
                 std::string suffix = matches[0].substr(input.size());
@@ -82,22 +89,39 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 print_prompt();
                 std::cout << input;
             }
-        } else if (ch == 224) {  // Arrow keys
+        }
+
+        // ARROW KEYS
+        else if (ch == 224) {
             ch = _getch();
-            if (ch == 72 && historyIndex > 0) {  // Up
-                --historyIndex;
-                input = history[historyIndex];
+            if (ch == 72) { // UP
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    input = history[historyIndex];
+                    std::cout << "\r";
+                    print_prompt();
+                    std::cout << std::string(200, ' ') << "\r";
+                    print_prompt();
+                    std::cout << input;
+                }
+            } else if (ch == 80) { // DOWN
+                if (historyIndex + 1 < (int)history.size()) {
+                    historyIndex++;
+                    input = history[historyIndex];
+                } else {
+                    historyIndex = history.size();
+                    input.clear();
+                }
                 std::cout << "\r";
                 print_prompt();
-                std::cout << input << " \b";
-            } else if (ch == 80 && historyIndex + 1 < (int)history.size()) {  // Down
-                ++historyIndex;
-                input = history[historyIndex];
-                std::cout << "\r";
+                std::cout << std::string(200, ' ') << "\r";
                 print_prompt();
-                std::cout << input << " \b";
+                std::cout << input;
             }
-        } else if (isprint(ch)) {
+        }
+
+        // PRINTABLE CHARACTER
+        else if (isprint(ch)) {
             input.push_back((char)ch);
             std::cout << (char)ch;
         }
@@ -105,6 +129,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
 
     return input;
 }
+
 
 // ──────────────────────────────────────────────
 // Execute commands
