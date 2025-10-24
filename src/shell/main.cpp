@@ -8,7 +8,7 @@
 
 namespace fs = std::filesystem;
 
-// Enable UTF-8 + ANSI escape support
+// Enable UTF-8 + ANSI
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
@@ -44,19 +44,38 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     return matches;
 }
 
-// Proper line redraw: erase old content, then rewrite cleanly
-static void redraw_line(const std::string &input, size_t &prevLen) {
-    std::cout << "\r";
+// Proper redraw using WinAPI to clear trailing characters
+static void redraw_line(const std::string &input) {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hOut, &csbi);
+
+    DWORD written;
+    COORD cursor = csbi.dwCursorPosition;
+
+    // Move to beginning of current line
+    cursor.X = 0;
+    SetConsoleCursorPosition(hOut, cursor);
+
+    // Print prompt
     print_prompt();
-    // Erase the previous line using backspaces + spaces + backspaces
-    for (size_t i = 0; i < prevLen; ++i) std::cout << '\b';
-    for (size_t i = 0; i < prevLen; ++i) std::cout << ' ';
-    for (size_t i = 0; i < prevLen; ++i) std::cout << '\b';
     std::cout << input << std::flush;
-    prevLen = input.size();
+
+    // Get new cursor position
+    GetConsoleScreenBufferInfo(hOut, &csbi);
+
+    // Fill remainder of the line with spaces to clear leftovers
+    DWORD consoleWidth = csbi.dwSize.X;
+    DWORD currentLen = csbi.dwCursorPosition.X;
+    DWORD clearLen = consoleWidth - currentLen;
+    FillConsoleOutputCharacter(hOut, ' ', clearLen, csbi.dwCursorPosition, &written);
+
+    // Move cursor back to end of input
+    GetConsoleScreenBufferInfo(hOut, &csbi);
+    SetConsoleCursorPosition(hOut, csbi.dwCursorPosition);
 }
 
-// Clean input routine (no pagination, correct redraw)
+// Input routine (no pagination, clean overwrite)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
@@ -66,7 +85,6 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     std::string input;
     INPUT_RECORD record;
     DWORD count;
-    size_t prevLen = 0;
 
     while (true) {
         ReadConsoleInput(hIn, &record, 1, &count);
@@ -84,7 +102,6 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             if (!input.empty()) {
                 input.pop_back();
                 std::cout << "\b \b" << std::flush;
-                prevLen = input.size();
             }
             break;
 
@@ -97,14 +114,11 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::string suffix = matches[0].substr(prefix.size());
                 input += suffix;
                 std::cout << suffix << std::flush;
-                prevLen = input.size();
             } else if (!matches.empty()) {
                 std::cout << "\n";
                 for (auto &m : matches)
                     std::cout << "  " << m << "\n";
-                print_prompt();
-                std::cout << input;
-                prevLen = input.size();
+                redraw_line(input);
             }
             break;
         }
@@ -113,7 +127,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             if (historyIndex > 0) {
                 historyIndex--;
                 input = history[historyIndex];
-                redraw_line(input, prevLen);
+                redraw_line(input);
             }
             break;
 
@@ -125,14 +139,13 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 historyIndex = history.size();
                 input.clear();
             }
-            redraw_line(input, prevLen);
+            redraw_line(input);
             break;
 
         default:
             if (key.uChar.AsciiChar >= 32 && key.uChar.AsciiChar < 127) {
                 input.push_back(key.uChar.AsciiChar);
                 std::cout << key.uChar.AsciiChar << std::flush;
-                prevLen = input.size();
             }
             break;
         }
@@ -166,7 +179,7 @@ int main() {
     std::vector<std::string> history;
     int historyIndex = 0;
 
-    std::cout << "Winix Shell v1.0 (Clean redraw, no pagination)\n";
+    std::cout << "Winix Shell v1.1 (Proper erase + redraw)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
