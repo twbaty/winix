@@ -101,33 +101,40 @@ else if (ch == 9) {
 }
 
         // ARROW KEYS
-        else if (ch == 224) {
-            ch = _getch();
-            if (ch == 72) { // UP
-                if (historyIndex > 0) {
-                    historyIndex--;
-                    input = history[historyIndex];
-                    std::cout << "\r";
-                    print_prompt();
-                    std::cout << std::string(200, ' ') << "\r";
-                    print_prompt();
-                    std::cout << input;
-                }
-            } else if (ch == 80) { // DOWN
-                if (historyIndex + 1 < (int)history.size()) {
-                    historyIndex++;
-                    input = history[historyIndex];
-                } else {
-                    historyIndex = history.size();
-                    input.clear();
-                }
-                std::cout << "\r";
-                print_prompt();
-                std::cout << std::string(200, ' ') << "\r";
-                print_prompt();
-                std::cout << input;
-            }
+else if (ch == 224) {
+    ch = _getch();
+
+    // helper to redraw the current prompt line cleanly
+    auto clear_line = [&]() {
+        std::cout << "\r";
+        print_prompt();
+        std::cout << std::string(200, ' ') << "\r";
+        print_prompt();
+    };
+
+    if (ch == 72) { // UP
+        if (historyIndex > 0) {
+            historyIndex--;
+            input = history[historyIndex];
+            clear_line();
+            std::cout << input;
         }
+    } else if (ch == 80) { // DOWN
+        if (historyIndex + 1 < (int)history.size()) {
+            historyIndex++;
+            input = history[historyIndex];
+        } else {
+            historyIndex = history.size();
+            input.clear();
+        }
+        clear_line();
+        std::cout << input;
+    }
+
+    // flush to prevent stray CR/LF newlines
+    std::cout.flush();
+}
+
 
         // PRINTABLE CHARACTER
         else if (isprint(ch)) {
