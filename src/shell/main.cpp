@@ -77,19 +77,28 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         }
 
         // TAB completion
-        else if (ch == 9) {
-            auto matches = complete_in_cwd(input);
-            if (matches.size() == 1) {
-                std::string suffix = matches[0].substr(input.size());
-                std::cout << suffix;
-                input += suffix;
-            } else if (!matches.empty()) {
-                std::cout << "\n";
-                for (auto &m : matches) std::cout << "  " << m << "\n";
-                print_prompt();
-                std::cout << input;
-            }
-        }
+// TAB completion
+else if (ch == 9) {
+    // Find the part after the last space — the current word being typed
+    std::string prefix;
+    size_t pos = input.find_last_of(" ");
+    if (pos == std::string::npos)
+        prefix = input;
+    else
+        prefix = input.substr(pos + 1);
+
+    auto matches = complete_in_cwd(prefix);
+    if (matches.size() == 1) {
+        std::string suffix = matches[0].substr(prefix.size());
+        std::cout << suffix;
+        input += suffix;
+    } else if (!matches.empty()) {
+        std::cout << "\n";
+        for (auto &m : matches) std::cout << "  " << m << "\n";
+        print_prompt();
+        std::cout << input;
+    }
+}
 
         // ARROW KEYS
         else if (ch == 224) {
