@@ -56,9 +56,11 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
 
 // ──────────────────────────────────────────────
 // Input with history + arrows (newline-safe)
+// ──────────────────────────────────────────────
+// Input with history + arrows (no stray CR/LF)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
-    int ch;
+    int ch = 0;
 
     while (true) {
         ch = _getch();
@@ -98,7 +100,15 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
 
         // ARROW KEYS
         else if (ch == 224) {
-            ch = _getch(); // consume next byte (direction code)
+            ch = _getch();  // consume next byte (direction code)
+            // eat any pending newline in the console input buffer
+            while (_kbhit()) {
+                int lookahead = _getch();
+                if (lookahead != '\r' && lookahead != '\n') {
+                    ungetc(lookahead, stdin);
+                    break;
+                }
+            }
 
             auto clear_line = [&]() {
                 std::cout << "\r";
@@ -126,13 +136,6 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::cout << input;
             }
 
-            // completely flush any remaining CR/LF in the buffer
-            while (_kbhit()) {
-                int next = _getch();
-                if (next != '\r' && next != '\n')
-                    break;
-            }
-
             std::cout.flush();
             continue;
         }
@@ -146,6 +149,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
 
     return input;
 }
+
 
 // ──────────────────────────────────────────────
 // Execute commands
