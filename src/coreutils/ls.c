@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <errno.h>
 
+// --- ANSI color codes ---
 #define BLUE   "\033[1;34m"
 #define GREEN  "\033[1;32m"
 #define CYAN   "\033[1;36m"
@@ -14,6 +15,11 @@
 #define YELLO  "\033[1;33m"
 #define RED    "\033[1;31m"
 #define RESET  "\033[0m"
+
+// --- Fallbacks for Windows ---
+#ifndef S_ISLNK
+#define S_ISLNK(mode)  (0)  // Windows doesn't expose symbolic link type via stat
+#endif
 
 static bool color_auto = true;
 static bool color_enabled = false;
@@ -29,6 +35,7 @@ static void parse_color_flag(int *argc, char **argv) {
             if (strcmp(arg, "always") == 0) { color_enabled = true; color_auto = false; }
             else if (strcmp(arg, "never") == 0) { color_enabled = false; color_auto = false; }
             else { color_auto = true; }
+
             for (int j = i; j + 1 < *argc; ++j) argv[j] = argv[j + 1];
             (*argc)--;
             return;
@@ -39,7 +46,7 @@ static void parse_color_flag(int *argc, char **argv) {
 static const char *color_for(const struct stat *st, const char *name) {
     if (!color_enabled) return "";
     if (S_ISDIR(st->st_mode)) return BLUE;
-    if (S_ISLNK(st->st_mode)) return CYAN;
+    if (S_ISLNK(st->st_mode)) return CYAN;   // no-op on Windows, but keeps parity
     if (st->st_mode & S_IXUSR) return GREEN;
     const char *ext = strrchr(name, '.');
     if (ext) {
