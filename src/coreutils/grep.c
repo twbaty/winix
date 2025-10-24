@@ -1,23 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 #include <ctype.h>
-#include <io.h>
-#include <unistd.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
-#define COLOR_MATCH "\033[1;31m"
-#define COLOR_RESET "\033[0m"
+// ─────────────────────────────────────────────────────
+// Globals for color mode
+static int color_enabled = 1;
+static int color_auto = 1;
+static int color_always = 0;
 
-static bool color_enabled = false;
-static bool color_auto = true;
-static bool color_always = false;
-
-// Portable case-insensitive substring search
+// ─────────────────────────────────────────────────────
+// Fallback strcasestr for Windows
 static const char *strcasestr_portable(const char *haystack, const char *needle) {
     if (!*needle) return haystack;
     for (const char *p = haystack; *p; ++p) {
@@ -31,6 +28,8 @@ static const char *strcasestr_portable(const char *haystack, const char *needle)
     return NULL;
 }
 
+// ─────────────────────────────────────────────────────
+// Parse --color flag
 static void parse_color_flag(int *argc, char **argv) {
     for (int i = 1; i < *argc; ++i) {
         if (strncmp(argv[i], "--color", 7) == 0 || strncmp(argv[i], "--colour", 8) == 0) {
@@ -39,9 +38,9 @@ static void parse_color_flag(int *argc, char **argv) {
             else if (i + 1 < *argc) arg = argv[++i];
             else arg = "auto";
 
-            if (strcmp(arg, "always") == 0) { color_enabled = true; color_auto = false; color_always = true; }
-            else if (strcmp(arg, "never") == 0) { color_enabled = false; color_auto = false; }
-            else { color_auto = true; }
+            if (strcmp(arg, "always") == 0) { color_enabled = 1; color_auto = 0; color_always = 1; }
+            else if (strcmp(arg, "never") == 0) { color_enabled = 0; color_auto = 0; }
+            else { color_auto = 1; color_enabled = 1; }
 
             for (int j = i; j + 1 < *argc; ++j) argv[j] = argv[j + 1];
             (*argc)--;
@@ -50,59 +49,87 @@ static void parse_color_flag(int *argc, char **argv) {
     }
 }
 
-static const char *strcasestr_portable(const char *haystack, const char *needle);
+// ─────────────────────────────────────────────────────
+// Color printing helper
+static void print_highlight(const char *text, const char *pattern, int ignore_case) {
+    const char *p = text;
+    size_t patlen = strlen(pattern);
 
-static void highlight_and_print(const char *line, const char *pattern) {
-    const char *p = line;
-    size_t plen = strlen(pattern);
+#ifdef _WIN32
+    BOOL vt_enabled = FALSE;
+    DWORD mode = 0;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE && GetConsoleMode(hOut, &mode))
+        vt_enabled = (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
+
     while (*p) {
-        const char *match = strcasestr_portable(p, pattern);
+        const char *match = ignore_case ? strcasestr_portable(p, pattern) : strstr(p, pattern);
         if (!match) {
             fputs(p, stdout);
             break;
         }
+
         fwrite(p, 1, match - p, stdout);
-        if (color_enabled) fputs(COLOR_MATCH, stdout);
-        fwrite(match, 1, plen, stdout);
-        if (color_enabled) fputs(COLOR_RESET, stdout);
-        p = match + plen;
+
+#ifdef _WIN32
+        if (vt_enabled)
+            printf("\033[31m%.*s\033[0m", (int)patlen, match);
+        else {
+            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            SetConsoleTextAttribute(hOut, FOREGROUND_RED | FOREGROUND_INTENSITY);
+            printf("%.*s", (int)patlen, match);
+            SetConsoleTextAttribute(hOut, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        }
+#else
+        printf("\033[31m%.*s\033[0m", (int)patlen, match);
+#endif
+        p = match + patlen;
     }
 }
 
+// ─────────────────────────────────────────────────────
+// Main entry
 int main(int argc, char *argv[]) {
-    #ifdef _WIN32
-    // Enable ANSI color output on Windows 10+
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut != INVALID_HANDLE_VALUE) {
-        DWORD dwMode = 0;
-        if (GetConsoleMode(hOut, &dwMode)) {
-            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            SetConsoleMode(hOut, dwMode);
-        }
-    }
-#endif
-
     parse_color_flag(&argc, argv);
-    if (color_auto && isatty(STDOUT_FILENO))
-        color_enabled = true;
 
-    if (argc < 2) {
-        fprintf(stderr, "Usage: grep [--color=auto|always|never] <pattern> [file]\n");
+    if (argc < 3) {
+        fprintf(stderr, "Usage: grep [--color=auto|always|never] <pattern> <file>\n");
         return 1;
     }
 
     const char *pattern = argv[1];
-    FILE *fp = (argc > 2) ? fopen(argv[2], "r") : stdin;
-    if (!fp) { perror("grep"); return 1; }
+    const char *filename = argv[2];
+
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        fprintf(stderr, "grep: cannot open '%s'\n", filename);
+        return 1;
+    }
+
+#ifdef _WIN32
+    // Enable VT mode globally (so pipes and cmd.exe can interpret colors)
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
+        }
+    }
+#endif
 
     char line[4096];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strcasestr_portable(line, pattern)) {
-            highlight_and_print(line, pattern);
-            if (line[strlen(line) - 1] != '\n') putchar('\n');
+    while (fgets(line, sizeof(line), f)) {
+        int found = strstr(line, pattern) || strcasestr_portable(line, pattern);
+        if (found) {
+            if (color_enabled)
+                print_highlight(line, pattern, 0);
+            else
+                fputs(line, stdout);
         }
     }
 
-    if (fp != stdin) fclose(fp);
+    fclose(f);
     return 0;
 }
