@@ -17,6 +17,25 @@ static void redraw(const std::string& prompt, const std::string& line) {
     std::cout << "\r\033[K" << prompt << line << std::flush;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+int main() {
+    std::cout << "Winix Shell v0.5 (Full I/O + Tab)\n";
+
+#ifdef _WIN32
+    // Enable ANSI color output globally
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
+
 //─────────────────────────────────────────────
 // Helper: case-insensitive prefix match for completion
 static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
