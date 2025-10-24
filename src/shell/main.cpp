@@ -63,10 +63,6 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     while (true) {
         ch = _getch();
 
-        // swallow stray CR/LF from arrow-key sequences
-        if (ch == '\r' || ch == '\n')
-            continue;
-
         // ENTER
         if (ch == 13) {
             std::cout << "\n";
