@@ -3,15 +3,13 @@
 #include <vector>
 #include <sstream>
 #include <filesystem>
-#include <conio.h>
 #include <windows.h>
 #include <cstdlib>
 #include <algorithm>
 
 namespace fs = std::filesystem;
 
-// ──────────────────────────────────────────────
-// Enable ANSI + UTF-8 mode on Windows
+// Enable ANSI + UTF-8 mode
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
@@ -25,14 +23,11 @@ static void enable_vt_mode() {
     SetConsoleCP(CP_UTF8);
 }
 
-// ──────────────────────────────────────────────
-// Print prompt
 static void print_prompt() {
-    std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+    std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
 }
 
-// ──────────────────────────────────────────────
-// Tokenize input string
+// Tokenize command line
 static std::vector<std::string> split(const std::string &s) {
     std::istringstream iss(s);
     std::vector<std::string> tokens;
@@ -41,7 +36,6 @@ static std::vector<std::string> split(const std::string &s) {
     return tokens;
 }
 
-// ──────────────────────────────────────────────
 // Tab completion
 static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
@@ -53,147 +47,121 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     return matches;
 }
 
-// ──────────────────────────────────────────────
-// Flush leftover console input (kills stray CR/LF)
-static void flush_console_input(HANDLE hIn) {
-    FlushConsoleInputBuffer(hIn);
-}
-
-// ──────────────────────────────────────────────
-// Input handler — history, tab, and no pagination
+// Read input using Windows input events (no pagination)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
-    std::string input;
-    int ch = 0;
-
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
     GetConsoleMode(hIn, &oldMode);
 
-    // Disable echo/line buffering so Windows doesn’t inject CR/LF
-    SetConsoleMode(hIn, oldMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+    // Raw mode — disable line buffering and echo
+    SetConsoleMode(hIn, ENABLE_WINDOW_INPUT | ENABLE_PROCESSED_INPUT);
 
-    auto clear_line = [&]() {
+    std::string input;
+    INPUT_RECORD record;
+    DWORD count;
+
+    auto redraw_line = [&]() {
         std::cout << "\r";
         print_prompt();
-        std::cout << std::string(200, ' ') << "\r";
+        std::cout << input << " \r";
         print_prompt();
+        std::cout << input << std::flush;
     };
 
     while (true) {
-        ch = _getch();
+        ReadConsoleInput(hIn, &record, 1, &count);
+        if (record.EventType != KEY_EVENT) continue;
+        const KEY_EVENT_RECORD &key = record.Event.KeyEvent;
+        if (!key.bKeyDown) continue;
 
-        // ENTER
-        if (ch == 13) {
+        switch (key.wVirtualKeyCode) {
+        case VK_RETURN:
             std::cout << "\n";
-            break;
-        }
+            SetConsoleMode(hIn, oldMode);
+            return input;
 
-        // BACKSPACE
-        else if (ch == 8) {
+        case VK_BACK:
             if (!input.empty()) {
                 input.pop_back();
-                std::cout << "\b \b";
+                std::cout << "\b \b" << std::flush;
             }
-        }
+            break;
 
-        // TAB completion
-        else if (ch == 9) {
+        case VK_TAB: {
             std::string prefix;
             size_t pos = input.find_last_of(' ');
             prefix = (pos == std::string::npos) ? input : input.substr(pos + 1);
-
             auto matches = complete_in_cwd(prefix);
             if (matches.size() == 1) {
                 std::string suffix = matches[0].substr(prefix.size());
-                std::cout << suffix;
                 input += suffix;
+                std::cout << suffix << std::flush;
             } else if (!matches.empty()) {
                 std::cout << "\n";
-                for (auto &m : matches)
-                    std::cout << "  " << m << "\n";
-                print_prompt();
-                std::cout << input;
+                for (auto &m : matches) std::cout << "  " << m << "\n";
+                redraw_line();
             }
+            break;
         }
 
-        // ARROW KEYS (history navigation)
-        else if (ch == 224) {
-            ch = _getch();
-
-            if (ch == 72) { // UP
-                if (historyIndex > 0) {
-                    historyIndex--;
-                    input = history[historyIndex];
-                    clear_line();
-                    std::cout << input;
-                }
-            } else if (ch == 80) { // DOWN
-                if (historyIndex + 1 < (int)history.size()) {
-                    historyIndex++;
-                    input = history[historyIndex];
-                } else {
-                    historyIndex = history.size();
-                    input.clear();
-                }
-                clear_line();
-                std::cout << input;
+        case VK_UP:
+            if (historyIndex > 0) {
+                historyIndex--;
+                input = history[historyIndex];
+                redraw_line();
             }
+            break;
 
-            flush_console_input(hIn);  // 🚀 kill all pending console CR/LF
-            std::cout.flush();
-            continue;
-        }
+        case VK_DOWN:
+            if (historyIndex + 1 < (int)history.size()) {
+                historyIndex++;
+                input = history[historyIndex];
+            } else {
+                historyIndex = history.size();
+                input.clear();
+            }
+            redraw_line();
+            break;
 
-        // PRINTABLE CHARACTER
-        else if (isprint(ch)) {
-            input.push_back((char)ch);
-            std::cout << (char)ch;
+        default:
+            if (key.uChar.AsciiChar >= 32 && key.uChar.AsciiChar < 127) {
+                input.push_back(key.uChar.AsciiChar);
+                std::cout << key.uChar.AsciiChar << std::flush;
+            }
+            break;
         }
     }
-
-    SetConsoleMode(hIn, oldMode); // restore console mode
-    return input;
 }
 
-// ──────────────────────────────────────────────
-// Execute commands
+// Execute a command
 static void execute_command(const std::vector<std::string> &tokens) {
     if (tokens.empty()) return;
-
     if (tokens[0] == "cd") {
         if (tokens.size() > 1) {
-            try {
-                fs::current_path(tokens[1]);
-            } catch (...) {
-                std::cerr << "cd: cannot access " << tokens[1] << std::endl;
-            }
+            try { fs::current_path(tokens[1]); }
+            catch (...) { std::cerr << "cd: cannot access " << tokens[1] << "\n"; }
         }
         return;
     }
-
     if (tokens[0] == "exit") {
         std::cout << "Goodbye.\n";
         exit(0);
     }
-
     std::string cmd;
     for (auto &t : tokens) {
         if (!cmd.empty()) cmd += " ";
         cmd += t;
     }
-
     system(cmd.c_str());
 }
 
-// ──────────────────────────────────────────────
 // Main
 int main() {
     enable_vt_mode();
-
     std::vector<std::string> history;
     int historyIndex = 0;
 
-    std::cout << "Winix Shell v0.7 (Stable input: no pagination)\n";
+    std::cout << "Winix Shell v0.8 (Raw Input, No Pagination)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
@@ -207,6 +175,4 @@ int main() {
         historyIndex = history.size();
         execute_command(split(input));
     }
-
-    return 0;
 }
