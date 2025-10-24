@@ -9,6 +9,7 @@
 
 namespace fs = std::filesystem;
 
+// ──────────────────────────────────────────────
 // Enable ANSI + UTF-8 mode
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -23,11 +24,14 @@ static void enable_vt_mode() {
     SetConsoleCP(CP_UTF8);
 }
 
+// ──────────────────────────────────────────────
+// Print prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
 }
 
-// Tokenize command line
+// ──────────────────────────────────────────────
+// Tokenize input
 static std::vector<std::string> split(const std::string &s) {
     std::istringstream iss(s);
     std::vector<std::string> tokens;
@@ -36,6 +40,7 @@ static std::vector<std::string> split(const std::string &s) {
     return tokens;
 }
 
+// ──────────────────────────────────────────────
 // Tab completion
 static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
@@ -47,26 +52,27 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     return matches;
 }
 
-// Read input using Windows input events (no pagination)
+// ──────────────────────────────────────────────
+// Redraw helper — clears entire line before rewrite
+static void redraw_line(const std::string &input) {
+    std::cout << "\r";                          // Return to line start
+    print_prompt();                            // Print prompt again
+    std::cout << std::string(200, ' ') << "\r"; // Overwrite previous text
+    print_prompt();                            // Print prompt again cleanly
+    std::cout << input << std::flush;
+}
+
+// ──────────────────────────────────────────────
+// Input handler — raw input events, full redraw, no pagination
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
     GetConsoleMode(hIn, &oldMode);
-
-    // Raw mode — disable line buffering and echo
     SetConsoleMode(hIn, ENABLE_WINDOW_INPUT | ENABLE_PROCESSED_INPUT);
 
     std::string input;
     INPUT_RECORD record;
     DWORD count;
-
-    auto redraw_line = [&]() {
-        std::cout << "\r";
-        print_prompt();
-        std::cout << input << " \r";
-        print_prompt();
-        std::cout << input << std::flush;
-    };
 
     while (true) {
         ReadConsoleInput(hIn, &record, 1, &count);
@@ -98,8 +104,9 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::cout << suffix << std::flush;
             } else if (!matches.empty()) {
                 std::cout << "\n";
-                for (auto &m : matches) std::cout << "  " << m << "\n";
-                redraw_line();
+                for (auto &m : matches)
+                    std::cout << "  " << m << "\n";
+                redraw_line(input);
             }
             break;
         }
@@ -108,7 +115,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             if (historyIndex > 0) {
                 historyIndex--;
                 input = history[historyIndex];
-                redraw_line();
+                redraw_line(input); // full overwrite fix
             }
             break;
 
@@ -120,7 +127,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 historyIndex = history.size();
                 input.clear();
             }
-            redraw_line();
+            redraw_line(input); // full overwrite fix
             break;
 
         default:
@@ -133,7 +140,8 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     }
 }
 
-// Execute a command
+// ──────────────────────────────────────────────
+// Execute commands
 static void execute_command(const std::vector<std::string> &tokens) {
     if (tokens.empty()) return;
     if (tokens[0] == "cd") {
@@ -147,6 +155,7 @@ static void execute_command(const std::vector<std::string> &tokens) {
         std::cout << "Goodbye.\n";
         exit(0);
     }
+
     std::string cmd;
     for (auto &t : tokens) {
         if (!cmd.empty()) cmd += " ";
@@ -155,13 +164,14 @@ static void execute_command(const std::vector<std::string> &tokens) {
     system(cmd.c_str());
 }
 
+// ──────────────────────────────────────────────
 // Main
 int main() {
     enable_vt_mode();
     std::vector<std::string> history;
     int historyIndex = 0;
 
-    std::cout << "Winix Shell v0.8 (Raw Input, No Pagination)\n";
+    std::cout << "Winix Shell v0.9 (Raw Input + Full Redraw)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
