@@ -4,11 +4,15 @@
 #include <sstream>
 #include <filesystem>
 #include <windows.h>
+#include <conio.h>
 #include <cstdlib>
+#include <algorithm>
+#include <regex>
 
 namespace fs = std::filesystem;
 
-// Enable UTF-8 + ANSI
+// ──────────────────────────────────────────────
+// Enable UTF-8 and ANSI color output
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
@@ -22,21 +26,68 @@ static void enable_vt_mode() {
     SetConsoleCP(CP_UTF8);
 }
 
+// ──────────────────────────────────────────────
+// Prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
 }
 
-static std::vector<std::string> split(const std::string &s) {
-    std::istringstream iss(s);
+// ──────────────────────────────────────────────
+// Tokenize (space-split, quote-aware)
+static std::vector<std::string> split(const std::string &line) {
     std::vector<std::string> tokens;
     std::string token;
-    while (iss >> token) tokens.push_back(token);
+    bool inQuote = false;
+    char quoteChar = 0;
+
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if ((c == '"' || c == '\'') && !inQuote) {
+            inQuote = true;
+            quoteChar = c;
+        } else if (inQuote && c == quoteChar) {
+            inQuote = false;
+        } else if (!inQuote && isspace((unsigned char)c)) {
+            if (!token.empty()) {
+                tokens.push_back(token);
+                token.clear();
+            }
+        } else {
+            token.push_back(c);
+        }
+    }
+    if (!token.empty()) tokens.push_back(token);
     return tokens;
 }
 
-static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
+// ──────────────────────────────────────────────
+// Wildcard (glob) expansion: * and ?
+static std::vector<std::string> expand_wildcards(const std::vector<std::string>& tokens) {
+    std::vector<std::string> expanded;
+    for (const auto& t : tokens) {
+        if (t.find('*') == std::string::npos && t.find('?') == std::string::npos) {
+            expanded.push_back(t);
+            continue;
+        }
+        std::regex pattern(std::regex_replace(std::regex_replace(t, std::regex("\\*"), ".*"), std::regex("\\?"), "."));
+        bool matched = false;
+        for (auto& e : fs::directory_iterator(fs::current_path())) {
+            std::string name = e.path().filename().string();
+            if (std::regex_match(name, pattern)) {
+                expanded.push_back(name);
+                matched = true;
+            }
+        }
+        if (!matched) expanded.push_back(t);
+    }
+    return expanded;
+}
+
+// ──────────────────────────────────────────────
+// Tab completion
+static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
     std::vector<std::string> matches;
-    for (auto &entry : fs::directory_iterator(fs::current_path())) {
+    for (auto& entry : fs::directory_iterator(fs::current_path())) {
         std::string name = entry.path().filename().string();
         if (name.rfind(prefix, 0) == 0)
             matches.push_back(name);
@@ -44,39 +95,28 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     return matches;
 }
 
-// Proper redraw using WinAPI to clear trailing characters
-static void redraw_line(const std::string &input) {
+// ──────────────────────────────────────────────
+// Redraw current line cleanly
+static void redraw_line(const std::string& input) {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hOut, &csbi);
 
-    DWORD written;
-    COORD cursor = csbi.dwCursorPosition;
+    COORD start = {0, csbi.dwCursorPosition.Y};
+    SetConsoleCursorPosition(hOut, start);
 
-    // Move to beginning of current line
-    cursor.X = 0;
-    SetConsoleCursorPosition(hOut, cursor);
-
-    // Print prompt
     print_prompt();
     std::cout << input << std::flush;
 
-    // Get new cursor position
     GetConsoleScreenBufferInfo(hOut, &csbi);
-
-    // Fill remainder of the line with spaces to clear leftovers
-    DWORD consoleWidth = csbi.dwSize.X;
-    DWORD currentLen = csbi.dwCursorPosition.X;
-    DWORD clearLen = consoleWidth - currentLen;
+    DWORD written, clearLen = csbi.dwSize.X - csbi.dwCursorPosition.X;
     FillConsoleOutputCharacter(hOut, ' ', clearLen, csbi.dwCursorPosition, &written);
-
-    // Move cursor back to end of input
-    GetConsoleScreenBufferInfo(hOut, &csbi);
     SetConsoleCursorPosition(hOut, csbi.dwCursorPosition);
 }
 
-// Input routine (no pagination, clean overwrite)
-static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
+// ──────────────────────────────────────────────
+// Read input with history, arrows, tab
+static std::string read_input(std::vector<std::string>& history, int& historyIndex) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
     GetConsoleMode(hIn, &oldMode);
@@ -89,7 +129,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     while (true) {
         ReadConsoleInput(hIn, &record, 1, &count);
         if (record.EventType != KEY_EVENT) continue;
-        const KEY_EVENT_RECORD &key = record.Event.KeyEvent;
+        const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
         if (!key.bKeyDown) continue;
 
         switch (key.wVirtualKeyCode) {
@@ -116,8 +156,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::cout << suffix << std::flush;
             } else if (!matches.empty()) {
                 std::cout << "\n";
-                for (auto &m : matches)
-                    std::cout << "  " << m << "\n";
+                for (auto& m : matches) std::cout << "  " << m << "\n";
                 redraw_line(input);
             }
             break;
@@ -152,8 +191,12 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     }
 }
 
-static void execute_command(const std::vector<std::string> &tokens) {
+// ──────────────────────────────────────────────
+// Execute command (with wildcard expansion)
+static void execute_command(const std::vector<std::string>& tokens) {
     if (tokens.empty()) return;
+
+    // Built-ins
     if (tokens[0] == "cd") {
         if (tokens.size() > 1) {
             try { fs::current_path(tokens[1]); }
@@ -161,25 +204,30 @@ static void execute_command(const std::vector<std::string> &tokens) {
         }
         return;
     }
+
     if (tokens[0] == "exit") {
         std::cout << "Goodbye.\n";
         exit(0);
     }
 
+    // Build command string
     std::string cmd;
-    for (auto &t : tokens) {
+    for (auto& t : tokens) {
         if (!cmd.empty()) cmd += " ";
         cmd += t;
     }
+
     system(cmd.c_str());
 }
 
+// ──────────────────────────────────────────────
+// Main
 int main() {
     enable_vt_mode();
+    std::cout << "Winix Shell v1.2 (wildcards + redraw + stable input)\n";
+
     std::vector<std::string> history;
     int historyIndex = 0;
-
-    std::cout << "Winix Shell v1.1 (Proper erase + redraw)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
@@ -191,6 +239,9 @@ int main() {
         if (input.empty()) continue;
         history.push_back(input);
         historyIndex = history.size();
-        execute_command(split(input));
+
+        auto tokens = split(input);
+        tokens = expand_wildcards(tokens);
+        execute_command(tokens);
     }
 }
