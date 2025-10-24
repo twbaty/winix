@@ -5,12 +5,10 @@
 #include <filesystem>
 #include <windows.h>
 #include <cstdlib>
-#include <algorithm>
 
 namespace fs = std::filesystem;
 
-// ──────────────────────────────────────────────
-// Enable ANSI + UTF-8 mode
+// Enable UTF-8 + ANSI escape support
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
@@ -24,14 +22,10 @@ static void enable_vt_mode() {
     SetConsoleCP(CP_UTF8);
 }
 
-// ──────────────────────────────────────────────
-// Print prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
 }
 
-// ──────────────────────────────────────────────
-// Tokenize input
 static std::vector<std::string> split(const std::string &s) {
     std::istringstream iss(s);
     std::vector<std::string> tokens;
@@ -40,8 +34,6 @@ static std::vector<std::string> split(const std::string &s) {
     return tokens;
 }
 
-// ──────────────────────────────────────────────
-// Tab completion
 static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
     for (auto &entry : fs::directory_iterator(fs::current_path())) {
@@ -52,18 +44,19 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     return matches;
 }
 
-// ──────────────────────────────────────────────
-// Redraw helper — clears entire line before rewrite
-static void redraw_line(const std::string &input) {
-    std::cout << "\r";                          // Return to line start
-    print_prompt();                            // Print prompt again
-    std::cout << std::string(200, ' ') << "\r"; // Overwrite previous text
-    print_prompt();                            // Print prompt again cleanly
+// Proper line redraw: erase old content, then rewrite cleanly
+static void redraw_line(const std::string &input, size_t &prevLen) {
+    std::cout << "\r";
+    print_prompt();
+    // Erase the previous line using backspaces + spaces + backspaces
+    for (size_t i = 0; i < prevLen; ++i) std::cout << '\b';
+    for (size_t i = 0; i < prevLen; ++i) std::cout << ' ';
+    for (size_t i = 0; i < prevLen; ++i) std::cout << '\b';
     std::cout << input << std::flush;
+    prevLen = input.size();
 }
 
-// ──────────────────────────────────────────────
-// Input handler — raw input events, full redraw, no pagination
+// Clean input routine (no pagination, correct redraw)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD oldMode;
@@ -73,6 +66,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     std::string input;
     INPUT_RECORD record;
     DWORD count;
+    size_t prevLen = 0;
 
     while (true) {
         ReadConsoleInput(hIn, &record, 1, &count);
@@ -90,6 +84,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             if (!input.empty()) {
                 input.pop_back();
                 std::cout << "\b \b" << std::flush;
+                prevLen = input.size();
             }
             break;
 
@@ -102,11 +97,14 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::string suffix = matches[0].substr(prefix.size());
                 input += suffix;
                 std::cout << suffix << std::flush;
+                prevLen = input.size();
             } else if (!matches.empty()) {
                 std::cout << "\n";
                 for (auto &m : matches)
                     std::cout << "  " << m << "\n";
-                redraw_line(input);
+                print_prompt();
+                std::cout << input;
+                prevLen = input.size();
             }
             break;
         }
@@ -115,7 +113,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             if (historyIndex > 0) {
                 historyIndex--;
                 input = history[historyIndex];
-                redraw_line(input); // full overwrite fix
+                redraw_line(input, prevLen);
             }
             break;
 
@@ -127,21 +125,20 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 historyIndex = history.size();
                 input.clear();
             }
-            redraw_line(input); // full overwrite fix
+            redraw_line(input, prevLen);
             break;
 
         default:
             if (key.uChar.AsciiChar >= 32 && key.uChar.AsciiChar < 127) {
                 input.push_back(key.uChar.AsciiChar);
                 std::cout << key.uChar.AsciiChar << std::flush;
+                prevLen = input.size();
             }
             break;
         }
     }
 }
 
-// ──────────────────────────────────────────────
-// Execute commands
 static void execute_command(const std::vector<std::string> &tokens) {
     if (tokens.empty()) return;
     if (tokens[0] == "cd") {
@@ -164,14 +161,12 @@ static void execute_command(const std::vector<std::string> &tokens) {
     system(cmd.c_str());
 }
 
-// ──────────────────────────────────────────────
-// Main
 int main() {
     enable_vt_mode();
     std::vector<std::string> history;
     int historyIndex = 0;
 
-    std::cout << "Winix Shell v0.9 (Raw Input + Full Redraw)\n";
+    std::cout << "Winix Shell v1.0 (Clean redraw, no pagination)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
