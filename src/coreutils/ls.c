@@ -3,92 +3,88 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <time.h>
+#include <unistd.h>     // isatty()
+#include <stdbool.h>
 #include <errno.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#define PATH_SEP '\\'
-#else
-#include <unistd.h>
-#define PATH_SEP '/'
-#endif
+#define BLUE   "\033[1;34m"
+#define GREEN  "\033[1;32m"
+#define CYAN   "\033[1;36m"
+#define MAGENT "\033[1;35m"
+#define YELLO  "\033[1;33m"
+#define RED    "\033[1;31m"
+#define RESET  "\033[0m"
 
-static int show_all = 0;
-static int long_format = 0;
+static bool color_auto = true;
+static bool color_enabled = false;
 
-static void print_permissions(mode_t mode) {
-    char perms[11];
-    perms[0] = (S_ISDIR(mode)) ? 'd' : '-';
-    perms[1] = (mode & S_IRUSR) ? 'r' : '-';
-    perms[2] = (mode & S_IWUSR) ? 'w' : '-';
-    perms[3] = (mode & S_IXUSR) ? 'x' : '-';
-    perms[4] = (mode & S_IRGRP) ? 'r' : '-';
-    perms[5] = (mode & S_IWGRP) ? 'w' : '-';
-    perms[6] = (mode & S_IXGRP) ? 'x' : '-';
-    perms[7] = (mode & S_IROTH) ? 'r' : '-';
-    perms[8] = (mode & S_IWOTH) ? 'w' : '-';
-    perms[9] = (mode & S_IXOTH) ? 'x' : '-';
-    perms[10] = '\0';
-    printf("%s", perms);
+static void parse_color_flag(int *argc, char **argv) {
+    for (int i = 1; i < *argc; ++i) {
+        if (strncmp(argv[i], "--color", 7) == 0) {
+            const char *arg = strchr(argv[i], '=');
+            if (arg) arg++;
+            else if (i + 1 < *argc) arg = argv[++i];
+            else arg = "auto";
+
+            if (strcmp(arg, "always") == 0) { color_enabled = true; color_auto = false; }
+            else if (strcmp(arg, "never") == 0) { color_enabled = false; color_auto = false; }
+            else { color_auto = true; }
+            for (int j = i; j + 1 < *argc; ++j) argv[j] = argv[j + 1];
+            (*argc)--;
+            return;
+        }
+    }
 }
 
-static void list_file(const char *path, const char *name) {
-    struct stat st;
-    char fullpath[4096];
-    snprintf(fullpath, sizeof(fullpath), "%s%c%s", path, PATH_SEP, name);
-
-    if (stat(fullpath, &st) != 0) {
-        fprintf(stderr, "ls: cannot access '%s': %s\n", name, strerror(errno));
-        return;
+static const char *color_for(const struct stat *st, const char *name) {
+    if (!color_enabled) return "";
+    if (S_ISDIR(st->st_mode)) return BLUE;
+    if (S_ISLNK(st->st_mode)) return CYAN;
+    if (st->st_mode & S_IXUSR) return GREEN;
+    const char *ext = strrchr(name, '.');
+    if (ext) {
+        if (!strcmp(ext, ".zip") || !strcmp(ext, ".gz") || !strcmp(ext, ".tar") ||
+            !strcmp(ext, ".bz2") || !strcmp(ext, ".7z"))
+            return MAGENT;
     }
-
-    if (long_format) {
-        print_permissions(st.st_mode);
-        printf(" %5lld ", (long long)st.st_size);
-
-        char timebuf[32];
-        struct tm *tm_info = localtime(&st.st_mtime);
-        strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", tm_info);
-        printf("%s ", timebuf);
-    }
-
-    printf("%s\n", name);
+    return "";
 }
 
 int main(int argc, char *argv[]) {
+    parse_color_flag(&argc, argv);
+    if (color_auto && isatty(STDOUT_FILENO)) color_enabled = true;
+
     const char *path = ".";
-    int i;
+    bool show_all = false, long_list = false;
 
-    for (i = 1; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-') {
-            if (strchr(argv[i], 'a')) show_all = 1;
-            if (strchr(argv[i], 'l')) long_format = 1;
-        } else {
-            path = argv[i];
-        }
-    }
-
-    struct stat st;
-    if (stat(path, &st) == 0 && !S_ISDIR(st.st_mode)) {
-        // Single file
-        list_file(".", path);
-        return 0;
+            if (strchr(argv[i], 'a')) show_all = true;
+            if (strchr(argv[i], 'l')) long_list = true;
+        } else path = argv[i];
     }
 
     DIR *dir = opendir(path);
-    if (!dir) {
-        fprintf(stderr, "ls: cannot open directory '%s': %s\n", path, strerror(errno));
-        return 1;
-    }
+    if (!dir) { perror("ls"); return 1; }
 
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (!show_all && entry->d_name[0] == '.')
-            continue;
-        list_file(path, entry->d_name);
-    }
+    struct dirent *ent;
+    while ((ent = readdir(dir))) {
+        if (!show_all && ent->d_name[0] == '.') continue;
+        struct stat st;
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "%s/%s", path, ent->d_name);
+        if (stat(buf, &st) != 0) continue;
 
+        const char *color = color_for(&st, ent->d_name);
+        const char *reset = color_enabled ? RESET : "";
+        if (long_list) {
+            printf("%10lld %s%s%s\n",
+                   (long long)st.st_size, color, ent->d_name, reset);
+        } else {
+            printf("%s%s%s  ", color, ent->d_name, reset);
+        }
+    }
+    if (!long_list) putchar('\n');
     closedir(dir);
     return 0;
 }
