@@ -6,12 +6,26 @@
 #include <io.h>
 #include <unistd.h>
 
-#define COLOR_MATCH "\033[1;31m"  // bright red
+#define COLOR_MATCH "\033[1;31m"
 #define COLOR_RESET "\033[0m"
 
 static bool color_enabled = false;
 static bool color_auto = true;
 static bool color_always = false;
+
+// Portable case-insensitive substring search
+static const char *strcasestr_portable(const char *haystack, const char *needle) {
+    if (!*needle) return haystack;
+    for (const char *p = haystack; *p; ++p) {
+        const char *h = p;
+        const char *n = needle;
+        while (*h && *n && tolower((unsigned char)*h) == tolower((unsigned char)*n)) {
+            h++; n++;
+        }
+        if (!*n) return p;
+    }
+    return NULL;
+}
 
 static void parse_color_flag(int *argc, char **argv) {
     for (int i = 1; i < *argc; ++i) {
@@ -36,7 +50,7 @@ static void highlight_and_print(const char *line, const char *pattern) {
     const char *p = line;
     size_t plen = strlen(pattern);
     while (*p) {
-        const char *match = strcasestr(p, pattern);
+        const char *match = strcasestr_portable(p, pattern);
         if (!match) {
             fputs(p, stdout);
             break;
@@ -65,7 +79,7 @@ int main(int argc, char *argv[]) {
 
     char line[4096];
     while (fgets(line, sizeof(line), fp)) {
-        if (strcasestr(line, pattern)) {
+        if (strcasestr_portable(line, pattern)) {
             highlight_and_print(line, pattern);
             if (line[strlen(line) - 1] != '\n') putchar('\n');
         }
