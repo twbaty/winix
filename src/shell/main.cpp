@@ -21,7 +21,6 @@ static void enable_vt_mode() {
             SetConsoleMode(hOut, dwMode);
         }
     }
-    // Set codepage to UTF-8
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 }
@@ -33,7 +32,7 @@ static void print_prompt() {
 }
 
 // ──────────────────────────────────────────────
-// Tokenize
+// Tokenize a command line
 static std::vector<std::string> split(const std::string &s) {
     std::istringstream iss(s);
     std::vector<std::string> tokens;
@@ -55,12 +54,23 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
 }
 
 // ──────────────────────────────────────────────
-// Input with history + arrows (newline-safe)
-// ──────────────────────────────────────────────
-// Input with history + arrows (no stray CR/LF)
+// Input handler: supports history, tab, no newline on arrows
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     int ch = 0;
+
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD oldMode;
+    GetConsoleMode(hIn, &oldMode);
+    // Disable echo and line buffering
+    SetConsoleMode(hIn, oldMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+
+    auto clear_line = [&]() {
+        std::cout << "\r";
+        print_prompt();
+        std::cout << std::string(200, ' ') << "\r";
+        print_prompt();
+    };
 
     while (true) {
         ch = _getch();
@@ -98,24 +108,9 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             }
         }
 
-        // ARROW KEYS
+        // ARROW KEYS (history navigation)
         else if (ch == 224) {
-            ch = _getch();  // consume next byte (direction code)
-            // eat any pending newline in the console input buffer
-            while (_kbhit()) {
-                int lookahead = _getch();
-                if (lookahead != '\r' && lookahead != '\n') {
-                    ungetc(lookahead, stdin);
-                    break;
-                }
-            }
-
-            auto clear_line = [&]() {
-                std::cout << "\r";
-                print_prompt();
-                std::cout << std::string(200, ' ') << "\r";
-                print_prompt();
-            };
+            ch = _getch(); // direction code
 
             if (ch == 72) { // UP
                 if (historyIndex > 0) {
@@ -136,6 +131,12 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::cout << input;
             }
 
+            // eat any CR/LF leftover from console buffer
+            while (_kbhit()) {
+                int junk = _getch();
+                if (junk != '\r' && junk != '\n') break;
+            }
+
             std::cout.flush();
             continue;
         }
@@ -147,9 +148,9 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         }
     }
 
+    SetConsoleMode(hIn, oldMode); // restore console mode
     return input;
 }
-
 
 // ──────────────────────────────────────────────
 // Execute commands
@@ -177,18 +178,19 @@ static void execute_command(const std::vector<std::string> &tokens) {
         if (!cmd.empty()) cmd += " ";
         cmd += t;
     }
+
     system(cmd.c_str());
 }
 
 // ──────────────────────────────────────────────
-// Main
+// Main shell
 int main() {
     enable_vt_mode();
 
     std::vector<std::string> history;
     int historyIndex = 0;
 
-    std::cout << "Winix Shell v0.5 (Full I/O + Tab)\n";
+    std::cout << "Winix Shell v0.6 (Full I/O + Tab + History Fix)\n";
 
     // Add build dir to PATH
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
