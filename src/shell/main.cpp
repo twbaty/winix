@@ -48,28 +48,27 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
     for (auto &entry : fs::directory_iterator(fs::current_path())) {
         std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0) matches.push_back(name);
+        if (name.rfind(prefix, 0) == 0)
+            matches.push_back(name);
     }
     return matches;
 }
 
 // ──────────────────────────────────────────────
-// Input with history + arrows
+// Input with history + arrows (newline-safe)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     int ch;
 
-    // Disable line buffering and echo
-    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD mode;
-    GetConsoleMode(hStdin, &mode);
-    SetConsoleMode(hStdin, mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
-
     while (true) {
         ch = _getch();
 
+        // swallow stray CR/LF from arrow-key sequences
+        if (ch == '\r' || ch == '\n')
+            continue;
+
         // ENTER
-        if (ch == '\r') {
+        if (ch == 13) {
             std::cout << "\n";
             break;
         }
@@ -85,7 +84,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         // TAB completion
         else if (ch == 9) {
             std::string prefix;
-            size_t pos = input.find_last_of(" ");
+            size_t pos = input.find_last_of(' ');
             prefix = (pos == std::string::npos) ? input : input.substr(pos + 1);
 
             auto matches = complete_in_cwd(prefix);
@@ -103,13 +102,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
 
         // ARROW KEYS
         else if (ch == 224) {
-            ch = _getch();
-
-            // Swallow any CR/LF emitted by Windows console
-            if (_kbhit()) {
-                int next = _getch();
-                if (next == '\r' || next == '\n') continue;
-            }
+            ch = _getch(); // consume next byte (direction code)
 
             auto clear_line = [&]() {
                 std::cout << "\r";
@@ -137,8 +130,15 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
                 std::cout << input;
             }
 
+            // completely flush any remaining CR/LF in the buffer
+            while (_kbhit()) {
+                int next = _getch();
+                if (next != '\r' && next != '\n')
+                    break;
+            }
+
             std::cout.flush();
-            continue; // <-- swallow the stray key event
+            continue;
         }
 
         // PRINTABLE CHARACTER
@@ -148,13 +148,8 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         }
     }
 
-    // Restore console mode
-    SetConsoleMode(hStdin, mode);
-
     return input;
 }
-
-
 
 // ──────────────────────────────────────────────
 // Execute commands
