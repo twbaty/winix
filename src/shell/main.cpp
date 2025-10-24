@@ -1,18 +1,17 @@
 #include <iostream>
 #include <string>
-#include <sstream>
 #include <vector>
+#include <sstream>
 #include <filesystem>
 #include <conio.h>
-#include <fstream>
 #include <windows.h>
+#include <cstdlib>
 #include <algorithm>
 
 namespace fs = std::filesystem;
 
-//──────────────────────────────────────────────
-// Enable ANSI color globally
-#ifdef _WIN32
+// ──────────────────────────────────────────────
+// Enable ANSI + UTF-8 mode on Windows
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
@@ -22,46 +21,76 @@ static void enable_vt_mode() {
             SetConsoleMode(hOut, dwMode);
         }
     }
+    // Set codepage to UTF-8
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 }
-#endif
 
-//──────────────────────────────────────────────
-// Prompt + completion helpers
+// ──────────────────────────────────────────────
+// Print prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
 }
 
-static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
-    std::vector<std::string> results;
-    for (auto &entry : fs::directory_iterator(fs::current_path())) {
-        std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0)
-            results.push_back(name);
-    }
-    return results;
+// ──────────────────────────────────────────────
+// Tokenize
+static std::vector<std::string> split(const std::string &s) {
+    std::istringstream iss(s);
+    std::vector<std::string> tokens;
+    std::string token;
+    while (iss >> token) tokens.push_back(token);
+    return tokens;
 }
 
-//──────────────────────────────────────────────
-// Readline-style input w/ history support
+// ──────────────────────────────────────────────
+// Tab completion
+static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
+    std::vector<std::string> matches;
+    for (auto &entry : fs::directory_iterator(fs::current_path())) {
+        std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) matches.push_back(name);
+    }
+    return matches;
+}
+
+// ──────────────────────────────────────────────
+// Input with history + arrows
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     int ch;
 
-    while ((ch = _getch()) != '\r') {
-        if (ch == 8) { // Backspace
+    while (true) {
+        ch = _getch();
+
+        if (ch == '\r') {  // Enter
+            std::cout << "\n";
+            break;
+        } else if (ch == 8) {  // Backspace
             if (!input.empty()) {
                 input.pop_back();
                 std::cout << "\b \b";
             }
-        } else if (ch == 224) { // Arrow keys
+        } else if (ch == 9) {  // Tab
+            auto matches = complete_in_cwd(input);
+            if (matches.size() == 1) {
+                std::string suffix = matches[0].substr(input.size());
+                std::cout << suffix;
+                input += suffix;
+            } else if (!matches.empty()) {
+                std::cout << "\n";
+                for (auto &m : matches) std::cout << "  " << m << "\n";
+                print_prompt();
+                std::cout << input;
+            }
+        } else if (ch == 224) {  // Arrow keys
             ch = _getch();
-            if (ch == 72 && historyIndex > 0) { // Up
+            if (ch == 72 && historyIndex > 0) {  // Up
                 --historyIndex;
                 input = history[historyIndex];
                 std::cout << "\r";
                 print_prompt();
                 std::cout << input << " \b";
-            } else if (ch == 80 && historyIndex + 1 < (int)history.size()) { // Down
+            } else if (ch == 80 && historyIndex + 1 < (int)history.size()) {  // Down
                 ++historyIndex;
                 input = history[historyIndex];
                 std::cout << "\r";
@@ -73,20 +102,62 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             std::cout << (char)ch;
         }
     }
-    std::cout << std::endl;
+
     return input;
 }
 
-//──────────────────────────────────────────────
-// Tokenizer
-static std::vector<std::string> split(const std::string &s) {
-    std::istringstream iss(s);
-    std::vector<std::string> tokens;
-    std::string token;
-    while (iss >> token)
-        tokens.push_back(token);
-    return tokens;
+// ──────────────────────────────────────────────
+// Execute commands
+static void execute_command(const std::vector<std::string> &tokens) {
+    if (tokens.empty()) return;
+
+    if (tokens[0] == "cd") {
+        if (tokens.size() > 1) {
+            try {
+                fs::current_path(tokens[1]);
+            } catch (...) {
+                std::cerr << "cd: cannot access " << tokens[1] << std::endl;
+            }
+        }
+        return;
+    }
+
+    if (tokens[0] == "exit") {
+        std::cout << "Goodbye.\n";
+        exit(0);
+    }
+
+    std::string cmd;
+    for (auto &t : tokens) {
+        if (!cmd.empty()) cmd += " ";
+        cmd += t;
+    }
+    system(cmd.c_str());
 }
 
-//──────────────────────────────────────────────
-// Command execution
+// ──────────────────────────────────────────────
+// Main
+int main() {
+    enable_vt_mode();
+
+    std::vector<std::string> history;
+    int historyIndex = 0;
+
+    std::cout << "Winix Shell v0.5 (Full I/O + Tab)\n";
+
+    // Add build dir to PATH
+    std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
+    path += ";build";
+    _putenv_s("PATH", path.c_str());
+
+    while (true) {
+        print_prompt();
+        std::string input = read_input(history, historyIndex);
+        if (input.empty()) continue;
+        history.push_back(input);
+        historyIndex = history.size();
+        execute_command(split(input));
+    }
+
+    return 0;
+}
