@@ -46,6 +46,8 @@ static void parse_color_flag(int *argc, char **argv) {
     }
 }
 
+static const char *strcasestr_portable(const char *haystack, const char *needle);
+
 static void highlight_and_print(const char *line, const char *pattern) {
     const char *p = line;
     size_t plen = strlen(pattern);
