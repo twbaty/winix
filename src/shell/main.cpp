@@ -137,6 +137,18 @@ static std::string read_command(const std::string& prompt,
 int main() {
     std::cout << "Winix Shell v0.5 (Full I/O + Tab)\n";
 
+    #ifdef _WIN32
+    // Enable ANSI color output globally in this shell session
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
+
     std::vector<std::string> searchPaths = { ".", "build", "bin" };
     std::vector<std::string> history;
     {
