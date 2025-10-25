@@ -15,10 +15,10 @@ namespace fs = std::filesystem;
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
-        DWORD dwMode = 0;
-        if (GetConsoleMode(hOut, &dwMode)) {
-            dwMode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            SetConsoleMode(hOut, dwMode);
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
         }
     }
     SetConsoleOutputCP(CP_UTF8);
@@ -26,13 +26,11 @@ static void enable_vt_mode() {
 }
 
 //───────────────────────────────────────────────
-// Prompt
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
 }
 
 //───────────────────────────────────────────────
-// Split respecting quotes
 static std::vector<std::string> split_command(const std::string &cmd) {
     std::vector<std::string> tokens;
     std::string token;
@@ -48,7 +46,6 @@ static std::vector<std::string> split_command(const std::string &cmd) {
 }
 
 //───────────────────────────────────────────────
-// History
 static void load_history(std::vector<std::string> &h) {
     std::ifstream f("winix_history.txt");
     std::string line;
@@ -73,7 +70,6 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
         base /= stem.substr(0, slash);
         stem = stem.substr(slash + 1);
     }
-
     if (fs::exists(base) && fs::is_directory(base)) {
         for (auto &entry : fs::directory_iterator(base)) {
             std::string name = entry.path().filename().string();
@@ -88,17 +84,10 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
 }
 
 //───────────────────────────────────────────────
-// Readline-like editor (stable)
+// Readline-like editor (no linefeeds)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     size_t cursor = 0;
-
-    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD mode;
-    GetConsoleMode(hStdin, &mode);
-    // Preserve processed input so Enter works; disable echo & line buffering
-    DWORD newMode = mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
-    SetConsoleMode(hStdin, newMode | ENABLE_PROCESSED_INPUT);
 
     auto redraw = [&](const std::string &in, size_t pos) {
         std::cout << "\r";
@@ -114,7 +103,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     };
 
     while (true) {
-        int ch = _getch();
+        int ch = _getch();   // raw, no echo, no CRLF
 
         // ENTER
         if (ch == 13) { std::cout << "\n"; break; }
@@ -175,13 +164,10 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             redraw(input, cursor);
         }
     }
-
-    SetConsoleMode(hStdin, mode); // restore
     return input;
 }
 
 //───────────────────────────────────────────────
-// Command execution
 static void execute_command(const std::vector<std::string> &tokens) {
     if (tokens.empty()) return;
     const std::string &cmd = tokens[0];
@@ -202,15 +188,13 @@ static void execute_command(const std::vector<std::string> &tokens) {
         if (t.find(' ') != std::string::npos) command += '"' + t + '"';
         else command += t;
     }
-
     system(command.c_str());
 }
 
 //───────────────────────────────────────────────
-// Main
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.5b (input stable, tab path, full erase)\n";
+    std::cout << "Winix Shell v1.5c (no linefeeds, path-aware tab, full erase)\n";
 
     std::vector<std::string> history;
     load_history(history);
