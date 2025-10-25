@@ -17,14 +17,14 @@ constexpr int HISTORY_LIMIT = 50;
 const std::string HISTORY_FILE = "winix_history.txt";
 
 // ──────────────────────────────────────────────
-// Enable UTF-8 and ANSI color output
+// Enable UTF-8 and ANSI color
 static void enable_vt_mode() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
-        DWORD dwMode = 0;
-        if (GetConsoleMode(hOut, &dwMode)) {
-            dwMode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            SetConsoleMode(hOut, dwMode);
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
         }
     }
     SetConsoleOutputCP(CP_UTF8);
@@ -32,68 +32,59 @@ static void enable_vt_mode() {
 }
 
 // ──────────────────────────────────────────────
-// Print prompt
 static void print_prompt() {
-    std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > " << std::flush;
+    std::cout << "\033[1;32m[Winix]\033[0m "
+              << fs::current_path().string() << " > " << std::flush;
 }
 
 // ──────────────────────────────────────────────
-// Tokenize (quote-aware)
-static std::vector<std::string> split(const std::string &line) {
-    std::vector<std::string> tokens;
+// Quote-aware tokenizer
+static std::vector<std::string> split_command(const std::string &line) {
+    std::vector<std::string> out;
     std::string token;
-    bool inQuote = false;
-    char quoteChar = 0;
-
+    bool inQuote = false; char quote = 0;
     for (size_t i = 0; i < line.size(); ++i) {
         char c = line[i];
-        if ((c == '"' || c == '\'') && !inQuote) {
-            inQuote = true;
-            quoteChar = c;
-        } else if (inQuote && c == quoteChar) {
-            inQuote = false;
-        } else if (!inQuote && isspace((unsigned char)c)) {
-            if (!token.empty()) {
-                tokens.push_back(token);
-                token.clear();
-            }
-        } else {
-            token.push_back(c);
-        }
+        if ((c == '"' || c == '\'') && !inQuote) { inQuote = true; quote = c; }
+        else if (inQuote && c == quote) inQuote = false;
+        else if (!inQuote && isspace((unsigned char)c)) {
+            if (!token.empty()) { out.push_back(token); token.clear(); }
+        } else token.push_back(c);
     }
-    if (!token.empty()) tokens.push_back(token);
-    return tokens;
+    if (!token.empty()) out.push_back(token);
+    return out;
 }
 
 // ──────────────────────────────────────────────
-// Wildcard expansion (*, ?)
-static std::vector<std::string> expand_wildcards(const std::vector<std::string>& tokens) {
-    std::vector<std::string> expanded;
-    for (const auto& t : tokens) {
-        if (t.find('*') == std::string::npos && t.find('?') == std::string::npos) {
-            expanded.push_back(t);
+// Wildcard expansion
+static std::vector<std::string> expand_wildcards(const std::vector<std::string>& args) {
+    std::vector<std::string> out;
+    for (auto &a : args) {
+        if (a.find('*') == std::string::npos && a.find('?') == std::string::npos) {
+            out.push_back(a);
             continue;
         }
-        std::regex pattern(std::regex_replace(std::regex_replace(t, std::regex("\\*"), ".*"), std::regex("\\?"), "."));
+        std::regex pat(std::regex_replace(std::regex_replace(a, std::regex("\\*"), ".*"),
+                                          std::regex("\\?"), "."));
         bool matched = false;
-        for (auto& e : fs::directory_iterator(fs::current_path())) {
+        for (auto &e : fs::directory_iterator(fs::current_path())) {
             std::string name = e.path().filename().string();
-            if (std::regex_match(name, pattern)) {
-                expanded.push_back(name);
+            if (std::regex_match(name, pat)) {
+                out.push_back(name);
                 matched = true;
             }
         }
-        if (!matched) expanded.push_back(t);
+        if (!matched) out.push_back(a);
     }
-    return expanded;
+    return out;
 }
 
 // ──────────────────────────────────────────────
 // Tab completion
-static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
+static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
-    for (auto& entry : fs::directory_iterator(fs::current_path())) {
-        std::string name = entry.path().filename().string();
+    for (auto &e : fs::directory_iterator(fs::current_path())) {
+        std::string name = e.path().filename().string();
         if (name.rfind(prefix, 0) == 0)
             matches.push_back(name);
     }
@@ -101,72 +92,41 @@ static std::vector<std::string> complete_in_cwd(const std::string& prefix) {
 }
 
 // ──────────────────────────────────────────────
-// Redraw current line cleanly
-static void redraw_line(const std::string& input) {
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    GetConsoleScreenBufferInfo(hOut, &csbi);
-
-    COORD start = {0, csbi.dwCursorPosition.Y};
-    SetConsoleCursorPosition(hOut, start);
-
-    print_prompt();
-    std::cout << input << std::flush;
-
-    GetConsoleScreenBufferInfo(hOut, &csbi);
-    DWORD written, clearLen = csbi.dwSize.X - csbi.dwCursorPosition.X;
-    FillConsoleOutputCharacter(hOut, ' ', clearLen, csbi.dwCursorPosition, &written);
-    SetConsoleCursorPosition(hOut, csbi.dwCursorPosition);
-}
-
-// ──────────────────────────────────────────────
-// Load and save history
-static void load_history(std::vector<std::string>& history) {
-    std::ifstream file(HISTORY_FILE);
+// Load/save history
+static void load_history(std::vector<std::string>& h) {
+    std::ifstream f(HISTORY_FILE);
     std::string line;
-    while (std::getline(file, line)) {
-        if (!line.empty()) history.push_back(line);
-    }
-    if (history.size() > HISTORY_LIMIT)
-        history.erase(history.begin(), history.end() - HISTORY_LIMIT);
+    while (getline(f, line)) if (!line.empty()) h.push_back(line);
+    if (h.size() > HISTORY_LIMIT)
+        h.erase(h.begin(), h.end() - HISTORY_LIMIT);
 }
-
-static void save_history(const std::vector<std::string>& history) {
-    std::ofstream file(HISTORY_FILE, std::ios::trunc);
-    size_t start = (history.size() > HISTORY_LIMIT) ? history.size() - HISTORY_LIMIT : 0;
-    for (size_t i = start; i < history.size(); ++i)
-        file << history[i] << "\n";
+static void save_history(const std::vector<std::string>& h) {
+    std::ofstream f(HISTORY_FILE, std::ios::trunc);
+    size_t start = (h.size() > HISTORY_LIMIT) ? h.size() - HISTORY_LIMIT : 0;
+    for (size_t i = start; i < h.size(); ++i) f << h[i] << "\n";
 }
 
 // ──────────────────────────────────────────────
-// Input with history, arrows, tab
-static std::string read_input(std::vector<std::string>& history, int& historyIndex) {
-    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD oldMode;
-    GetConsoleMode(hIn, &oldMode);
-    SetConsoleMode(hIn, ENABLE_WINDOW_INPUT | ENABLE_PROCESSED_INPUT);
+// Simple input with history + tab
+static std::string read_input(std::vector<std::string>& hist, int& idx) {
+    HANDLE hin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD oldMode; GetConsoleMode(hin, &oldMode);
+    SetConsoleMode(hin, ENABLE_WINDOW_INPUT | ENABLE_PROCESSED_INPUT);
 
-    std::string input;
-    INPUT_RECORD record;
-    DWORD count;
+    std::string input; INPUT_RECORD rec; DWORD count;
 
     while (true) {
-        ReadConsoleInput(hIn, &record, 1, &count);
-        if (record.EventType != KEY_EVENT) continue;
-        const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
+        ReadConsoleInput(hin, &rec, 1, &count);
+        if (rec.EventType != KEY_EVENT) continue;
+        const KEY_EVENT_RECORD& key = rec.Event.KeyEvent;
         if (!key.bKeyDown) continue;
 
         switch (key.wVirtualKeyCode) {
         case VK_RETURN:
-            std::cout << "\n";
-            SetConsoleMode(hIn, oldMode);
-            return input;
+            std::cout << "\n"; SetConsoleMode(hin, oldMode); return input;
 
         case VK_BACK:
-            if (!input.empty()) {
-                input.pop_back();
-                std::cout << "\b \b" << std::flush;
-            }
+            if (!input.empty()) { input.pop_back(); std::cout << "\b \b" << std::flush; }
             break;
 
         case VK_TAB: {
@@ -175,34 +135,23 @@ static std::string read_input(std::vector<std::string>& history, int& historyInd
             prefix = (pos == std::string::npos) ? input : input.substr(pos + 1);
             auto matches = complete_in_cwd(prefix);
             if (matches.size() == 1) {
-                std::string suffix = matches[0].substr(prefix.size());
-                input += suffix;
-                std::cout << suffix << std::flush;
+                auto suf = matches[0].substr(prefix.size());
+                input += suf; std::cout << suf << std::flush;
             } else if (!matches.empty()) {
                 std::cout << "\n";
-                for (auto& m : matches) std::cout << "  " << m << "\n";
-                redraw_line(input);
+                for (auto &m : matches) std::cout << "  " << m << "\n";
+                print_prompt(); std::cout << input << std::flush;
             }
             break;
         }
 
         case VK_UP:
-            if (historyIndex > 0) {
-                historyIndex--;
-                input = history[historyIndex];
-                redraw_line(input);
-            }
+            if (idx > 0) { idx--; input = hist[idx]; print_prompt(); std::cout << input << std::flush; }
             break;
-
         case VK_DOWN:
-            if (historyIndex + 1 < (int)history.size()) {
-                historyIndex++;
-                input = history[historyIndex];
-            } else {
-                historyIndex = history.size();
-                input.clear();
-            }
-            redraw_line(input);
+            if (idx + 1 < (int)hist.size()) { idx++; input = hist[idx]; }
+            else { idx = hist.size(); input.clear(); }
+            print_prompt(); std::cout << input << std::flush;
             break;
 
         default:
@@ -216,44 +165,46 @@ static std::string read_input(std::vector<std::string>& history, int& historyInd
 }
 
 // ──────────────────────────────────────────────
-// Execute command (direct spawn)
-static void execute_command(const std::vector<std::string>& tokens) {
-    if (tokens.empty()) return;
+// Execute
+static void execute_command(std::vector<std::string> args) {
+    if (args.empty()) return;
 
-    // Built-ins
-    if (tokens[0] == "cd") {
-        if (tokens.size() > 1) {
-            try { fs::current_path(tokens[1]); }
-            catch (...) { std::cerr << "cd: cannot access " << tokens[1] << "\n"; }
-        }
+    // built-ins
+    if (args[0] == "exit") { std::cout << "Goodbye.\n"; exit(0); }
+    if (args[0] == "cd") {
+        if (args.size() < 2) return;
+        try { fs::current_path(args[1]); }
+        catch (...) { std::cerr << "cd: cannot access " << args[1] << "\n"; }
         return;
     }
-
-    if (tokens[0] == "exit") {
-        std::cout << "Goodbye.\n";
-        exit(0);
+    if (args[0] == "echo") {
+        for (size_t i = 1; i < args.size(); ++i) {
+            if (i > 1) std::cout << " ";
+            std::cout << args[i];
+        }
+        std::cout << "\n"; return;
     }
 
-    // Convert to argv format for _spawnvp
+    // resolve full path to command
+    std::string cmdPath = (fs::path("build") / (args[0] + ".exe")).string();
+    if (!fs::exists(cmdPath)) cmdPath = args[0]; // fallback to PATH
+
     std::vector<char*> argv;
-    for (auto& t : tokens)
-        argv.push_back(const_cast<char*>(t.c_str()));
+    for (auto &a : args) argv.push_back(const_cast<char*>(a.c_str()));
     argv.push_back(nullptr);
 
-    int result = _spawnvp(_P_WAIT, argv[0], argv.data());
-    if (result == -1)
-        std::cerr << tokens[0] << ": command not found or failed\n";
+    int r = _spawnvp(_P_WAIT, cmdPath.c_str(), argv.data());
+    if (r == -1)
+        std::cerr << args[0] << ": command not found or failed\n";
 }
 
 // ──────────────────────────────────────────────
-// Main
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.3 (spawn, history, UTF-8, completion)\n";
+    std::cout << "Winix Shell v1.4 (spawn fix, history cap, completion)\n";
 
-    std::vector<std::string> history;
-    load_history(history);
-    int historyIndex = history.size();
+    std::vector<std::string> history; load_history(history);
+    int hIndex = history.size();
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
@@ -261,15 +212,11 @@ int main() {
 
     while (true) {
         print_prompt();
-        std::string input = read_input(history, historyIndex);
-        if (input.empty()) continue;
+        std::string line = read_input(history, hIndex);
+        if (line.empty()) continue;
 
-        history.push_back(input);
-        historyIndex = history.size();
-        save_history(history);
-
-        auto tokens = split(input);
-        tokens = expand_wildcards(tokens);
-        execute_command(tokens);
+        history.push_back(line); hIndex = history.size(); save_history(history);
+        auto args = expand_wildcards(split_command(line));
+        execute_command(args);
     }
 }
