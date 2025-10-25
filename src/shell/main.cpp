@@ -28,6 +28,7 @@ static void enable_vt_mode() {
 //───────────────────────────────────────────────
 static void print_prompt() {
     std::cout << "\033[1;32m[Winix]\033[0m " << fs::current_path().string() << " > ";
+    std::cout.flush();
 }
 
 //───────────────────────────────────────────────
@@ -70,6 +71,7 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
         base /= stem.substr(0, slash);
         stem = stem.substr(slash + 1);
     }
+
     if (fs::exists(base) && fs::is_directory(base)) {
         for (auto &entry : fs::directory_iterator(base)) {
             std::string name = entry.path().filename().string();
@@ -84,29 +86,43 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
 }
 
 //───────────────────────────────────────────────
-// Readline-like editor (no linefeeds)
+// Proper console redraw (no CR/LF)
+static void clear_line() {
+    std::cout << "\r" << std::string(300, ' ') << "\r";
+    print_prompt();
+}
+
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     size_t cursor = 0;
 
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD originalMode = 0;
+    GetConsoleMode(hIn, &originalMode);
+
+    // Raw input mode: turn off line buffering & echo, keep processed input
+    DWORD rawMode = originalMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+    SetConsoleMode(hIn, rawMode | ENABLE_PROCESSED_INPUT);
+
     auto redraw = [&](const std::string &in, size_t pos) {
-        std::cout << "\r";
-        print_prompt();
-        std::cout << std::string(300, ' ');
-        std::cout << "\r";
-        print_prompt();
+        clear_line();
         std::cout << in;
-        std::cout << "\r";
-        print_prompt();
-        if (pos > 0) std::cout << in.substr(0, pos);
+        std::cout.flush();
+        if (pos < in.size()) {
+            size_t moveLeft = in.size() - pos;
+            for (size_t i = 0; i < moveLeft; ++i) std::cout << "\b";
+        }
         std::cout.flush();
     };
 
     while (true) {
-        int ch = _getch();   // raw, no echo, no CRLF
+        int ch = _getch();
 
         // ENTER
-        if (ch == 13) { std::cout << "\n"; break; }
+        if (ch == 13) {
+            std::cout << "\n";
+            break;
+        }
 
         // BACKSPACE
         else if (ch == 8 && cursor > 0) {
@@ -153,7 +169,9 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             } else if (!matches.empty()) {
                 std::cout << "\n";
                 for (auto &m : matches) std::cout << "  " << m << "\n";
-                redraw(input, cursor);
+                print_prompt();
+                std::cout << input;
+                std::cout.flush();
             }
         }
 
@@ -164,6 +182,8 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             redraw(input, cursor);
         }
     }
+
+    SetConsoleMode(hIn, originalMode); // restore
     return input;
 }
 
@@ -188,13 +208,14 @@ static void execute_command(const std::vector<std::string> &tokens) {
         if (t.find(' ') != std::string::npos) command += '"' + t + '"';
         else command += t;
     }
+
     system(command.c_str());
 }
 
 //───────────────────────────────────────────────
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.5c (no linefeeds, path-aware tab, full erase)\n";
+    std::cout << "Winix Shell v1.5d (true raw mode, no LF, full redraw)\n";
 
     std::vector<std::string> history;
     load_history(history);
