@@ -66,12 +66,23 @@ static void save_history(const std::vector<std::string> &h) {
 // Tab completion
 static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
-    for (auto &entry : fs::directory_iterator(fs::current_path())) {
-        std::string name = entry.path().filename().string();
-        std::string normPrefix = prefix;
-        std::replace(normPrefix.begin(), normPrefix.end(), '\\', '/');
-        std::string normName = name; std::replace(normName.begin(), normName.end(), '\\', '/');
-        if (normName.rfind(normPrefix, 0) == 0) matches.push_back(name);
+    fs::path base = fs::current_path();
+    std::string stem = prefix;
+    std::replace(stem.begin(), stem.end(), '\\', '/');
+    size_t slash = stem.find_last_of('/');
+    if (slash != std::string::npos) {
+        base /= stem.substr(0, slash);
+        stem = stem.substr(slash + 1);
+    }
+
+    if (fs::exists(base) && fs::is_directory(base)) {
+        for (auto &entry : fs::directory_iterator(base)) {
+            std::string name = entry.path().filename().string();
+            if (name.rfind(stem, 0) == 0) {
+                if (fs::is_directory(entry)) name += '/';
+                matches.push_back((slash != std::string::npos ? prefix.substr(0, slash + 1) : "") + name);
+            }
+        }
     }
     return matches;
 }
@@ -86,15 +97,19 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     DWORD mode; GetConsoleMode(hStdin, &mode);
     SetConsoleMode(hStdin, 0);  // raw mode
 
-    auto redraw = [&](const std::string &in, size_t pos) {
-        std::cout << "\r";
-        print_prompt();
-        std::cout << in << "  ";
-        std::cout << "\r";
-        print_prompt();
-        if (pos > 0) std::cout << in.substr(0, pos);
-        std::cout.flush();
-    };
+auto redraw = [&](const std::string &in, size_t pos) {
+    std::cout << "\r";
+    print_prompt();
+    std::cout << std::string(300, ' '); // clear full line
+    std::cout << "\r";
+    print_prompt();
+    std::cout << in;
+    std::cout << "\r";
+    print_prompt();
+    if (pos > 0) std::cout << in.substr(0, pos);
+    std::cout.flush();
+};
+
 
     while (true) {
         int ch = _getch();
