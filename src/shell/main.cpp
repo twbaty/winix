@@ -32,13 +32,12 @@ static void print_prompt() {
 }
 
 //───────────────────────────────────────────────
-// Split command line respecting quotes
+// Split respecting quotes
 static std::vector<std::string> split_command(const std::string &cmd) {
     std::vector<std::string> tokens;
     std::string token;
     bool in_quotes = false;
-    for (size_t i = 0; i < cmd.size(); ++i) {
-        char c = cmd[i];
+    for (char c : cmd) {
         if (c == '"') in_quotes = !in_quotes;
         else if (isspace((unsigned char)c) && !in_quotes) {
             if (!token.empty()) { tokens.push_back(token); token.clear(); }
@@ -49,7 +48,7 @@ static std::vector<std::string> split_command(const std::string &cmd) {
 }
 
 //───────────────────────────────────────────────
-// History management
+// History
 static void load_history(std::vector<std::string> &h) {
     std::ifstream f("winix_history.txt");
     std::string line;
@@ -63,7 +62,7 @@ static void save_history(const std::vector<std::string> &h) {
 }
 
 //───────────────────────────────────────────────
-// Tab completion
+// Path-aware tab completion
 static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
     fs::path base = fs::current_path();
@@ -80,7 +79,8 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
             std::string name = entry.path().filename().string();
             if (name.rfind(stem, 0) == 0) {
                 if (fs::is_directory(entry)) name += '/';
-                matches.push_back((slash != std::string::npos ? prefix.substr(0, slash + 1) : "") + name);
+                matches.push_back(
+                    (slash != std::string::npos ? prefix.substr(0, slash + 1) : "") + name);
             }
         }
     }
@@ -88,28 +88,30 @@ static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
 }
 
 //───────────────────────────────────────────────
-// Readline-like editor
+// Readline-like editor (stable)
 static std::string read_input(std::vector<std::string> &history, int &historyIndex) {
     std::string input;
     size_t cursor = 0;
 
     HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD mode; GetConsoleMode(hStdin, &mode);
-    SetConsoleMode(hStdin, 0);  // raw mode
+    DWORD mode;
+    GetConsoleMode(hStdin, &mode);
+    // Preserve processed input so Enter works; disable echo & line buffering
+    DWORD newMode = mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
+    SetConsoleMode(hStdin, newMode | ENABLE_PROCESSED_INPUT);
 
-auto redraw = [&](const std::string &in, size_t pos) {
-    std::cout << "\r";
-    print_prompt();
-    std::cout << std::string(300, ' '); // clear full line
-    std::cout << "\r";
-    print_prompt();
-    std::cout << in;
-    std::cout << "\r";
-    print_prompt();
-    if (pos > 0) std::cout << in.substr(0, pos);
-    std::cout.flush();
-};
-
+    auto redraw = [&](const std::string &in, size_t pos) {
+        std::cout << "\r";
+        print_prompt();
+        std::cout << std::string(300, ' ');
+        std::cout << "\r";
+        print_prompt();
+        std::cout << in;
+        std::cout << "\r";
+        print_prompt();
+        if (pos > 0) std::cout << in.substr(0, pos);
+        std::cout.flush();
+    };
 
     while (true) {
         int ch = _getch();
@@ -124,24 +126,12 @@ auto redraw = [&](const std::string &in, size_t pos) {
             redraw(input, cursor);
         }
 
-        // DELETE
-        else if (ch == 83 && (GetAsyncKeyState(VK_DELETE) & 0x8000)) {
-            if (cursor < input.size()) {
-                input.erase(cursor, 1);
-                redraw(input, cursor);
-            }
-        }
-
         // ARROWS
         else if (ch == 224) {
             ch = _getch();
-            if (ch == 75 && cursor > 0) { // LEFT
-                cursor--;
-                redraw(input, cursor);
-            } else if (ch == 77 && cursor < input.size()) { // RIGHT
-                cursor++;
-                redraw(input, cursor);
-            } else if (ch == 72) { // UP
+            if (ch == 75 && cursor > 0) { cursor--; redraw(input, cursor); }
+            else if (ch == 77 && cursor < input.size()) { cursor++; redraw(input, cursor); }
+            else if (ch == 72) { // UP
                 if (historyIndex > 0) {
                     historyIndex--;
                     input = history[historyIndex];
@@ -161,7 +151,7 @@ auto redraw = [&](const std::string &in, size_t pos) {
             }
         }
 
-        // TAB
+        // TAB completion
         else if (ch == 9) {
             size_t pos = input.find_last_of(' ');
             std::string prefix = (pos == std::string::npos) ? input : input.substr(pos + 1);
@@ -186,12 +176,12 @@ auto redraw = [&](const std::string &in, size_t pos) {
         }
     }
 
-    SetConsoleMode(hStdin, mode);
+    SetConsoleMode(hStdin, mode); // restore
     return input;
 }
 
 //───────────────────────────────────────────────
-// Execute via PATH resolution
+// Command execution
 static void execute_command(const std::vector<std::string> &tokens) {
     if (tokens.empty()) return;
     const std::string &cmd = tokens[0];
@@ -206,26 +196,11 @@ static void execute_command(const std::vector<std::string> &tokens) {
         return;
     }
 
-    // Build quoted command
     std::string command;
     for (auto &t : tokens) {
         if (!command.empty()) command += " ";
         if (t.find(' ') != std::string::npos) command += '"' + t + '"';
         else command += t;
-    }
-
-    // PATH search
-    char *env_path = getenv("PATH");
-    std::vector<std::string> paths;
-    if (env_path) {
-        std::istringstream iss(env_path);
-        std::string seg;
-        while (std::getline(iss, seg, ';')) paths.push_back(seg);
-    }
-
-    for (const auto &p : paths) {
-        fs::path full = fs::path(p) / (cmd + ".exe");
-        if (fs::exists(full)) { command.replace(0, cmd.size(), full.string()); break; }
     }
 
     system(command.c_str());
@@ -235,7 +210,7 @@ static void execute_command(const std::vector<std::string> &tokens) {
 // Main
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.5a (interactive editing, tab, history)\n";
+    std::cout << "Winix Shell v1.5b (input stable, tab path, full erase)\n";
 
     std::vector<std::string> history;
     load_history(history);
