@@ -104,16 +104,26 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     DWORD rawMode = originalMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
     SetConsoleMode(hIn, rawMode | ENABLE_PROCESSED_INPUT);
 
-    auto redraw = [&](const std::string &in, size_t pos) {
-        clear_line();
-        std::cout << in;
-        std::cout.flush();
-        if (pos < in.size()) {
-            size_t moveLeft = in.size() - pos;
-            for (size_t i = 0; i < moveLeft; ++i) std::cout << "\b";
-        }
-        std::cout.flush();
-    };
+auto redraw = [&](const std::string &in, size_t pos) {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hOut, &csbi);
+    int width = csbi.dwSize.X - 1; // current console width
+
+    std::cout << "\r";
+    std::cout << std::string(width, ' ') << "\r";
+    print_prompt();
+    std::cout << in;
+    std::cout.flush();
+
+    // reposition cursor if not at end
+    if (pos < in.size()) {
+        size_t moveLeft = in.size() - pos;
+        for (size_t i = 0; i < moveLeft; ++i) std::cout << "\b";
+    }
+    std::cout.flush();
+};
+
 
     while (true) {
         int ch = _getch();
