@@ -142,29 +142,46 @@ auto redraw = [&](const std::string &in, size_t pos) {
         }
 
         // ARROWS
-        else if (ch == 224) {
-            ch = _getch();
-            if (ch == 75 && cursor > 0) { cursor--; redraw(input, cursor); }
-            else if (ch == 77 && cursor < input.size()) { cursor++; redraw(input, cursor); }
-            else if (ch == 72) { // UP
-                if (historyIndex > 0) {
-                    historyIndex--;
-                    input = history[historyIndex];
-                    cursor = input.size();
-                    redraw(input, cursor);
-                }
-            } else if (ch == 80) { // DOWN
-                if (historyIndex + 1 < (int)history.size()) {
-                    historyIndex++;
-                    input = history[historyIndex];
-                } else {
-                    historyIndex = history.size();
-                    input.clear();
-                }
-                cursor = input.size();
-                redraw(input, cursor);
-            }
+else if (ch == 224) {
+    ch = _getch();
+
+    if (ch == 75 && cursor > 0) { // ← Left
+        cursor--;
+        redraw(input, cursor);
+    }
+    else if (ch == 77 && cursor < input.size()) { // → Right
+        cursor++;
+        redraw(input, cursor);
+    }
+    else if (ch == 71) { // Home
+        cursor = 0;
+        redraw(input, cursor);
+    }
+    else if (ch == 79) { // End
+        cursor = input.size();
+        redraw(input, cursor);
+    }
+    else if (ch == 72) { // ↑ Up
+        if (historyIndex > 0) {
+            historyIndex--;
+            input = history[historyIndex];
+            cursor = input.size();
+            redraw(input, cursor);
         }
+    }
+    else if (ch == 80) { // ↓ Down
+        if (historyIndex + 1 < (int)history.size()) {
+            historyIndex++;
+            input = history[historyIndex];
+        } else {
+            historyIndex = history.size();
+            input.clear();
+        }
+        cursor = input.size();
+        redraw(input, cursor);
+    }
+}
+
 
         // TAB completion
         else if (ch == 9) {
