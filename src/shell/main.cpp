@@ -1,3 +1,5 @@
+// Winix Shell v1.8 (CMD fallback, quote-aware TAB, color restore, handle hygiene)
+
 #include <windows.h>
 #include <conio.h>
 #include <io.h>
@@ -33,21 +35,20 @@ static std::string prompt() {
     return "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
 }
 
-static void redraw_line(const std::string& p, const std::string& buf, size_t cursor) {
-    std::cout << "\r\033[K" << p << buf;
-    size_t target = p.size() + cursor;
-    size_t current = p.size() + buf.size();
+static void redraw_line(const std::string& promptStr, const std::string& buf, size_t cursor) {
+    std::cout << "\r\033[K" << promptStr << buf;
+    size_t target = promptStr.size() + cursor;
+    size_t current = promptStr.size() + buf.size();
     if (current > target) {
         std::cout << std::string(current - target, '\b');
     }
     std::cout.flush();
 }
 
-// ========== Small utils ==========
+// ========== Utility ==========
 static bool is_exe_path(const std::string& s) {
     return s.find('\\') != std::string::npos || s.find('/') != std::string::npos;
 }
-
 static bool ends_with_casei(const std::string& s, const std::string& suf) {
     if (s.size() < suf.size()) return false;
     auto a = s.end() - suf.size();
@@ -64,7 +65,10 @@ static std::string join_cmdline(const std::vector<std::string>& argv) {
         if (i) oss << ' ';
         if (!needQuote) { oss << a; continue; }
         oss << '"';
-        for (char c : a) { if (c == '"') oss << '\\'; oss << c; }
+        for (char c : a) {
+            if (c == '"') oss << '\\';
+            oss << c;
+        }
         oss << '"';
     }
     return oss.str();
@@ -74,7 +78,7 @@ static std::string expand_env_once(const std::string& in) {
     std::string out;
     out.reserve(in.size());
     for (size_t i=0;i<in.size();) {
-        if (in[i] == '%') {
+        if (in[i] == '%' ) {
             size_t j = in.find('%', i+1);
             if (j != std::string::npos) {
                 std::string name = in.substr(i+1, j-(i+1));
@@ -89,13 +93,7 @@ static std::string expand_env_once(const std::string& in) {
     return out;
 }
 
-static std::string normalize_path(const std::string& s) {
-    std::string out = s;
-    std::replace(out.begin(), out.end(), '\\', '/');
-    return out;
-}
-
-// ========== Tokenizer ==========
+// ========== Tokenizer (quotes, escapes) ==========
 static std::vector<std::string> tokenize(const std::string& line) {
     std::vector<std::string> out;
     std::string cur;
@@ -114,7 +112,7 @@ static std::vector<std::string> tokenize(const std::string& line) {
     return out;
 }
 
-// ========== Globbing (* ?) (cwd only) ==========
+// ========== Globbing (* ?) ==========
 static bool match_wild(const std::string& name, const std::string& pat) {
     size_t n = 0, p = 0, star = std::string::npos, ss = 0;
     while (n < name.size()) {
@@ -139,7 +137,8 @@ static std::vector<std::string> expand_globs_one(const std::string& token) {
     std::vector<std::string> matches;
     for (auto& e : fs::directory_iterator(fs::current_path())) {
         std::string name = e.path().filename().string();
-        if (match_wild(name, token)) matches.push_back(name);
+        if (match_wild(name, token))
+            matches.push_back(name);
     }
     if (matches.empty()) return { token };
     std::sort(matches.begin(), matches.end());
@@ -157,6 +156,7 @@ static std::vector<std::string> expand_globs(const std::vector<std::string>& arg
 
 // ========== PATH search ==========
 static std::string find_on_path(const std::string& cmd) {
+    if (cmd.empty()) return cmd;
     if (is_exe_path(cmd)) {
         std::string p = cmd;
         if (!ends_with_casei(p, ".exe")) p += ".exe";
@@ -165,13 +165,21 @@ static std::string find_on_path(const std::string& cmd) {
     }
     char* envp = std::getenv("PATH");
     std::string path = envp ? envp : "";
+    std::vector<std::string> dirs;
     std::stringstream ss(path);
-    std::string d;
-    while (std::getline(ss, d, ';')) {
-        if (d.empty()) continue;
-        std::string base = (fs::path(d) / cmd).string();
-        if (fs::exists(base + ".exe")) return base + ".exe";
+    std::string item;
+    while (std::getline(ss, item, ';')) if (!item.empty()) dirs.push_back(item);
+
+    auto try_file = [&](const std::string& base)->std::string{
         if (fs::exists(base)) return base;
+        return {};
+    };
+
+    for (auto& d : dirs) {
+        std::string base1 = (fs::path(d) / cmd).string();
+        std::string base2 = base1 + ".exe";
+        if (auto p = try_file(base2); !p.empty()) return p;
+        if (auto p = try_file(base1); !p.empty()) return p;
     }
     if (fs::exists(cmd)) return cmd;
     if (fs::exists(cmd + ".exe")) return cmd + ".exe";
@@ -180,7 +188,8 @@ static std::string find_on_path(const std::string& cmd) {
 
 // ========== Pipes & Redirection ==========
 struct Redir {
-    std::string inPath, outPath;
+    std::string inPath;
+    std::string outPath;
     bool append = false;
 };
 
@@ -211,6 +220,7 @@ static bool spawn_proc(const std::vector<std::string>& argv,
     std::vector<std::string> withPath = argv;
     withPath[0] = find_on_path(withPath[0]);
     std::string cmdline = join_cmdline(withPath);
+
     std::vector<char> buf(cmdline.begin(), cmdline.end());
     buf.push_back('\0');
 
@@ -219,23 +229,53 @@ static bool spawn_proc(const std::vector<std::string>& argv,
     sa.bInheritHandle = TRUE;
 
     BOOL ok = CreateProcessA(
-        nullptr, buf.data(),
+        nullptr,
+        buf.data(),
         nullptr, nullptr,
-        TRUE, 0, nullptr, nullptr,
+        TRUE,
+        0, nullptr, nullptr,
         &si, &pi
     );
     return ok == TRUE;
 }
 
+// Fallback: run whole line through CMD (DOS builtins, &&, ||, etc.)
+static bool run_via_cmd(const std::string& wholeLine) {
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+
+    std::string full = "cmd.exe /C " + wholeLine;
+    std::vector<char> buf(full.begin(), full.end());
+    buf.push_back('\0');
+
+    PROCESS_INFORMATION pi{};
+    BOOL ok = CreateProcessA(
+        nullptr, buf.data(),
+        nullptr, nullptr,
+        TRUE, 0, nullptr, nullptr,
+        &si, &pi
+    );
+    if (!ok) return false;
+    CloseHandle(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 static bool exec_pipeline(std::vector<std::string> argv) {
     // Split by '|'
-    std::vector<std::vector<std::string>> stages(1);
+    std::vector<std::vector<std::string>> stages;
+    stages.emplace_back();
     for (auto& t : argv) {
         if (t == "|") stages.emplace_back();
         else stages.back().push_back(t);
     }
 
-    // Builtins (single stage)
+    // Built-ins (only single stage)
     if (stages.size() == 1 && !stages[0].empty()) {
         const std::string& cmd = stages[0][0];
         if (cmd == "cd") {
@@ -244,15 +284,18 @@ static bool exec_pipeline(std::vector<std::string> argv) {
                 catch (...) { std::cerr << "cd: cannot access " << stages[0][1] << "\n"; }
             }
             return true;
-        } else if (cmd == "pwd") {
-            std::cout << fs::current_path().string() << "\n"; return true;
-        } else if (cmd == "clear" || cmd == "cls") {
-            system("cls"); return true;
-        } else if (cmd == "exit" || cmd == "quit") {
-            std::cout << "Goodbye.\n"; exit(0);
+        }
+        if (cmd == "clear" || cmd == "cls") {
+            system("cls");
+            return true;
+        }
+        if (cmd == "exit" || cmd == "quit") {
+            std::cout << "Goodbye.\n";
+            exit(0);
         }
     }
 
+    // Prepare pipes and spawn each stage
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -262,14 +305,18 @@ static bool exec_pipeline(std::vector<std::string> argv) {
 
     for (size_t i = 0; i < stages.size(); ++i) {
         std::vector<std::string> args = stages[i];
-        Redir r{}; split_redirs(args, r);
+        Redir r{};
+        split_redirs(args, r);
 
-        for (auto& a : args) a = normalize_path(expand_env_once(a));
+        // env + glob expansion (post redir-strip)
+        for (auto& a : args) a = expand_env_once(a);
         args = expand_globs(args);
         if (args.empty()) return true;
 
+        // std handles for this stage
         HANDLE hIn = hPrevRead;
         HANDLE hOut = nullptr;
+
         HANDLE hFileIn = nullptr, hFileOut = nullptr;
 
         if (i == 0 && !r.inPath.empty()) {
@@ -290,7 +337,7 @@ static bool exec_pipeline(std::vector<std::string> argv) {
             if (hFileOut == INVALID_HANDLE_VALUE) {
                 std::cerr << "Cannot open output: " << r.outPath << "\n";
                 if (hPrevRead) CloseHandle(hPrevRead);
-                if (hFileIn && hFileIn!=INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
+                if (hFileIn && hFileIn != INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
                 return true;
             }
             if (r.append) SetFilePointer(hFileOut, 0, nullptr, FILE_END);
@@ -302,8 +349,8 @@ static bool exec_pipeline(std::vector<std::string> argv) {
             if (!CreatePipe(&thisRead, &thisWrite, &sa, 0)) {
                 std::cerr << "CreatePipe failed.\n";
                 if (hPrevRead) CloseHandle(hPrevRead);
-                if (hFileIn && hFileIn!=INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
-                if (hFileOut && hFileOut!=INVALID_HANDLE_VALUE) CloseHandle(hFileOut);
+                if (hFileIn && hFileIn != INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
+                if (hFileOut && hFileOut != INVALID_HANDLE_VALUE) CloseHandle(hFileOut);
                 return true;
             }
             hOut = thisWrite;
@@ -311,24 +358,38 @@ static bool exec_pipeline(std::vector<std::string> argv) {
 
         PROCESS_INFORMATION pi{};
         if (!spawn_proc(args, hIn, hOut, pi)) {
+            // If single-stage and spawn failed, try CMD fallback (handles DOS builtins)
+            if (stages.size() == 1) {
+                if (hPrevRead) CloseHandle(hPrevRead);
+                if (thisRead) CloseHandle(thisRead);
+                if (thisWrite) CloseHandle(thisWrite);
+                if (hFileIn && hFileIn != INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
+                if (hFileOut && hFileOut != INVALID_HANDLE_VALUE) CloseHandle(hFileOut);
+                return false; // let caller run_via_cmd(line)
+            }
             std::cerr << "Error: failed to start: " << args[0] << "\n";
             if (hPrevRead) CloseHandle(hPrevRead);
-            if (hFileIn && hFileIn!=INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
-            if (hFileOut && hFileOut!=INVALID_HANDLE_VALUE) CloseHandle(hFileOut);
             if (thisRead) CloseHandle(thisRead);
             if (thisWrite) CloseHandle(thisWrite);
+            if (hFileIn && hFileIn != INVALID_HANDLE_VALUE) CloseHandle(hFileIn);
+            if (hFileOut && hFileOut != INVALID_HANDLE_VALUE) CloseHandle(hFileOut);
             return true;
         }
         procs[i] = pi;
 
+        // Parent closes our copies no longer needed
         if (hIn && hIn != GetStdHandle(STD_INPUT_HANDLE)) CloseHandle(hIn);
         if (hOut && hOut != GetStdHandle(STD_OUTPUT_HANDLE)) CloseHandle(hOut);
+
+        // Important: close our write-end immediately so downstream sees EOF correctly
+        if (thisWrite) { CloseHandle(thisWrite); }
 
         hPrevRead = thisRead;
         CloseHandle(pi.hThread);
     }
 
     if (hPrevRead) CloseHandle(hPrevRead);
+
     for (auto& p : procs) {
         WaitForSingleObject(p.hProcess, INFINITE);
         CloseHandle(p.hProcess);
@@ -336,68 +397,74 @@ static bool exec_pipeline(std::vector<std::string> argv) {
     return true;
 }
 
-// ========== Deep TAB completion ==========
-static std::vector<std::string> complete_path(const std::string& token) {
-    std::string norm = token;
-    std::replace(norm.begin(), norm.end(), '\\', '/');
-
-    size_t slash = norm.find_last_of('/');
-    std::string dirPart = (slash == std::string::npos) ? "" : norm.substr(0, slash + 1);
-    std::string base    = (slash == std::string::npos) ? norm : norm.substr(slash + 1);
-
-    fs::path dir = dirPart.empty() ? fs::current_path() : fs::path(dirPart);
+// ========== Quote-aware TAB completion ==========
+static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
     std::vector<std::string> matches;
-
-    std::error_code ec;
-    if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return matches;
-
-    for (auto& e : fs::directory_iterator(dir, ec)) {
-        if (ec) break;
-        std::string name = e.path().filename().string();
-        if (name.rfind(base, 0) == 0) {
-            std::string full = dirPart + name;
-            if (e.is_directory(ec)) full += "/";
-            matches.push_back(full);
-        }
+    for (auto &entry : fs::directory_iterator(fs::current_path())) {
+        std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) matches.push_back(name);
     }
     std::sort(matches.begin(), matches.end());
     return matches;
 }
 
-static void tab_complete(const std::string& p, std::string& buf, size_t& cursor) {
-    size_t start = buf.find_last_of(" \t", cursor ? cursor - 1 : 0);
-    if (start == std::string::npos) start = 0; else start += 1;
-    std::string token = buf.substr(start, cursor - start);
+static void tab_complete(std::string& buf, size_t& cursor) {
+    // Find token boundaries considering quotes
+    bool inQuotes = false;
+    size_t tokenStart = 0;
+    for (size_t i = 0; i < cursor; ++i) {
+        if (buf[i] == '"') inQuotes = !inQuotes;
+        if (!inQuotes && (buf[i] == ' ' || buf[i] == '\t')) tokenStart = i + 1;
+    }
+    bool tokenQuoted = false;
+    if (tokenStart < buf.size() && buf[tokenStart] == '"') {
+        tokenQuoted = true;
+        tokenStart++; // skip opening quote
+    }
 
-    auto matches = complete_path(token);
+    std::string prefix = buf.substr(tokenStart, cursor - tokenStart);
+    auto matches = complete_in_cwd(prefix);
     if (matches.empty()) return;
 
+    auto emit_completion = [&](const std::string& full){
+        std::string add = full.substr(prefix.size());
+        buf.insert(cursor, add);
+        cursor += add.size();
+        const fs::path p(full);
+        bool isDir = fs::is_directory(p);
+        bool needsQuotes = full.find_first_of(" \t") != std::string::npos;
+        // If token was quoted or completion needs quotes, wrap token with quotes
+        if (needsQuotes && !tokenQuoted) {
+            // insert opening quote at tokenStart-1 (or add one before tokenStart)
+            buf.insert(tokenStart - 1, "\""); // safe only if tokenStart>0 and that char is the original "
+        }
+        if (isDir) { buf.insert(cursor, "\\"); cursor += 1; }
+        redraw_line(prompt(), buf, cursor);
+    };
+
     if (matches.size() == 1) {
-        const std::string& m = matches[0];
-        buf.erase(start, token.size());
-        buf.insert(start, m);
-        cursor = start + m.size();
-        redraw_line(p, buf, cursor);
+        emit_completion(matches[0]);
     } else {
         std::cout << "\n";
         int col = 0;
-        for (const auto& m : matches) {
+        for (auto &m : matches) {
             std::cout << m << "\t";
             if (++col % 4 == 0) std::cout << "\n";
         }
         std::cout << "\n";
-        redraw_line(p, buf, cursor);
+        redraw_line(prompt(), buf, cursor);
     }
 }
 
 // ========== Line editor ==========
-static std::string edit_line(const std::string& p,
+static std::string edit_line(const std::string& promptStr,
                              std::vector<std::string>& history,
                              int& histIndex)
 {
     std::string buf;
     size_t cursor = 0;
-    std::cout << p << std::flush;
+
+    std::cout << promptStr << std::flush;
 
     while (true) {
         int ch = _getch();
@@ -410,30 +477,34 @@ static std::string edit_line(const std::string& p,
             if (cursor > 0) {
                 buf.erase(buf.begin() + (cursor - 1));
                 --cursor;
-                redraw_line(p, buf, cursor);
+                redraw_line(promptStr, buf, cursor);
             }
         }
         else if (ch == 9) { // TAB
-            tab_complete(p, buf, cursor);
+            tab_complete(buf, cursor);
+            redraw_line(promptStr, buf, cursor);
         }
         else if (ch == 224 || ch == 0) { // extended keys
             int code = _getch();
             if (code == 75) { // LEFT
-                if (cursor > 0) { --cursor; redraw_line(p, buf, cursor); }
+                if (cursor > 0) { --cursor; redraw_line(promptStr, buf, cursor); }
             } else if (code == 77) { // RIGHT
-                if (cursor < buf.size()) { ++cursor; redraw_line(p, buf, cursor); }
+                if (cursor < buf.size()) { ++cursor; redraw_line(promptStr, buf, cursor); }
             } else if (code == 71) { // HOME
-                cursor = 0; redraw_line(p, buf, cursor);
+                cursor = 0; redraw_line(promptStr, buf, cursor);
             } else if (code == 79) { // END
-                cursor = buf.size(); redraw_line(p, buf, cursor);
+                cursor = buf.size(); redraw_line(promptStr, buf, cursor);
             } else if (code == 83) { // DEL
-                if (cursor < buf.size()) { buf.erase(buf.begin() + cursor); redraw_line(p, buf, cursor); }
+                if (cursor < buf.size()) {
+                    buf.erase(buf.begin() + cursor);
+                    redraw_line(promptStr, buf, cursor);
+                }
             } else if (code == 72) { // UP
                 if (histIndex > 0) {
                     histIndex--;
                     buf = history[histIndex];
                     cursor = buf.size();
-                    redraw_line(p, buf, cursor);
+                    redraw_line(promptStr, buf, cursor);
                 }
             } else if (code == 80) { // DOWN
                 if (histIndex + 1 < (int)history.size()) {
@@ -445,40 +516,50 @@ static std::string edit_line(const std::string& p,
                     buf.clear();
                     cursor = 0;
                 }
-                redraw_line(p, buf, cursor);
+                redraw_line(promptStr, buf, cursor);
             }
         }
         else if (ch == 1) { // Ctrl+A
-            cursor = 0; redraw_line(p, buf, cursor);
+            cursor = 0; redraw_line(promptStr, buf, cursor);
         }
         else if (ch == 5) { // Ctrl+E
-            cursor = buf.size(); redraw_line(p, buf, cursor);
+            cursor = buf.size(); redraw_line(promptStr, buf, cursor);
         }
         else if (ch == 21) { // Ctrl+U
-            buf.erase(0, cursor);
-            cursor = 0; redraw_line(p, buf, cursor);
+            buf.erase(0, cursor); cursor = 0; redraw_line(promptStr, buf, cursor);
         }
         else if (ch == 11) { // Ctrl+K
-            buf.erase(cursor);
-            redraw_line(p, buf, cursor);
+            buf.erase(cursor); redraw_line(promptStr, buf, cursor);
         }
         else if (std::isprint((unsigned char)ch)) {
             buf.insert(buf.begin() + cursor, (char)ch);
             ++cursor;
-            redraw_line(p, buf, cursor);
+            redraw_line(promptStr, buf, cursor);
         }
     }
 }
 
-// ========== Command line -> Exec ==========
+// ========== Command Line -> Pipeline Exec with CMD fallback ==========
 static bool run_command_line(const std::string& lineRaw) {
     if (lineRaw.empty()) return true;
+
+    // Quick pass: if the user typed explicit CMD metachars (&, &&, ||, parentheses),
+    // just hand the whole thing to CMD so behavior matches Windows.
+    if (lineRaw.find('&') != std::string::npos ||
+        lineRaw.find("||") != std::string::npos ||
+        lineRaw.find('(')  != std::string::npos ||
+        lineRaw.find(')')  != std::string::npos)
+    {
+        return run_via_cmd(lineRaw);
+    }
+
     std::string line = expand_env_once(lineRaw);
     auto tokens = tokenize(line);
-    for (auto &t : tokens) t = normalize_path(t);
 
+    // Builtins fast-path (no pipes)
     if (!tokens.empty() && tokens[0] == "cd" && tokens.size() == 1) {
-        std::cout << fs::current_path().string() << "\n"; return true;
+        std::cout << fs::current_path().string() << "\n";
+        return true;
     }
     if (!tokens.empty() && (tokens[0] == "exit" || tokens[0] == "quit")) {
         std::cout << "Goodbye.\n"; exit(0);
@@ -487,7 +568,11 @@ static bool run_command_line(const std::string& lineRaw) {
         system("cls"); return true;
     }
 
-    return exec_pipeline(tokens);
+    // Execute (pipes + redirs inside)
+    // If single-stage spawn fails (e.g., 'dir'), we route whole line to CMD.
+    bool ok = exec_pipeline(tokens);
+    if (!ok) return run_via_cmd(lineRaw);
+    return true;
 }
 
 // ========== History ==========
@@ -509,7 +594,7 @@ static void save_history(const std::vector<std::string>& history, const std::str
 // ========== main ==========
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.7 (globbing + deep TAB + pipes)\n";
+    std::cout << "Winix Shell v1.8 (CMD fallback, TAB quotes, color restore)\n";
 
     std::vector<std::string> history;
     load_history(history, "winix_history.txt", 500);
@@ -519,8 +604,10 @@ int main() {
         std::string p = prompt();
         std::string line = edit_line(p, history, histIndex);
         if (line.empty()) continue;
+
         history.push_back(line);
         histIndex = (int)history.size();
+
         run_command_line(line);
         save_history(history, "winix_history.txt", 500);
     }
