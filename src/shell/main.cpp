@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <fstream>
+#include <regex>
 
 namespace fs = std::filesystem;
 
@@ -34,13 +35,46 @@ static void print_prompt() {
 }
 
 // ──────────────────────────────────────────────
-// Tokenize
+// Split input into tokens with quote support
 static std::vector<std::string> split(const std::string &s) {
-    std::istringstream iss(s);
     std::vector<std::string> tokens;
     std::string token;
-    while (iss >> token) tokens.push_back(token);
+    bool inQuotes = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '"') {
+            inQuotes = !inQuotes;
+        } else if (isspace(c) && !inQuotes) {
+            if (!token.empty()) {
+                tokens.push_back(token);
+                token.clear();
+            }
+        } else {
+            token += c;
+        }
+    }
+    if (!token.empty()) tokens.push_back(token);
     return tokens;
+}
+
+// ──────────────────────────────────────────────
+// Expand environment variables ($VAR or %VAR%)
+static std::string expand_vars(const std::string &input) {
+    std::string result = input;
+    std::regex var_pattern(R"(\$([A-Za-z0-9_]+)|%([A-Za-z0-9_]+)%)");
+    std::smatch match;
+    std::string::const_iterator searchStart(result.cbegin());
+    std::string expanded;
+
+    while (std::regex_search(searchStart, result.cend(), match, var_pattern)) {
+        expanded += match.prefix();
+        std::string var = match[1].matched ? match[1].str() : match[2].str();
+        const char *val = std::getenv(var.c_str());
+        expanded += (val ? val : "");
+        searchStart = match.suffix().first;
+    }
+    expanded += std::string(searchStart, result.cend());
+    return expanded;
 }
 
 // ──────────────────────────────────────────────
@@ -77,40 +111,22 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
     while (true) {
         ch = _getch();
 
-        // ENTER
-        if (ch == 13) {
+        if (ch == 13) { // ENTER
             std::cout << "\n";
             break;
         }
-
-        // BACKSPACE
-        else if (ch == 8) {
+        else if (ch == 8) { // BACKSPACE
             if (cursor > 0) {
                 input.erase(cursor - 1, 1);
                 cursor--;
                 redraw(input, cursor);
             }
         }
-
-        // CTRL KEYS
-        else if (ch == 1) { // Ctrl+A
-            cursor = 0;
-            redraw(input, cursor);
-        } else if (ch == 5) { // Ctrl+E
-            cursor = input.size();
-            redraw(input, cursor);
-        } else if (ch == 21) { // Ctrl+U
-            input.erase(0, cursor);
-            cursor = 0;
-            redraw(input, cursor);
-        } else if (ch == 11) { // Ctrl+K
-            input.erase(cursor);
-            redraw(input, cursor);
-        } else if (ch == 12) { // Ctrl+L
-            system("cls");
-            print_prompt();
-            std::cout << input;
-        }
+        else if (ch == 1) { cursor = 0; redraw(input, cursor); }         // Ctrl+A
+        else if (ch == 5) { cursor = input.size(); redraw(input, cursor); } // Ctrl+E
+        else if (ch == 21) { input.erase(0, cursor); cursor = 0; redraw(input, cursor); } // Ctrl+U
+        else if (ch == 11) { input.erase(cursor); redraw(input, cursor); } // Ctrl+K
+        else if (ch == 12) { system("cls"); print_prompt(); std::cout << input; } // Ctrl+L
 
         // TAB completion
         else if (ch == 9) {
@@ -134,27 +150,18 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
         // ARROW KEYS
         else if (ch == 224) {
             ch = _getch();
-
-            if (ch == 75 && cursor > 0) { // ← Left
-                cursor--;
-                redraw(input, cursor);
-            } else if (ch == 77 && cursor < input.size()) { // → Right
-                cursor++;
-                redraw(input, cursor);
-            } else if (ch == 71) { // Home
-                cursor = 0;
-                redraw(input, cursor);
-            } else if (ch == 79) { // End
-                cursor = input.size();
-                redraw(input, cursor);
-            } else if (ch == 72) { // ↑ Up
+            if (ch == 75 && cursor > 0) { cursor--; redraw(input, cursor); }          // ←
+            else if (ch == 77 && cursor < input.size()) { cursor++; redraw(input, cursor); } // →
+            else if (ch == 71) { cursor = 0; redraw(input, cursor); }                 // Home
+            else if (ch == 79) { cursor = input.size(); redraw(input, cursor); }      // End
+            else if (ch == 72) { // ↑
                 if (historyIndex > 0) {
                     historyIndex--;
                     input = history[historyIndex];
                     cursor = input.size();
                     redraw(input, cursor);
                 }
-            } else if (ch == 80) { // ↓ Down
+            } else if (ch == 80) { // ↓
                 if (historyIndex + 1 < (int)history.size()) {
                     historyIndex++;
                     input = history[historyIndex];
@@ -167,7 +174,7 @@ static std::string read_input(std::vector<std::string> &history, int &historyInd
             }
         }
 
-        // PRINTABLE CHARACTER
+        // PRINTABLE CHAR
         else if (isprint(ch)) {
             input.insert(cursor, 1, (char)ch);
             cursor++;
@@ -201,6 +208,8 @@ static void execute_command(const std::vector<std::string> &tokens) {
         if (!cmd.empty()) cmd += " ";
         cmd += t;
     }
+
+    cmd = expand_vars(cmd);
     system(cmd.c_str());
 }
 
@@ -222,7 +231,7 @@ int main() {
             history.erase(history.begin(), history.end() - 50);
     }
 
-    std::cout << "Winix Shell v1.5g (Ctrl+A/E/U/K/L, full readline)\n";
+    std::cout << "Winix Shell v1.6 (quoted args + var expansion)\n";
 
     std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
     path += ";build";
@@ -234,6 +243,13 @@ int main() {
         if (input.empty()) continue;
         history.push_back(input);
         historyIndex = history.size();
+
+        // Save history to disk
+        std::ofstream hf("winix_history.txt", std::ios::trunc);
+        int start = std::max(0, (int)history.size() - 50);
+        for (size_t i = start; i < history.size(); ++i)
+            hf << history[i] << "\n";
+
         execute_command(split(input));
     }
 
