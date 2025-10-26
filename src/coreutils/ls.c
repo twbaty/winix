@@ -6,6 +6,7 @@
 #include <unistd.h>     // isatty()
 #include <stdbool.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 // --- ANSI color codes ---
 #define BLUE   "\033[1;34m"
@@ -70,15 +71,19 @@ int main(int argc, char *argv[]) {
             if (strchr(argv[i], 'l')) long_list = true;
         } else path = argv[i];
     }
-
+    // file/directory check 
     struct stat st;
-if (stat(path, &st) == 0) {
-    if (S_ISDIR(st.st_mode)) {
-        // existing directory listing logic
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            // existing directory listing logic
+            list_directory(path);  // whatever your current function name is
+        } else {
+            printf("%s\n", path);  // just print file name
+        }
     } else {
-        printf("%s\n", path);   // just print file name
-    }
-}
+        fprintf(stderr, "ls: No such file or directory\n");
+    }    
+
 
     DIR *dir = opendir(path);
     if (!dir) { perror("ls"); return 1; }
