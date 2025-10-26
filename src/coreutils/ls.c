@@ -71,6 +71,15 @@ int main(int argc, char *argv[]) {
         } else path = argv[i];
     }
 
+    struct stat st;
+if (stat(path, &st) == 0) {
+    if (S_ISDIR(st.st_mode)) {
+        // existing directory listing logic
+    } else {
+        printf("%s\n", path);   // just print file name
+    }
+}
+
     DIR *dir = opendir(path);
     if (!dir) { perror("ls"); return 1; }
 
