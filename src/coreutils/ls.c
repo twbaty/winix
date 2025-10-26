@@ -3,109 +3,75 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <unistd.h>     // isatty()
 #include <stdbool.h>
-#include <errno.h>
-#include <sys/stat.h>
 
-// --- ANSI color codes ---
-#define BLUE   "\033[1;34m"
-#define GREEN  "\033[1;32m"
-#define CYAN   "\033[1;36m"
-#define MAGENT "\033[1;35m"
-#define YELLO  "\033[1;33m"
-#define RED    "\033[1;31m"
-#define RESET  "\033[0m"
+static bool show_all = false;
+static bool long_list = false;
 
-// --- Fallbacks for Windows ---
-#ifndef S_ISLNK
-#define S_ISLNK(mode)  (0)  // Windows doesn't expose symbolic link type via stat
-#endif
+static void list_directory(const char *path) {
+    DIR *dir = opendir(path);
+    if (!dir) {
+        perror("ls");
+        return;
+    }
 
-static bool color_auto = true;
-static bool color_enabled = false;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!show_all && entry->d_name[0] == '.')
+            continue;
 
-static void parse_color_flag(int *argc, char **argv) {
-    for (int i = 1; i < *argc; ++i) {
-        if (strncmp(argv[i], "--color", 7) == 0) {
-            const char *arg = strchr(argv[i], '=');
-            if (arg) arg++;
-            else if (i + 1 < *argc) arg = argv[++i];
-            else arg = "auto";
-
-            if (strcmp(arg, "always") == 0) { color_enabled = true; color_auto = false; }
-            else if (strcmp(arg, "never") == 0) { color_enabled = false; color_auto = false; }
-            else { color_auto = true; }
-
-            for (int j = i; j + 1 < *argc; ++j) argv[j] = argv[j + 1];
-            (*argc)--;
-            return;
+        if (long_list) {
+            struct stat st;
+            char fullpath[1024];
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
+            if (stat(fullpath, &st) == 0) {
+                printf("%10lld %s\n", (long long)st.st_size, entry->d_name);
+            } else {
+                printf("?????????? %s\n", entry->d_name);
+            }
+        } else {
+            printf("%s  ", entry->d_name);
         }
     }
-}
+    if (!long_list) printf("\n");
 
-static const char *color_for(const struct stat *st, const char *name) {
-    if (!color_enabled) return "";
-    if (S_ISDIR(st->st_mode)) return BLUE;
-    if (S_ISLNK(st->st_mode)) return CYAN;   // no-op on Windows, but keeps parity
-    if (st->st_mode & S_IXUSR) return GREEN;
-    const char *ext = strrchr(name, '.');
-    if (ext) {
-        if (!strcmp(ext, ".zip") || !strcmp(ext, ".gz") || !strcmp(ext, ".tar") ||
-            !strcmp(ext, ".bz2") || !strcmp(ext, ".7z"))
-            return MAGENT;
-    }
-    return "";
+    closedir(dir);
 }
 
 int main(int argc, char *argv[]) {
-    parse_color_flag(&argc, argv);
-    if (color_auto && isatty(STDOUT_FILENO)) color_enabled = true;
-
-    const char *path = ".";
-    bool show_all = false, long_list = false;
-
+    // Parse flags and paths
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-') {
             if (strchr(argv[i], 'a')) show_all = true;
             if (strchr(argv[i], 'l')) long_list = true;
-        } else path = argv[i];
-    }
-    // file/directory check 
-    struct stat st;
-    if (stat(path, &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            // existing directory listing logic
-            list_directory(path);  // whatever your current function name is
-        } else {
-            printf("%s\n", path);  // just print file name
         }
-    } else {
-        fprintf(stderr, "ls: No such file or directory\n");
-    }    
+    }
 
+    bool listed = false;
 
-    DIR *dir = opendir(path);
-    if (!dir) { perror("ls"); return 1; }
+    // Process each path argument
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i][0] == '-') continue;
 
-    struct dirent *ent;
-    while ((ent = readdir(dir))) {
-        if (!show_all && ent->d_name[0] == '.') continue;
+        const char *path = argv[i];
         struct stat st;
-        char buf[1024];
-        snprintf(buf, sizeof(buf), "%s/%s", path, ent->d_name);
-        if (stat(buf, &st) != 0) continue;
 
-        const char *color = color_for(&st, ent->d_name);
-        const char *reset = color_enabled ? RESET : "";
-        if (long_list) {
-            printf("%10lld %s%s%s\n",
-                   (long long)st.st_size, color, ent->d_name, reset);
+        if (stat(path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                list_directory(path);
+            } else {
+                printf("%s\n", path);
+            }
+            listed = true;
         } else {
-            printf("%s%s%s  ", color, ent->d_name, reset);
+            fprintf(stderr, "ls: No such file or directory\n");
         }
     }
-    if (!long_list) putchar('\n');
-    closedir(dir);
+
+    // Default to current directory if no paths provided
+    if (!listed) {
+        list_directory(".");
+    }
+
     return 0;
 }
