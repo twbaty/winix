@@ -74,13 +74,15 @@ static std::string join_cmdline(const std::vector<std::string>& argv) {
 static std::string expand_env_once(const std::string& in) {
     std::string out;
     out.reserve(in.size());
+
     for (size_t i = 0; i < in.size();) {
         if (in[i] == '%') {
             size_t j = in.find('%', i + 1);
             if (j != std::string::npos) {
                 std::string name = in.substr(i + 1, j - (i + 1));
-                const char* v = std::getenv(name.c_str());
-                if (v) out += v;
+                char buf[32767];
+                DWORD len = GetEnvironmentVariableA(name.c_str(), buf, sizeof(buf));
+                if (len > 0 && len < sizeof(buf)) out.append(buf, len);
                 i = j + 1;
                 continue;
             }
@@ -88,8 +90,9 @@ static std::string expand_env_once(const std::string& in) {
             size_t j = i + 1;
             while (j < in.size() && (isalnum((unsigned char)in[j]) || in[j] == '_')) ++j;
             std::string name = in.substr(i + 1, j - (i + 1));
-            const char* v = std::getenv(name.c_str());
-            if (v) out += v;
+            char buf[32767];
+            DWORD len = GetEnvironmentVariableA(name.c_str(), buf, sizeof(buf));
+            if (len > 0 && len < sizeof(buf)) out.append(buf, len);
             i = j;
             continue;
         }
@@ -97,6 +100,7 @@ static std::string expand_env_once(const std::string& in) {
     }
     return out;
 }
+
 
 // ===== Tokenizer =====
 static std::vector<std::string> tokenize(const std::string& line) {
