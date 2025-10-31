@@ -643,6 +643,7 @@ if (!cmdline.empty() && cmdline.find('\\') == std::string::npos && cmdline.find(
 }
 
 return spawn_proc(cmdline, background, r);
+}
 
 // ---------- REPL ----------
 int main() {
