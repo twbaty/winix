@@ -622,22 +622,27 @@ static DWORD run_simple_command(std::vector<std::string> argv, const Redir& r, b
         return 0;
     }
 
-    // External
-    std::ostringstream oss;
-    for (size_t i=first_cmd_idx; i<argv.size(); ++i) {
-        // Simple quoting for spaces/quotes
-        const std::string& a = argv[i];
-        bool need_q = a.find_first_of(" \t\"") != std::string::npos;
-        if (!need_q) { oss << a; }
-        else {
-            oss << '"';
-            for (char c: a) { if (c=='"') oss << '\\'; oss << c; }
-            oss << '"';
-        }
-        if (i+1<argv.size()) oss << " ";
+// External — automatically wrap bare commands with "cmd /C"
+std::ostringstream oss;
+for (size_t i = first_cmd_idx; i < argv.size(); ++i) {
+    const std::string& a = argv[i];
+    bool need_q = a.find_first_of(" \t\"") != std::string::npos;
+    if (!need_q) oss << a;
+    else {
+        oss << '"';
+        for (char c : a) { if (c == '"') oss << '\\'; oss << c; }
+        oss << '"';
     }
-    return spawn_proc(oss.str(), background, r);
+    if (i + 1 < argv.size()) oss << " ";
 }
+
+std::string cmdline = oss.str();
+if (!cmdline.empty() && cmdline.find('\\') == std::string::npos && cmdline.find('/') == std::string::npos) {
+    // no explicit path, likely a shell builtin
+    cmdline = "cmd /C " + cmdline;
+}
+
+return spawn_proc(cmdline, background, r);
 
 // ---------- REPL ----------
 int main() {
