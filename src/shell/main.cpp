@@ -155,8 +155,8 @@ static bool exec_command_chain(std::vector<std::string> tokens) {
             STARTUPINFOA si{};
             si.cb = sizeof(si);
             PROCESS_INFORMATION pi{};
-            BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr,nullptr,TRUE,
-                CREATE_NEW_CONSOLE,nullptr,nullptr,&si,&pi);
+            BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr, nullptr, TRUE,
+    0, nullptr, nullptr, &si, &pi);
             if (ok) {
                 std::cout << "[background] PID " << pi.dwProcessId << " started\n";
                 CloseHandle(pi.hThread);
@@ -188,6 +188,28 @@ static bool run_single(const std::vector<std::string>& argv) {
     }
     if (cmd == "exit" || cmd == "quit") { std::cout << "Goodbye.\n"; exit(0); }
 
+        if (cmd == "set") {
+        if (argv.size() == 1) {
+            // list current environment
+            LPCH env = GetEnvironmentStringsA();
+            LPCH cur = env;
+            while (*cur) {
+                std::cout << cur << "\n";
+                while (*cur++) {}
+            }
+            FreeEnvironmentStringsA(env);
+            return true;
+        }
+        auto eq = argv[1].find('=');
+        if (eq != std::string::npos) {
+            std::string key = argv[1].substr(0, eq);
+            std::string val = argv[1].substr(eq + 1);
+            SetEnvironmentVariableA(key.c_str(), val.c_str());
+            return true;
+        }
+    }
+
+    
     std::string cmdline = join_cmdline(argv);
     std::vector<char> buf(cmdline.begin(), cmdline.end());
     buf.push_back('\0');
