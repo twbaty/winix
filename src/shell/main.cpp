@@ -622,7 +622,7 @@ static DWORD run_simple_command(std::vector<std::string> argv, const Redir& r, b
         return 0;
     }
 
-// External — automatically wrap bare commands with "cmd /C"
+// --- External execution (auto cmd /C wrapper) ---
 std::ostringstream oss;
 for (size_t i = first_cmd_idx; i < argv.size(); ++i) {
     const std::string& a = argv[i];
@@ -637,13 +637,17 @@ for (size_t i = first_cmd_idx; i < argv.size(); ++i) {
 }
 
 std::string cmdline = oss.str();
-if (!cmdline.empty() && cmdline.find('\\') == std::string::npos && cmdline.find('/') == std::string::npos) {
-    // no explicit path, likely a shell builtin
+bool needs_cmd = true;
+if (cmdline.find('\\') != std::string::npos || cmdline.find('/') != std::string::npos)
+    needs_cmd = false;
+else if (cmdline.size() > 4 && (
+    cmdline.ends_with(".exe") || cmdline.ends_with(".bat") || cmdline.ends_with(".cmd")))
+    needs_cmd = false;
+
+if (needs_cmd)
     cmdline = "cmd /C " + cmdline;
-}
 
 return spawn_proc(cmdline, background, r);
-}
 
 // ---------- REPL ----------
 int main() {
