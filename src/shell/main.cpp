@@ -1,4 +1,11 @@
-// Winix Shell v1.8 (CMD fallback, quote-aware TAB, color restore, handle hygiene)
+// Winix Shell v1.9 — POSIX Parity (phase 1)
+// Additions over v1.8:
+// - Path-aware, recursive-ish TAB completion (subdirectory traversal)
+// - Contextual completion for `cd` (directories only)
+// - ~, %VAR%, $VAR and ${VAR} expansion (runtime + completion)
+// - `set VAR=value`, `set` (list), `export [VAR[=value]]`
+// - Persistent env via ~/.winixrc (simple KEY=VALUE lines)
+// - cd arg now honors env/tilde expansion
 
 #include <windows.h>
 #include <conio.h>
@@ -14,8 +21,82 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
+
+// Track env keys we set/export to persist into ~/.winixrc
+static std::unordered_set<std::string> g_modified_env;
+
+// ========== Helpers: home dir, rc path ==========
+static std::string getenv_str(const char* k) {
+    const char* v = std::getenv(k); return v ? std::string(v) : std::string();
+}
+
+static std::string home_dir() {
+    std::string h = getenv_str("USERPROFILE");
+    if (h.empty()) h = getenv_str("HOME");
+    if (h.empty()) {
+        try { h = fs::current_path().string(); } catch (...) { h = "."; }
+    }
+    return h;
+}
+
+static std::string rc_path() {
+    return (fs::path(home_dir()) / ".winixrc").string();
+}
+
+static void load_rc() {
+    std::ifstream f(rc_path());
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty()) continue;
+        if (line[0] == '#' || line[0] == ';') continue;
+        auto pos = line.find('=');
+        if (pos == std::string::npos) continue;
+        std::string k = line.substr(0, pos);
+        std::string v = line.substr(pos + 1);
+        // trim spaces around k
+        auto ltrim = [](std::string& s){ s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch){return !std::isspace(ch);})); };
+        auto rtrim = [](std::string& s){ s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch){return !std::isspace(ch);}).base(), s.end()); };
+        ltrim(k); rtrim(k);
+        // don't trim value; allow spaces
+        if (!k.empty()) {
+            _putenv_s(k.c_str(), v.c_str());
+        }
+    }
+}
+
+static void persist_env_to_rc() {
+    if (g_modified_env.empty()) return;
+    // Merge existing ~/.winixrc with modified entries
+    std::map<std::string, std::string> mapkv;
+    {
+        std::ifstream f(rc_path());
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line.empty() || line[0]=='#' || line[0]==';') continue;
+            auto pos = line.find('=');
+            if (pos == std::string::npos) continue;
+            std::string k = line.substr(0,pos);
+            std::string v = line.substr(pos+1);
+            // trim key
+            auto ltrim = [](std::string& s){ s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch){return !std::isspace(ch);})); };
+            auto rtrim = [](std::string& s){ s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch){return !std::isspace(ch);}).base(), s.end()); };
+            ltrim(k); rtrim(k);
+            mapkv[k] = v;
+        }
+    }
+    for (auto& k : g_modified_env) {
+        std::string v = getenv_str(k.c_str());
+        mapkv[k] = v; // overwrite/add
+    }
+    // write back
+    std::ofstream out(rc_path(), std::ios::trunc);
+    out << "# ~/.winixrc — persisted variables from Winix\n";
+    for (auto& [k,v] : mapkv) out << k << "=" << v << "\n";
+}
 
 // ========== Console / Prompt ==========
 static void enable_vt_mode() {
@@ -74,11 +155,11 @@ static std::string join_cmdline(const std::vector<std::string>& argv) {
     return oss.str();
 }
 
-static std::string expand_env_once(const std::string& in) {
-    std::string out;
-    out.reserve(in.size());
+// Percent expansion (legacy)
+static std::string expand_percent_vars(const std::string& in) {
+    std::string out; out.reserve(in.size());
     for (size_t i=0;i<in.size();) {
-        if (in[i] == '%' ) {
+        if (in[i] == '%') {
             size_t j = in.find('%', i+1);
             if (j != std::string::npos) {
                 std::string name = in.substr(i+1, j-(i+1));
@@ -91,6 +172,50 @@ static std::string expand_env_once(const std::string& in) {
         out.push_back(in[i++]);
     }
     return out;
+}
+
+// $VAR and ${VAR}
+static std::string expand_dollar_vars(const std::string& in) {
+    std::string out; out.reserve(in.size());
+    for (size_t i=0;i<in.size();) {
+        if (in[i] == '$') {
+            if (i+1 < in.size() && in[i+1] == '{') {
+                size_t j = in.find('}', i+2);
+                if (j != std::string::npos) {
+                    std::string name = in.substr(i+2, j-(i+2));
+                    const char* v = std::getenv(name.c_str());
+                    if (v) out += v;
+                    i = j+1; continue;
+                }
+            }
+            // $NAME pattern
+            size_t j = i+1;
+            while (j < in.size() && (std::isalnum((unsigned char)in[j]) || in[j]=='_')) j++;
+            if (j > i+1) {
+                std::string name = in.substr(i+1, j-(i+1));
+                const char* v = std::getenv(name.c_str());
+                if (v) out += v;
+                i = j; continue;
+            }
+        }
+        out.push_back(in[i++]);
+    }
+    return out;
+}
+
+static std::string expand_tilde(const std::string& in) {
+    if (in.empty()) return in;
+    // Only expand leading ~ or ~\\ or ~/
+    if (in[0] == '~') {
+        std::string rest = in.substr(1);
+        return home_dir() + rest;
+    }
+    return in;
+}
+
+static std::string expand_all_once(const std::string& in) {
+    // Order: ~ then % then $
+    return expand_dollar_vars(expand_percent_vars(expand_tilde(in)));
 }
 
 // ========== Tokenizer (quotes, escapes) ==========
@@ -134,11 +259,20 @@ static bool match_wild(const std::string& name, const std::string& pat) {
 static std::vector<std::string> expand_globs_one(const std::string& token) {
     if (token.find('*') == std::string::npos && token.find('?') == std::string::npos)
         return { token };
+
+    // Support patterns with directory components
+    fs::path p(token);
+    fs::path dir = p.has_parent_path() ? p.parent_path() : fs::current_path();
+    std::string pat = p.filename().string();
+
     std::vector<std::string> matches;
-    for (auto& e : fs::directory_iterator(fs::current_path())) {
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(dir, ec)) {
+        if (ec) break;
         std::string name = e.path().filename().string();
-        if (match_wild(name, token))
-            matches.push_back(name);
+        if (match_wild(name, pat)) {
+            matches.push_back((dir / name).string());
+        }
     }
     if (matches.empty()) return { token };
     std::sort(matches.begin(), matches.end());
@@ -280,8 +414,11 @@ static bool exec_pipeline(std::vector<std::string> argv) {
         const std::string& cmd = stages[0][0];
         if (cmd == "cd") {
             if (stages[0].size() > 1) {
-                try { fs::current_path(stages[0][1]); }
+                std::string target = expand_all_once(stages[0][1]);
+                try { fs::current_path(target); }
                 catch (...) { std::cerr << "cd: cannot access " << stages[0][1] << "\n"; }
+            } else {
+                std::cout << fs::current_path().string() << "\n";
             }
             return true;
         }
@@ -291,7 +428,62 @@ static bool exec_pipeline(std::vector<std::string> argv) {
         }
         if (cmd == "exit" || cmd == "quit") {
             std::cout << "Goodbye.\n";
+            persist_env_to_rc();
             exit(0);
+        }
+        if (cmd == "set") {
+            if (stages[0].size() == 1) {
+                // list env
+                LPCH env = GetEnvironmentStringsA();
+                if (env) {
+                    for (LPCH v = env; *v; ) {
+                        std::string line(v);
+                        std::cout << line << "\n";
+                        v += line.size() + 1;
+                    }
+                    FreeEnvironmentStringsA(env);
+                }
+                return true;
+            } else {
+                // allow: set VAR=value (no spaces around '=')
+                for (size_t i=1;i<stages[0].size();++i) {
+                    const std::string &arg = stages[0][i];
+                    auto pos = arg.find('=');
+                    if (pos == std::string::npos) {
+                        std::cerr << "set: expected VAR=value, got '" << arg << "'\n";
+                        continue;
+                    }
+                    std::string k = arg.substr(0,pos);
+                    std::string v = arg.substr(pos+1);
+                    _putenv_s(k.c_str(), v.c_str());
+                    g_modified_env.insert(k);
+                }
+                return true;
+            }
+        }
+        if (cmd == "export") {
+            // export VAR or export VAR=value
+            if (stages[0].size() == 1) {
+                // show exported we track
+                for (auto &k : g_modified_env) std::cout << k << "=" << getenv_str(k.c_str()) << "\n";
+                return true;
+            }
+            for (size_t i=1;i<stages[0].size();++i) {
+                std::string a = stages[0][i];
+                auto pos = a.find('=');
+                if (pos == std::string::npos) {
+                    // ensure exists
+                    std::string v = getenv_str(a.c_str());
+                    _putenv_s(a.c_str(), v.c_str());
+                    g_modified_env.insert(a);
+                } else {
+                    std::string k = a.substr(0,pos);
+                    std::string v = a.substr(pos+1);
+                    _putenv_s(k.c_str(), v.c_str());
+                    g_modified_env.insert(k);
+                }
+            }
+            return true;
         }
     }
 
@@ -309,7 +501,7 @@ static bool exec_pipeline(std::vector<std::string> argv) {
         split_redirs(args, r);
 
         // env + glob expansion (post redir-strip)
-        for (auto& a : args) a = expand_env_once(a);
+        for (auto& a : args) a = expand_all_once(a);
         args = expand_globs(args);
         if (args.empty()) return true;
 
@@ -320,7 +512,8 @@ static bool exec_pipeline(std::vector<std::string> argv) {
         HANDLE hFileIn = nullptr, hFileOut = nullptr;
 
         if (i == 0 && !r.inPath.empty()) {
-            hFileIn = CreateFileA(r.inPath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+            std::string inPath = expand_all_once(r.inPath);
+            hFileIn = CreateFileA(inPath.c_str(), GENERIC_READ, FILE_SHARE_READ,
                                   &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (hFileIn == INVALID_HANDLE_VALUE) {
                 std::cerr << "Cannot open input: " << r.inPath << "\n";
@@ -331,8 +524,9 @@ static bool exec_pipeline(std::vector<std::string> argv) {
         }
 
         if (i == stages.size()-1 && !r.outPath.empty()) {
+            std::string outPath = expand_all_once(r.outPath);
             DWORD disp = r.append ? OPEN_ALWAYS : CREATE_ALWAYS;
-            hFileOut = CreateFileA(r.outPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+            hFileOut = CreateFileA(outPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
                                    &sa, disp, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (hFileOut == INVALID_HANDLE_VALUE) {
                 std::cerr << "Cannot open output: " << r.outPath << "\n";
@@ -397,18 +591,54 @@ static bool exec_pipeline(std::vector<std::string> argv) {
     return true;
 }
 
-// ========== Quote-aware TAB completion ==========
-static std::vector<std::string> complete_in_cwd(const std::string &prefix) {
-    std::vector<std::string> matches;
-    for (auto &entry : fs::directory_iterator(fs::current_path())) {
-        std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0) matches.push_back(name);
+// ========== Quote & Context-aware TAB completion ==========
+
+static bool is_dir_safe(const fs::path& p) {
+    std::error_code ec; return fs::is_directory(p, ec);
+}
+
+static std::vector<std::string> list_matches_in_dir(const fs::path& dir, const std::string& base, bool dirsOnly) {
+    std::vector<std::string> v;
+    std::error_code ec;
+    for (auto &e : fs::directory_iterator(dir, ec)) {
+        if (ec) break;
+        std::string name = e.path().filename().string();
+        if (name.rfind(base, 0) == 0) {
+            if (dirsOnly && !is_dir_safe(e.path())) continue;
+            v.push_back(name + (is_dir_safe(e.path()) ? std::string(1, fs::path::preferred_separator) : std::string()));
+        }
     }
-    std::sort(matches.begin(), matches.end());
-    return matches;
+    std::sort(v.begin(), v.end());
+    return v;
+}
+
+static fs::path resolve_for_completion(const std::string& rawPrefix, std::string& baseOut) {
+    // Expand ~, %VAR%, $VAR for directory resolution only
+    std::string expanded = expand_all_once(rawPrefix);
+    fs::path p(expanded);
+    if (rawPrefix.empty()) { baseOut.clear(); return fs::current_path(); }
+
+    if (p.has_parent_path()) {
+        baseOut = p.filename().string();
+        return p.parent_path();
+    } else {
+        baseOut = expanded; // no separator present: search in CWD
+        return fs::current_path();
+    }
+}
+
+static void insert_completion(std::string& buf, size_t tokenStart, size_t& cursor, const std::string& completedTail) {
+    buf.insert(cursor, completedTail);
+    cursor += completedTail.size();
 }
 
 static void tab_complete(std::string& buf, size_t& cursor) {
+    // Determine if we're completing argument to `cd`
+    // Tokenize up to cursor to infer command context
+    std::string upto = buf.substr(0, cursor);
+    auto toks = tokenize(upto);
+    bool cdContext = (!toks.empty() && toks[0] == "cd");
+
     // Find token boundaries considering quotes
     bool inQuotes = false;
     size_t tokenStart = 0;
@@ -419,41 +649,38 @@ static void tab_complete(std::string& buf, size_t& cursor) {
     bool tokenQuoted = false;
     if (tokenStart < buf.size() && buf[tokenStart] == '"') {
         tokenQuoted = true;
-        tokenStart++; // skip opening quote
+        tokenStart++;
     }
 
-    std::string prefix = buf.substr(tokenStart, cursor - tokenStart);
-    auto matches = complete_in_cwd(prefix);
+    std::string token = buf.substr(tokenStart, cursor - tokenStart);
+
+    // Path-aware completion: resolve directory, then match base
+    std::string base;
+    fs::path dir = resolve_for_completion(token, base);
+    bool dirsOnly = cdContext; // contextual filter
+
+    auto matches = list_matches_in_dir(dir, base, dirsOnly);
     if (matches.empty()) return;
 
-    auto emit_completion = [&](const std::string& full){
-        std::string add = full.substr(prefix.size());
-        buf.insert(cursor, add);
-        cursor += add.size();
-        const fs::path p(full);
-        bool isDir = fs::is_directory(p);
-        bool needsQuotes = full.find_first_of(" \t") != std::string::npos;
-        // If token was quoted or completion needs quotes, wrap token with quotes
-        if (needsQuotes && !tokenQuoted) {
-            // insert opening quote at tokenStart-1 (or add one before tokenStart)
-            buf.insert(tokenStart - 1, "\""); // safe only if tokenStart>0 and that char is the original "
-        }
-        if (isDir) { buf.insert(cursor, "\\"); cursor += 1; }
-        redraw_line(prompt(), buf, cursor);
-    };
-
+    // If only one match, insert its tail relative to typed token
     if (matches.size() == 1) {
-        emit_completion(matches[0]);
-    } else {
-        std::cout << "\n";
-        int col = 0;
-        for (auto &m : matches) {
-            std::cout << m << "\t";
-            if (++col % 4 == 0) std::cout << "\n";
-        }
-        std::cout << "\n";
+        const std::string& full = matches[0];
+        // add only the part after current base
+        std::string tail = full.substr(base.size());
+        insert_completion(buf, tokenStart, cursor, tail);
         redraw_line(prompt(), buf, cursor);
+        return;
     }
+
+    // Many matches — print in columns
+    std::cout << "\n";
+    int col = 0;
+    for (auto &m : matches) {
+        std::cout << m << "\t";
+        if (++col % 4 == 0) std::cout << "\n";
+    }
+    std::cout << "\n";
+    redraw_line(prompt(), buf, cursor);
 }
 
 // ========== Line editor ==========
@@ -553,20 +780,10 @@ static bool run_command_line(const std::string& lineRaw) {
         return run_via_cmd(lineRaw);
     }
 
-    std::string line = expand_env_once(lineRaw);
+    std::string line = expand_all_once(lineRaw);
     auto tokens = tokenize(line);
 
-    // Builtins fast-path (no pipes)
-    if (!tokens.empty() && tokens[0] == "cd" && tokens.size() == 1) {
-        std::cout << fs::current_path().string() << "\n";
-        return true;
-    }
-    if (!tokens.empty() && (tokens[0] == "exit" || tokens[0] == "quit")) {
-        std::cout << "Goodbye.\n"; exit(0);
-    }
-    if (!tokens.empty() && (tokens[0] == "clear" || tokens[0] == "cls") && tokens.size()==1) {
-        system("cls"); return true;
-    }
+    // Builtins fast-path (no pipes) handled inside exec_pipeline
 
     // Execute (pipes + redirs inside)
     // If single-stage spawn fails (e.g., 'dir'), we route whole line to CMD.
@@ -594,7 +811,8 @@ static void save_history(const std::vector<std::string>& history, const std::str
 // ========== main ==========
 int main() {
     enable_vt_mode();
-    std::cout << "Winix Shell v1.8 (CMD fallback, TAB quotes, color restore)\n";
+    load_rc();
+    std::cout << "Winix Shell v1.9 (TAB path-aware, env vars, ~/.winixrc)\n";
 
     std::vector<std::string> history;
     load_history(history, "winix_history.txt", 500);
