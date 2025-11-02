@@ -53,3 +53,17 @@ Makefile
 /lib/
 /*.exe
 /*.a
+
+# Local shell artifacts
+winix_history.txt
+winix_aliases
+.winix_history.txt
+.winix_aliases
+.winixrc
+
+# Test/output files
+*.txt
+!README*.txt
+out.txt
+tom/
+build/
