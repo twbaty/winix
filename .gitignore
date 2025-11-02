@@ -1,3 +1,7 @@
+# ────────────────────────────────
+# Winix Project .gitignore
+# ────────────────────────────────
+
 # Prerequisites
 *.d
 
@@ -37,10 +41,12 @@
 *.out
 *.app
 
-# debug information files
+# Debug info files
 *.dwo
 
+# ────────────────────────────────
 # CMake build directories
+# ────────────────────────────────
 /build/
 /CMakeFiles/
 /CMakeCache.txt
@@ -54,16 +60,61 @@ Makefile
 /*.exe
 /*.a
 
-# Local shell artifacts
+# ────────────────────────────────
+# Local Winix runtime artifacts
+# ────────────────────────────────
 winix_history.txt
 winix_aliases
 .winix_history.txt
 .winix_aliases
 .winixrc
 
+# ────────────────────────────────
+# Logs and temporary output
+# ────────────────────────────────
+*.log
+*.tmp
+*.bak
+out.txt
+
+# ────────────────────────────────
 # Test/output files
+# ────────────────────────────────
 *.txt
 !README*.txt
-out.txt
 tom/
+sandbox/
+scratch/
+temp/
+tmp/
+
+# ────────────────────────────────
+# Build / local scripts
+# ────────────────────────────────
 build/
+# Uncomment next line if you do NOT want batch launchers tracked:
+# *.bat
+
+# ────────────────────────────────
+# IDE / editor cruft
+# ────────────────────────────────
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.user
+*.swp
+*.swo
+
+# ────────────────────────────────
+# OS metadata
+# ────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ────────────────────────────────
+# OneDrive sync caches
+# ────────────────────────────────
+~$*
+*.lnk
