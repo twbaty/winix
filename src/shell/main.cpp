@@ -477,6 +477,19 @@ static DWORD execute_with_ops(const std::string& line, Aliases& aliases, History
     return 0;
 }
 
+static void enable_vt_mode() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
+        }
+    }
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+}
+
 int main() {
      // Rebind standard streams to console devices
     freopen("CONIN$", "r", stdin);
