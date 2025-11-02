@@ -476,6 +476,14 @@ static DWORD execute_with_ops(const std::string& line, Aliases& aliases, History
 }
 
 int main() {
+     // Rebind standard streams to console devices
+    freopen("CONIN$", "r", stdin);
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+
+    enable_vt_mode();
+    std::cout << "Winix Shell v1.13.2 — Stable Console Init\n";
+    
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
