@@ -1,73 +1,278 @@
 // src/shell/main.cpp
-// Winix Shell v1.13.1 — True Background Jobs, Alias & History Persist, Env Expansion
-// MinGW-friendly (no C++20-only APIs)
+// Winix Shell v1.13 — Persistent History & Aliases
+// Build: CMake + MinGW/Clang (C++17)
 
 #include <windows.h>
 #include <shlwapi.h>
-#include <iostream>
+#pragma comment(lib, "Shlwapi.lib")
+
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <map>
-#include <algorithm>
-#include <cstdlib>
-#include <cctype>
-#include <filesystem>
-
-#pragma comment(lib, "Shlwapi.lib")
 
 namespace fs = std::filesystem;
 
-// ---------- utils
-static inline std::string trim(const std::string &s) {
-    size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return "";
-    size_t e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
-}
-
-static inline bool ieq(const std::string &a, const std::string &b) {
-    if (a.size() != b.size()) return false;
-    for (size_t i = 0; i < a.size(); ++i)
-        if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
-            return false;
-    return true;
-}
-
-static std::string str_tolower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return (char)std::tolower(c); });
-    return s;
-}
-
-static bool str_ends_with(const std::string &s, const std::string &suffix) {
+// -------------------------------
+// Small utilities
+// -------------------------------
+static bool str_ends_with(const std::string& s, const std::string& suffix) {
     return s.size() >= suffix.size() &&
            s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-static std::string join_cmd_argv(const std::vector<std::string>& v, size_t start=0) {
-    std::ostringstream oss;
-    for (size_t i=start; i<v.size(); ++i) {
-        if (i>start) oss << ' ';
-        // naive quoting preservation
-        if (v[i].find(' ') != std::string::npos || v[i].find('&')!=std::string::npos)
-            oss << '"' << v[i] << '"';
-        else
-            oss << v[i];
-    }
-    return oss.str();
+static std::string trim(const std::string& in) {
+    size_t a = 0, b = in.size();
+    while (a < b && std::isspace((unsigned char)in[a])) ++a;
+    while (b > a && std::isspace((unsigned char)in[b - 1])) --b;
+    return in.substr(a, b - a);
 }
 
-// Split a command line into tokens, respecting simple quotes "..." and '...'
-static std::vector<std::string> tokenize(const std::string& line) {
+static bool is_quoted(const std::string& s) {
+    return s.size() >= 2 && ((s.front() == '"' && s.back() == '"') ||
+                             (s.front() == '\'' && s.back() == '\''));
+}
+
+static std::string unquote(const std::string& s) {
+    if (is_quoted(s)) return s.substr(1, s.size() - 2);
+    return s;
+}
+
+static std::string to_lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c){ return (char)std::tolower(c); });
+    return s;
+}
+
+static std::string getenv_win(const std::string& name) {
+    DWORD needed = GetEnvironmentVariableA(name.c_str(), nullptr, 0);
+    if (!needed) return {};
+    std::string v(needed, '\0');
+    GetEnvironmentVariableA(name.c_str(), v.data(), needed);
+    if (!v.empty() && v.back() == '\0') v.pop_back();
+    return v;
+}
+
+static bool setenv_win(const std::string& name, const std::string& value) {
+    return SetEnvironmentVariableA(name.c_str(), value.c_str()) != 0;
+}
+
+static std::string user_home() {
+    auto u = getenv_win("USERPROFILE");
+    if (!u.empty()) return u;
+    // Fallback to current dir if no profile
+    return fs::current_path().string();
+}
+
+static std::string prompt() {
+    try {
+        return "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
+    } catch (...) {
+        return "\033[1;32m[Winix]\033[0m > ";
+    }
+}
+
+// -------------------------------
+// Persistent files / config
+// -------------------------------
+struct Config {
+    size_t history_max = 50; // default; user can override via .winixrc
+};
+
+struct Paths {
+    std::string history_file;
+    std::string aliases_file;
+    std::string rc_file;
+};
+
+static Paths make_paths() {
+    std::string base = user_home();
+    Paths p;
+    p.history_file = (fs::path(base) / ".winix_history.txt").string();
+    p.aliases_file = (fs::path(base) / ".winix_aliases").string();
+    p.rc_file      = (fs::path(base) / ".winixrc").string();
+    return p;
+}
+
+static void load_rc(const Paths& paths, Config& cfg) {
+    std::ifstream in(paths.rc_file);
+    if (!in) return;
+    std::string line;
+    while (std::getline(in, line)) {
+        line = trim(line);
+        if (line.empty() || line[0] == '#') continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        auto key = trim(line.substr(0, eq));
+        auto val = trim(line.substr(eq + 1));
+        key = to_lower(key);
+        if (key == "history_size") {
+            try {
+                size_t v = (size_t)std::stoul(val);
+                if (v > 0 && v <= 5000) cfg.history_max = v;
+            } catch (...) {}
+        }
+    }
+}
+
+// -------------------------------
+// History (no duplicates, capped)
+// -------------------------------
+struct History {
+    std::vector<std::string> entries;
+    size_t max_entries = 50;
+
+    void dedupe_keep_latest() {
+        // keep latest occurrence; remove earlier dups
+        std::vector<std::string> out;
+        out.reserve(entries.size());
+        for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+            const std::string& s = *it;
+            if (std::find(out.begin(), out.end(), s) == out.end()) {
+                out.push_back(s);
+            }
+        }
+        std::reverse(out.begin(), out.end());
+        entries.swap(out);
+    }
+
+    void load(const std::string& file) {
+        entries.clear();
+        std::ifstream in(file);
+        if (!in) return;
+        std::string line;
+        while (std::getline(in, line)) {
+            line = trim(line);
+            if (!line.empty()) entries.push_back(line);
+        }
+        dedupe_keep_latest();
+        if (entries.size() > max_entries) {
+            entries.erase(entries.begin(),
+                          entries.begin() + (entries.size() - max_entries));
+        }
+    }
+
+    void save(const std::string& file) const {
+        std::ofstream out(file, std::ios::trunc);
+        if (!out) return;
+        for (const auto& e : entries) out << e << "\n";
+    }
+
+    void add(const std::string& cmd) {
+        auto s = trim(cmd);
+        if (s.empty()) return;
+        // remove existing duplicate
+        entries.erase(std::remove(entries.begin(), entries.end(), s), entries.end());
+        entries.push_back(s);
+        if (entries.size() > max_entries) {
+            entries.erase(entries.begin(),
+                          entries.begin() + (entries.size() - max_entries));
+        }
+    }
+
+    void print() const {
+        int idx = 1;
+        for (auto& e : entries) {
+            std::cout << idx++ << "  " << e << "\n";
+        }
+    }
+
+    void clear() {
+        entries.clear();
+    }
+};
+
+// -------------------------------
+// Aliases (persisted)
+// -------------------------------
+struct Aliases {
+    std::map<std::string, std::string> a;
+
+    void load(const std::string& file) {
+        a.clear();
+        std::ifstream in(file);
+        if (!in) return;
+        std::string line;
+        while (std::getline(in, line)) {
+            line = trim(line);
+            if (line.empty() || line[0] == '#') continue;
+            auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            auto name = trim(line.substr(0, eq));
+            auto val  = trim(line.substr(eq + 1));
+            val = unquote(val);
+            if (!name.empty() && !val.empty()) a[name] = val;
+        }
+    }
+
+    void save(const std::string& file) const {
+        std::ofstream out(file, std::ios::trunc);
+        if (!out) return;
+        for (auto& kv : a) {
+            // store raw (no quotes needed)
+            out << kv.first << "=" << kv.second << "\n";
+        }
+    }
+
+    void set(const std::string& name, const std::string& value) {
+        a[name] = value;
+    }
+
+    bool remove(const std::string& name) {
+        return a.erase(name) > 0;
+    }
+
+    std::optional<std::string> get(const std::string& name) const {
+        auto it = a.find(name);
+        if (it == a.end()) return std::nullopt;
+        return it->second;
+    }
+
+    void print() const {
+        for (auto& kv : a) {
+            std::cout << "alias " << kv.first << "=\"" << kv.second << "\"\n";
+        }
+    }
+};
+
+// -------------------------------
+// Tokenization / simple parsing
+// -------------------------------
+static std::vector<std::string> split_top_level(const std::string& s, char sep) {
     std::vector<std::string> out;
     std::string cur;
     bool in_s = false, in_d = false;
-    for (size_t i=0;i<line.size();++i) {
-        char c = line[i];
-        if (c=='"' && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
-        if (c=='\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
-        if (!in_s && !in_d && (c==' '||c=='\t')) {
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
+        if (!in_s && !in_d && c == sep) {
+            out.push_back(trim(cur));
+            cur.clear();
+        } else {
+            cur.push_back(c);
+        }
+    }
+    if (!cur.empty()) out.push_back(trim(cur));
+    return out;
+}
+
+static std::vector<std::string> shell_tokens(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool in_s = false, in_d = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
+        if (!in_s && !in_d && std::isspace((unsigned char)c)) {
             if (!cur.empty()) { out.push_back(cur); cur.clear(); }
         } else {
             cur.push_back(c);
@@ -77,469 +282,362 @@ static std::vector<std::string> tokenize(const std::string& line) {
     return out;
 }
 
-// ---------- history
-struct History {
-    std::string path;
-    size_t max_entries = 50;
-    std::vector<std::string> entries;
-
-    void load() {
-        entries.clear();
-        std::ifstream f(path);
-        if (!f) return;
-        std::string line;
-        while (std::getline(f, line)) {
-            line = trim(line);
-            if (!line.empty()) entries.push_back(line);
-        }
-        // de-dup while preserving order: last occurrence kept
-        std::vector<std::string> dedup;
-        std::map<std::string,bool> seen;
-        for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
-            if (!seen[*it]) { seen[*it]=true; dedup.push_back(*it); }
-        }
-        std::reverse(dedup.begin(), dedup.end());
-        entries.swap(dedup);
-        if (entries.size() > max_entries) {
-            entries.erase(entries.begin(), entries.end()-max_entries);
-        }
-    }
-
-    void set_max_from_env() {
-        char* m = std::getenv("WINIX_HISTORY_MAX");
-        if (m && *m) {
-            int v = std::atoi(m);
-            if (v > 0 && v <= 5000) max_entries = (size_t)v;
-        }
-    }
-
-    void add(const std::string &line) {
-        std::string t = trim(line);
-        if (t.empty()) return;
-        if (!entries.empty() && entries.back() == t) {
-            // avoid immediate duplicate
-        } else {
-            entries.push_back(t);
-        }
-        if (entries.size() > max_entries) {
-            entries.erase(entries.begin());
-        }
-        flush();
-    }
-
-    void flush() {
-        std::ofstream f(path, std::ios::trunc);
-        for (auto &e : entries) f << e << "\n";
-    }
-};
-
-// ---------- alias persistence
-struct Aliases {
-    std::string path;
-    std::map<std::string,std::string> kv;
-
-    void load() {
-        kv.clear();
-        std::ifstream f(path);
-        if (!f) return;
-        std::string line;
-        while (std::getline(f, line)) {
-            line = trim(line);
-            if (line.empty() || line[0]=='#') continue;
-            auto pos = line.find('=');
-            if (pos == std::string::npos) continue;
-            std::string k = trim(line.substr(0,pos));
-            std::string v = trim(line.substr(pos+1));
-            if (!k.empty() && !v.empty()) kv[k]=v;
-        }
-    }
-    void save() const {
-        std::ofstream f(path, std::ios::trunc);
-        for (auto &p : kv) {
-            f << p.first << "=" << p.second << "\n";
-        }
-    }
-};
-
-// ---------- env expansion: %VAR% and $VAR
-static std::string expand_env(const std::string &in) {
-    std::string s = in;
-
-    // %VAR% (Windows style)
-    for (size_t i=0;i<s.size();) {
-        if (s[i]=='%') {
-            size_t j = s.find('%', i+1);
-            if (j!=std::string::npos) {
-                std::string key = s.substr(i+1, j-(i+1));
-                if (!key.empty()) {
-                    char* v = nullptr;
-                    std::string up = key;
-                    std::transform(up.begin(), up.end(), up.begin(), ::toupper);
-                    v = std::getenv(up.c_str());
-                    std::string val = v? std::string(v) : std::string();
-                    s.replace(i, j-i+1, val);
-                    i += val.size();
-                    continue;
-                }
-            }
-        }
-        ++i;
-    }
-
-    // $VAR (POSIX-ish)
-    for (size_t i=0;i<s.size();) {
-        if (s[i]=='$') {
-            size_t j=i+1;
-            while (j<s.size() && (std::isalnum((unsigned char)s[j]) || s[j]=='_')) ++j;
-            std::string key = s.substr(i+1, j-(i+1));
-            if (!key.empty()) {
-                char* v = std::getenv(key.c_str());
-                std::string val = v? std::string(v) : std::string();
-                s.replace(i, j-i, val);
-                i += val.size();
-                continue;
-            }
-        }
-        ++i;
-    }
-    return s;
-}
-
-// ---------- prompt
-static std::string prompt() {
-    try {
-        return "\033[1;32m[Winix]\033[0m " + fs::current_path().string() + " > ";
-    } catch (...) {
-        return "\033[1;32m[Winix]\033[0m > ";
-    }
-}
-
-// ---------- process launch helpers
-static DWORD spawn_cmd(const std::string& cmdline, bool wait, HANDLE *phProcessOut=nullptr) {
-    // Launch `cmd.exe /C <cmdline>`
-    std::string full = "cmd.exe /C " + cmdline;
-    STARTUPINFOA si{};
-    PROCESS_INFORMATION pi{};
-    si.cb = sizeof(si);
-
-    // Inherit console handles for I/O
-    BOOL ok = CreateProcessA(
-        NULL,
-        (LPSTR)full.c_str(),
-        NULL, NULL, TRUE, 0, NULL, NULL,
-        &si, &pi
-    );
-    if (!ok) {
-        std::cerr << "Failed to launch: " << cmdline << " (err " << GetLastError() << ")\n";
-        return (DWORD)-1;
-    }
-    DWORD pid = pi.dwProcessId;
-    if (wait) {
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        DWORD code=0;
-        GetExitCodeProcess(pi.hProcess, &code);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        return code;
-    } else {
-        if (phProcessOut) *phProcessOut = pi.hProcess;
-        CloseHandle(pi.hThread);
-        // leave process handle open only if caller asked; otherwise close
-        if (!phProcessOut) CloseHandle(pi.hProcess);
-        return 0;
-    }
-}
-
-// ---------- builtins
-static bool is_builtin(const std::string &cmd) {
-    std::string c = str_tolower(cmd);
-    return c=="cd" || c=="dir" || c=="ls" || c=="echo" || c=="set" ||
-           c=="alias" || c=="unalias" || c=="exit" || c=="quit" || c=="history";
-}
-
-static int run_builtin(const std::vector<std::string>& argv, Aliases& aliases, History& hist) {
-    if (argv.empty()) return 0;
-    std::string c = str_tolower(argv[0]);
-
-    if (c=="exit" || c=="quit") {
-        std::exit(0);
-    }
-
-    if (c=="cd") {
-        if (argv.size()<2) {
-            const char* h = std::getenv("USERPROFILE");
-            if (!h) h = std::getenv("HOMEDRIVE");
-            if (!h) h = "C:\\";
-            SetCurrentDirectoryA(h);
-            return 0;
-        }
-        std::error_code ec;
-        fs::current_path(argv[1], ec);
-        if (ec) std::cerr << "cd: " << ec.message() << "\n";
-        return ec ? 1 : 0;
-    }
-
-    if (c=="dir") {
-        // pass through to cmd so formatting matches Windows
-        std::string tail = join_cmd_argv(argv, 1);
-        return (int)spawn_cmd("dir " + tail, /*wait*/true);
-    }
-
-    if (c=="ls") {
-        // simple ls emulation (one column by default)
-        try {
-            for (auto& p : fs::directory_iterator(fs::current_path())) {
-                std::cout << p.path().filename().string() << "\n";
-            }
-        } catch (const std::exception &e) {
-            std::cerr << "ls: " << e.what() << "\n";
-            return 1;
-        }
-        return 0;
-    }
-
-    if (c=="echo") {
-        if (argv.size()>1) {
-            std::string rest = join_cmd_argv(argv, 1);
-            std::cout << expand_env(rest) << "\n";
-        } else {
-            std::cout << "\n";
-        }
-        return 0;
-    }
-
-    if (c=="set") {
-        // syntax: set NAME=VALUE
-        if (argv.size()<2) {
-            // show env
-            // Not enumerating all easily here, keep minimal
-            std::cerr << "set: usage set NAME=VALUE\n";
-            return 1;
-        }
-        std::string a = argv[1];
-        auto pos = a.find('=');
-        if (pos==std::string::npos || pos==0) {
-            std::cerr << "set: usage set NAME=VALUE\n";
-            return 1;
-        }
-        std::string k = a.substr(0,pos);
-        std::string v = a.substr(pos+1);
-        if (!SetEnvironmentVariableA(k.c_str(), v.c_str())) {
-            std::cerr << "set: failed (" << GetLastError() << ")\n";
-            return 1;
-        }
-        return 0;
-    }
-
-    if (c=="alias") {
-        if (argv.size()==1) {
-            // list
-            for (auto &p : aliases.kv) {
-                std::cout << "alias " << p.first << "=\"" << p.second << "\"\n";
-            }
-            return 0;
-        }
-        // alias NAME="value"
-        // accept NAME=value or NAME="value"
-        for (size_t i=1;i<argv.size();++i) {
-            std::string spec = argv[i];
-            auto pos = spec.find('=');
-            if (pos==std::string::npos || pos==0) {
-                std::cerr << "alias: bad format, use alias name=\"value\"\n";
-                return 1;
-            }
-            std::string name = spec.substr(0,pos);
-            std::string value = spec.substr(pos+1);
-            value = trim(value);
-            if (!value.empty() && (value.front()=='"' || value.front()=='\'')) {
-                if (value.size()>=2 && value.back()==value.front())
-                    value = value.substr(1, value.size()-2);
-            }
-            aliases.kv[name]=value;
-        }
-        aliases.save();
-        return 0;
-    }
-
-    if (c=="unalias") {
-        if (argv.size()<2) { std::cerr << "unalias: name required\n"; return 1; }
-        aliases.kv.erase(argv[1]);
-        aliases.save();
-        return 0;
-    }
-
-    if (c=="history") {
-        int idx=1;
-        for (auto &e : hist.entries) {
-            std::cout << idx++ << "  " << e << "\n";
-        }
-        return 0;
-    }
-
-    return 0;
-}
-
-// Expand first-token alias like Bash (word-level)
-static std::string expand_alias_line(const std::string& line, const Aliases& aliases) {
-    auto toks = tokenize(line);
+// Expand aliases like Bash: if first token matches, replace it with alias text,
+// then re-tokenize the entire line (so alias can include spaces, &&, & etc.)
+static std::string expand_aliases_once(const std::string& line, const Aliases& aliases) {
+    auto toks = shell_tokens(line);
     if (toks.empty()) return line;
-    auto it = aliases.kv.find(toks[0]);
-    if (it == aliases.kv.end()) return line;
+    auto name = toks[0];
+    auto ali = aliases.get(name);
+    if (!ali) return line;
 
-    std::string expanded = it->second;
-    if (toks.size()>1) {
-        expanded += " ";
-        std::ostringstream oss;
-        for (size_t i=1;i<toks.size();++i) {
-            if (i>1) oss << ' ';
-            oss << toks[i];
-        }
-        expanded += oss.str();
+    std::string rest;
+    for (size_t i = 1; i < toks.size(); ++i) {
+        if (i > 1) rest.push_back(' ');
+        rest += toks[i];
+    }
+    std::string expanded = *ali;
+    if (!rest.empty()) {
+        expanded.push_back(' ');
+        expanded += rest;
     }
     return expanded;
 }
 
-// Execute a single (no operators) command
-static DWORD run_simple_command(const std::string& cmdline_raw, Aliases& aliases, History& hist) {
-    std::string cmdline = trim(cmdline_raw);
-    if (cmdline.empty()) return 0;
+// Very light variable expansion: %VAR% and $VAR (word chars)
+// Doesn’t expand inside single quotes; does expand inside double quotes and bare text.
+static std::string expand_vars(const std::string& line) {
+    std::string out;
+    bool in_s = false, in_d = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; out.push_back(c); continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; out.push_back(c); continue; }
 
-    // Alias expansion (Bash-like: only first word)
-    cmdline = expand_alias_line(cmdline, aliases);
-
-    // Tokenize after alias expansion (for builtins)
-    auto argv = tokenize(cmdline);
-    if (argv.empty()) return 0;
-
-    // Builtins
-    if (is_builtin(argv[0])) {
-        return (DWORD)run_builtin(argv, aliases, hist);
-    }
-
-    // External: launch via cmd /C (so globs, quotes, %var% handled by cmd)
-    return spawn_cmd(cmdline, /*wait*/true);
-}
-
-// Parse & execute with minimal operator support: background '&', reject others for now
-static DWORD execute_with_ops(const std::string& line, Aliases& aliases, History& hist) {
-    std::string s = trim(line);
-    if (s.empty()) return 0;
-
-    // reject pipes/and/or for now
-    if (s.find('|') != std::string::npos) {
-        std::cerr << "Pipelines '|' not implemented yet.\n";
-        return 1;
-    }
-    if (s.find("&&") != std::string::npos || s.find("||") != std::string::npos) {
-        std::cerr << "Chained operators '&&'/'||' not implemented yet.\n";
-        return 1;
-    }
-
-    // background operator '&' : split at first unquoted '&'
-    bool in_s=false, in_d=false;
-    size_t amp = std::string::npos;
-    for (size_t i=0;i<s.size();++i) {
-        char c=s[i];
-        if (c=='"' && !in_s) in_d=!in_d;
-        else if (c=='\'' && !in_d) in_s=!in_s;
-        else if (c=='&' && !in_s && !in_d) { amp=i; break; }
-    }
-
-    if (amp == std::string::npos) {
-        return run_simple_command(s, aliases, hist);
-    }
-
-    std::string left = trim(s.substr(0, amp));
-    std::string right = trim(s.substr(amp+1));
-
-    // Launch LEFT in background (no wait)
-    if (!left.empty()) {
-        HANDLE hProc = NULL;
-        DWORD code = spawn_cmd(left, /*wait*/false, &hProc);
-        if (code==(DWORD)-1) {
-            // failed spawn; still try right
-        } else {
-            DWORD pid = 0;
-            if (hProc) {
-                pid = GetProcessId(hProc);
-                CloseHandle(hProc);
+        if (!in_s) {
+            // %VAR%
+            if (c == '%') {
+                size_t j = i + 1;
+                while (j < line.size() && line[j] != '%') ++j;
+                if (j < line.size() && line[j] == '%') {
+                    auto name = line.substr(i + 1, j - (i + 1));
+                    auto val = getenv_win(name);
+                    out += val;
+                    i = j;
+                    continue;
+                }
             }
-            std::cout << "[background] PID " << pid << " started\n";
+            // $VAR
+            if (c == '$') {
+                size_t j = i + 1;
+                while (j < line.size() && (std::isalnum((unsigned char)line[j]) || line[j] == '_')) ++j;
+                if (j > i + 1) {
+                    auto name = line.substr(i + 1, j - (i + 1));
+                    auto val = getenv_win(name);
+                    out += val;
+                    i = j - 1;
+                    continue;
+                }
+            }
         }
+        out.push_back(c);
     }
-
-    // Execute RIGHT synchronously in foreground
-    if (!right.empty()) {
-        return run_simple_command(right, aliases, hist);
-    }
-    return 0;
+    return out;
 }
 
-static void enable_vt_mode() {
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut != INVALID_HANDLE_VALUE) {
-        DWORD mode = 0;
-        if (GetConsoleMode(hOut, &mode)) {
-            mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            SetConsoleMode(hOut, mode);
-        }
+// -------------------------------
+// Execution
+// -------------------------------
+static DWORD spawn_cmd(const std::string& command, bool wait, HANDLE inheritStdHandles = NULL) {
+    std::string full = "cmd.exe /C " + command;
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+
+    PROCESS_INFORMATION pi{};
+    // Inherit handle must be TRUE to keep std handles
+    BOOL ok = CreateProcessA(
+        NULL,
+        (LPSTR)full.c_str(),
+        NULL, NULL, TRUE,
+        CREATE_NEW_PROCESS_GROUP, // do not steal console; allow ^C to go to child group
+        NULL, NULL,
+        &si, &pi
+    );
+    if (!ok) {
+        DWORD e = GetLastError();
+        std::cerr << "Error: failed to start: " << command << " (code " << e << ")\n";
+        return e ? e : 1;
     }
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
+
+    if (!wait) {
+        std::cout << "[background] PID " << pi.dwProcessId << " started\n";
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 0;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code;
 }
 
-int main() {
-    // Try to attach to an existing console (in case launched via batch, PowerShell, or IDE)
-    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
-        AllocConsole(); // create a new one if none exists
-    }
-
-    // Explicitly bind STDIN/OUT/ERR to the console
-    FILE* in = freopen("CONIN$", "r", stdin);
-    FILE* out = freopen("CONOUT$", "w", stdout);
-    FILE* err = freopen("CONOUT$", "w", stderr);
-    if (!in || !out || !err) {
-        MessageBoxA(nullptr, "Failed to rebind console handles.", "Winix Init Error", MB_OK | MB_ICONERROR);
+static DWORD run_chain_segment(const std::string& seg, bool background) {
+    // Reject pipelines for now
+    if (seg.find('|') != std::string::npos) {
+        std::cout << "Pipelines '|' not implemented yet.\n";
         return 1;
     }
-
-    enable_vt_mode();
-    std::cout << "Winix Shell v1.13.2 — Stable Console Init\n";
-    std::ios::sync_with_stdio(false);
-    std::cin.tie(nullptr);
-
-    std::cout << "Winix Shell v1.13.1 — True Background Jobs\n";
-
-    // setup paths
-    std::string base = fs::current_path().string();
-    std::string hist_path = (fs::path(base) / "winix_history.txt").string();
-    std::string alias_path = (fs::path(base) / "winix_aliases.txt").string();
-
-    History hist{hist_path};
-    hist.set_max_from_env(); // env WINIX_HISTORY_MAX, default 50
-    hist.load();
-
-    Aliases aliases{alias_path};
-    aliases.load();
-
-    std::cout << prompt();
-    
-    // basic interactive loop
-    for (;;) {
-        std::string line;
-        if (!std::getline(std::cin, line)) break;
-
-        line = trim(line);
-        if (line.empty()) continue;
-
-        // store in history
-        hist.add(line);
-
-        // Expand environment variables before execution for echo and external commands
-        std::string expanded = expand_env(line);
-
-        // Execute with operators handling (& only)
-        (void)execute_with_ops(expanded, aliases, hist);
+    // Support cd internally (so prompt path updates)
+    auto t = shell_tokens(seg);
+    if (!t.empty() && to_lower(t[0]) == "cd") {
+        if (t.size() == 1) {
+            std::string home = user_home();
+            std::error_code ec;
+            fs::current_path(home, ec);
+            if (ec) std::cerr << "cd: " << ec.message() << "\n";
+            return 0;
+        }
+        std::string target = unquote(t[1]);
+        std::error_code ec;
+        fs::current_path(target, ec);
+        if (ec) {
+            std::cerr << "cd: " << target << ": " << ec.message() << "\n";
+            return 1;
+        }
+        return 0;
     }
+
+    return spawn_cmd(seg, !background);
+}
+
+// Execute with support for && and trailing &
+//
+// Examples:
+//   ping 127.0.0.1 && echo ok
+//   ping 127.0.0.1 & echo still responsive
+static DWORD execute_with_ops(const std::string& line) {
+    // Check trailing '&' (background for final command or single)
+    std::string s = trim(line);
+    bool trailing_bg = false;
+    if (!s.empty() && s.back() == '&') {
+        trailing_bg = true;
+        s.pop_back();
+        s = trim(s);
+    }
+
+    // Split by && at top level
+    auto segments = split_top_level(s, 0); // we’ll parse && manually to honor quotes
+    // Manual parse for && to keep quotes safe:
+    segments.clear();
+    {
+        std::string cur;
+        bool in_s=false, in_d=false;
+        for (size_t i=0;i<s.size();) {
+            if (s[i]=='\'' && !in_d){ in_s=!in_s; cur.push_back(s[i++]); continue; }
+            if (s[i]=='"'  && !in_s){ in_d=!in_d; cur.push_back(s[i++]); continue; }
+            if (!in_s && !in_d && i+1<s.size() && s[i]=='&' && s[i+1]=='&') {
+                segments.push_back(trim(cur));
+                cur.clear();
+                i+=2;
+                continue;
+            }
+            cur.push_back(s[i++]);
+        }
+        if (!cur.empty()) segments.push_back(trim(cur));
+    }
+
+    if (segments.empty()) return 0;
+
+    DWORD last = 0;
+    for (size_t i = 0; i < segments.size(); ++i) {
+        bool is_last = (i + 1 == segments.size());
+        bool background = false;
+        std::string seg = segments[i];
+
+        // allow '&' inside a segment to start earlier commands in background:
+        // e.g. "ping -n 4 127.0.0.1 & echo still responsive"
+        // We split only on the first top-level '&' to mimic typical shell semantics.
+        bool in_s=false, in_d=false;
+        size_t amp = std::string::npos;
+        for (size_t j=0;j<seg.size();++j){
+            char c = seg[j];
+            if (c=='\'' && !in_d){ in_s=!in_s; continue; }
+            if (c=='"'  && !in_s){ in_d=!in_d; continue; }
+            if (!in_s && !in_d && c=='&'){ amp = j; break; }
+        }
+        if (amp != std::string::npos) {
+            std::string left = trim(seg.substr(0, amp));
+            std::string right = trim(seg.substr(amp + 1));
+            if (!left.empty()) run_chain_segment(left, /*background*/true);
+            if (!right.empty()) {
+                // the remainder executes in the current chain (waited)
+                last = run_chain_segment(right, /*background*/false);
+                if (last != 0) return last;
+            }
+        } else {
+            background = (trailing_bg && is_last);
+            last = run_chain_segment(seg, background);
+            if (last != 0 && !is_last) {
+                // short-circuit for &&
+                return last;
+            }
+        }
+    }
+    return last;
+}
+
+// -------------------------------
+/* Builtins:
+   - set NAME=VALUE
+   - alias
+   - alias name="value"
+   - unalias name
+   - history | history -c
+*/
+static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths& paths,
+                           History& hist) {
+    auto line = trim(raw);
+    if (line.empty()) return true; // treat empty line as “handled”
+
+    // set NAME=VALUE
+    if (to_lower(line.rfind("set ", 0) == 0 ? "set " : "") == "set ") {
+        auto rest = trim(line.substr(4));
+        auto eq = rest.find('=');
+        if (eq == std::string::npos) {
+            std::cerr << "Usage: set NAME=VALUE\n";
+            return true;
+        }
+        std::string name = trim(rest.substr(0, eq));
+        std::string value = trim(rest.substr(eq + 1));
+        value = unquote(value);
+        if (name.empty()) {
+            std::cerr << "set: NAME missing\n";
+            return true;
+        }
+        if (!setenv_win(name, value)) {
+            std::cerr << "set: failed for " << name << "\n";
+        }
+        return true;
+    }
+
+    // history
+    if (to_lower(line) == "history") {
+        hist.print();
+        return true;
+    }
+    if (to_lower(line) == "history -c") {
+        hist.clear();
+        hist.save(paths.history_file);
+        return true;
+    }
+
+    // alias (print)
+    if (to_lower(line) == "alias") {
+        aliases.print();
+        return true;
+    }
+
+    // unalias NAME
+    if (to_lower(line.rfind("unalias ", 0) == 0 ? "unalias " : "") == "unalias ") {
+        auto name = trim(line.substr(8));
+        if (name.empty()) {
+            std::cerr << "Usage: unalias NAME\n";
+            return true;
+        }
+        if (!aliases.remove(name)) {
+            std::cerr << "unalias: " << name << ": not found\n";
+        } else {
+            aliases.save(paths.aliases_file);
+        }
+        return true;
+    }
+
+    // alias NAME="value"  (or NAME=value)
+    if (to_lower(line.rfind("alias ", 0) == 0 ? "alias " : "") == "alias ") {
+        auto spec = trim(line.substr(6));
+        auto eq = spec.find('=');
+        if (eq == std::string::npos) {
+            std::cerr << "Usage: alias name=\"command ...\"\n";
+            return true;
+        }
+        std::string name = trim(spec.substr(0, eq));
+        std::string val  = trim(spec.substr(eq + 1));
+        val = unquote(val);
+        if (name.empty() || val.empty()) {
+            std::cerr << "alias: invalid format\n";
+            return true;
+        }
+        aliases.set(name, val);
+        aliases.save(paths.aliases_file);
+        return true;
+    }
+
+    return false; // not a builtin
+}
+
+// -------------------------------
+// REPL
+// -------------------------------
+int main() {
+    SetConsoleOutputCP(CP_UTF8);
+    std::ios::sync_with_stdio(false);
+
+    std::cout << "Winix Shell v1.13 — Persistent History & Aliases\n";
+
+    Config cfg;
+    Paths paths = make_paths();
+    load_rc(paths, cfg);
+
+    History history;
+    history.max_entries = cfg.history_max;
+    history.load(paths.history_file);
+
+    Aliases aliases;
+    aliases.load(paths.aliases_file);
+
+    std::string line;
+    while (true) {
+        std::cout << prompt();
+        std::cout.flush();
+
+        if (!std::getline(std::cin, line)) break;
+        auto original = trim(line);
+        if (original.empty()) continue;
+
+        // Expand aliases (first-token expansion, Bash-like)
+        std::string ali_expanded = expand_aliases_once(original, aliases);
+
+        // Variable expansion
+        std::string expanded = expand_vars(ali_expanded);
+
+        // Builtins first (on expanded text)
+        if (handle_builtin(expanded, aliases, paths, history)) {
+            // only add meaningful commands to history
+            if (!original.empty() && to_lower(trim(original)) != "history")
+            {
+                history.add(original);
+                history.save(paths.history_file);
+            }
+            continue;
+        }
+
+        // Execute external
+        DWORD code = execute_with_ops(expanded);
+
+        // Record in history if not duplicate
+        history.add(original);
+        history.save(paths.history_file);
+
+        (void)code; // exit code currently unused in the REPL
+    }
+
     return 0;
 }
