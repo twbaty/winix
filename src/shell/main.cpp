@@ -507,6 +507,10 @@ static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths
     auto line = trim(raw);
     if (line.empty()) return true; // treat empty line as “handled”
 
+        // Graceful shell exit (classic behavior)
+    if (to_lower(line) == "exit" || to_lower(line) == "quit")
+        break;
+
     // set NAME=VALUE
     if (to_lower(line.rfind("set ", 0) == 0 ? "set " : "") == "set ") {
         auto rest = trim(line.substr(4));
