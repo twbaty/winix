@@ -489,14 +489,22 @@ static void enable_vt_mode() {
 }
 
 int main() {
-     // Rebind standard streams to console devices
-    freopen("CONIN$", "r", stdin);
-    freopen("CONOUT$", "w", stdout);
-    freopen("CONOUT$", "w", stderr);
+    // Try to attach to an existing console (in case launched via batch, PowerShell, or IDE)
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+        AllocConsole(); // create a new one if none exists
+    }
+
+    // Explicitly bind STDIN/OUT/ERR to the console
+    FILE* in = freopen("CONIN$", "r", stdin);
+    FILE* out = freopen("CONOUT$", "w", stdout);
+    FILE* err = freopen("CONOUT$", "w", stderr);
+    if (!in || !out || !err) {
+        MessageBoxA(nullptr, "Failed to rebind console handles.", "Winix Init Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
 
     enable_vt_mode();
     std::cout << "Winix Shell v1.13.2 — Stable Console Init\n";
-    
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
