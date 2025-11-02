@@ -514,9 +514,10 @@ int main() {
     Aliases aliases{alias_path};
     aliases.load();
 
+    std::cout << prompt();
+    
     // basic interactive loop
     for (;;) {
-        std::cout << prompt();
         std::string line;
         if (!std::getline(std::cin, line)) break;
 
