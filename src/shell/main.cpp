@@ -17,8 +17,6 @@
 
 #pragma comment(lib, "Shlwapi.lib")
 
-void enable_vt_mode();
-
 namespace fs = std::filesystem;
 
 // ---------- utils
