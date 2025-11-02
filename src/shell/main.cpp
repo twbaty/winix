@@ -507,10 +507,6 @@ static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths
     auto line = trim(raw);
     if (line.empty()) return true; // treat empty line as “handled”
 
-        // Graceful shell exit (classic behavior)
-    if (to_lower(line) == "exit" || to_lower(line) == "quit")
-        break;
-
     // set NAME=VALUE
     if (to_lower(line.rfind("set ", 0) == 0 ? "set " : "") == "set ") {
         auto rest = trim(line.substr(4));
@@ -614,10 +610,16 @@ int main() {
 
         if (!std::getline(std::cin, line)) break;
         auto original = trim(line);
-        if (original.empty()) continue;
+if (original.empty()) continue;
 
-        // Expand aliases (first-token expansion, Bash-like)
-        std::string ali_expanded = expand_aliases_once(original, aliases);
+// Graceful shell exit (classic behavior)
+if (to_lower(original) == "exit" || to_lower(original) == "quit") {
+    std::cout << "Exiting Winix Shell...\n";
+    break;
+}
+
+// Expand aliases (first-token expansion, Bash-like)
+std::string ali_expanded = expand_aliases_once(original, aliases);
 
         // Variable expansion
         std::string expanded = expand_vars(ali_expanded);
