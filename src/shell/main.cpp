@@ -281,13 +281,36 @@ static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths
 
 // ---------- prompt ----------
 static std::string prompt() {
-    // Keep it ANSI-free to avoid messing with console modes
-    try { return "[Winix] " + fs::current_path().string() + " > "; }
-    catch (...) { return "[Winix] > "; }
+    try {
+        std::string cwd = fs::current_path().string();
+        return "\x1b[32m[Winix] " + cwd + " >\x1b[0m ";
+    }
+    catch (...) {
+        return "\x1b[32m[Winix] >\x1b[0m ";
+    }
 }
 
 // ---------- main ----------
 int main() {
+    #ifdef _WIN32
+    // Enable ANSI escape sequences (VT mode)
+    {
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD outMode = 0;
+        if (GetConsoleMode(hOut, &outMode)) {
+            outMode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            SetConsoleMode(hOut, outMode);
+        }
+
+        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD inMode = 0;
+        if (GetConsoleMode(hIn, &inMode)) {
+            inMode |= 0x0200; // ENABLE_VIRTUAL_TERMINAL_INPUT
+            SetConsoleMode(hIn, inMode);
+        }
+    }
+    #endif
+
     SetConsoleOutputCP(CP_UTF8);
     // Enable ANSI color (VT sequences)
     DWORD mode = 0;
