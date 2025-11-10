@@ -18,6 +18,9 @@
 #include <string>
 #include <vector>
 
+#include "line_editor.hpp"   // <-- new (Step 1)
+#include "completion.hpp"    // <-- new (Step 1)
+
 namespace fs = std::filesystem;
 
 // -------------------------------
@@ -130,7 +133,6 @@ struct History {
     size_t max_entries = 50;
 
     void dedupe_keep_latest() {
-        // keep latest occurrence; remove earlier dups
         std::vector<std::string> out;
         out.reserve(entries.size());
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
@@ -168,7 +170,6 @@ struct History {
     void add(const std::string& cmd) {
         auto s = trim(cmd);
         if (s.empty()) return;
-        // remove existing duplicate
         entries.erase(std::remove(entries.begin(), entries.end(), s), entries.end());
         entries.push_back(s);
         if (entries.size() > max_entries) {
@@ -216,7 +217,6 @@ struct Aliases {
         std::ofstream out(file, std::ios::trunc);
         if (!out) return;
         for (auto& kv : a) {
-            // store raw (no quotes needed)
             out << kv.first << "=" << kv.second << "\n";
         }
     }
@@ -282,8 +282,7 @@ static std::vector<std::string> shell_tokens(const std::string& s) {
     return out;
 }
 
-// Expand aliases like Bash: if first token matches, replace it with alias text,
-// then re-tokenize the entire line (so alias can include spaces, &&, & etc.)
+// Expand aliases like Bash: if first token matches, replace it with alias text
 static std::string expand_aliases_once(const std::string& line, const Aliases& aliases) {
     auto toks = shell_tokens(line);
     if (toks.empty()) return line;
@@ -304,8 +303,7 @@ static std::string expand_aliases_once(const std::string& line, const Aliases& a
     return expanded;
 }
 
-// Very light variable expansion: %VAR% and $VAR (word chars)
-// Doesn’t expand inside single quotes; does expand inside double quotes and bare text.
+// Very light variable expansion: %VAR% and $VAR
 static std::string expand_vars(const std::string& line) {
     std::string out;
     bool in_s = false, in_d = false;
@@ -315,7 +313,6 @@ static std::string expand_vars(const std::string& line) {
         if (c == '"'  && !in_s) { in_d = !in_d; out.push_back(c); continue; }
 
         if (!in_s) {
-            // %VAR%
             if (c == '%') {
                 size_t j = i + 1;
                 while (j < line.size() && line[j] != '%') ++j;
@@ -327,7 +324,6 @@ static std::string expand_vars(const std::string& line) {
                     continue;
                 }
             }
-            // $VAR
             if (c == '$') {
                 size_t j = i + 1;
                 while (j < line.size() && (std::isalnum((unsigned char)line[j]) || line[j] == '_')) ++j;
@@ -359,12 +355,11 @@ static DWORD spawn_cmd(const std::string& command, bool wait, HANDLE inheritStdH
     si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION pi{};
-    // Inherit handle must be TRUE to keep std handles
     BOOL ok = CreateProcessA(
         NULL,
         (LPSTR)full.c_str(),
         NULL, NULL, TRUE,
-        CREATE_NEW_PROCESS_GROUP, // do not steal console; allow ^C to go to child group
+        CREATE_NEW_PROCESS_GROUP,
         NULL, NULL,
         &si, &pi
     );
@@ -390,12 +385,10 @@ static DWORD spawn_cmd(const std::string& command, bool wait, HANDLE inheritStdH
 }
 
 static DWORD run_chain_segment(const std::string& seg, bool background) {
-    // Reject pipelines for now
     if (seg.find('|') != std::string::npos) {
         std::cout << "Pipelines '|' not implemented yet.\n";
         return 1;
     }
-    // Support cd internally (so prompt path updates)
     auto t = shell_tokens(seg);
     if (!t.empty() && to_lower(t[0]) == "cd") {
         if (t.size() == 1) {
@@ -414,17 +407,11 @@ static DWORD run_chain_segment(const std::string& seg, bool background) {
         }
         return 0;
     }
-
     return spawn_cmd(seg, !background);
 }
 
-// Execute with support for && and trailing &
-//
-// Examples:
-//   ping 127.0.0.1 && echo ok
-//   ping 127.0.0.1 & echo still responsive
+// Support for && and &
 static DWORD execute_with_ops(const std::string& line) {
-    // Check trailing '&' (background for final command or single)
     std::string s = trim(line);
     bool trailing_bg = false;
     if (!s.empty() && s.back() == '&') {
@@ -433,9 +420,7 @@ static DWORD execute_with_ops(const std::string& line) {
         s = trim(s);
     }
 
-    // Split by && at top level
-    auto segments = split_top_level(s, 0); // we’ll parse && manually to honor quotes
-    // Manual parse for && to keep quotes safe:
+    auto segments = split_top_level(s, 0);
     segments.clear();
     {
         std::string cur;
@@ -459,12 +444,8 @@ static DWORD execute_with_ops(const std::string& line) {
     DWORD last = 0;
     for (size_t i = 0; i < segments.size(); ++i) {
         bool is_last = (i + 1 == segments.size());
-        bool background = false;
         std::string seg = segments[i];
 
-        // allow '&' inside a segment to start earlier commands in background:
-        // e.g. "ping -n 4 127.0.0.1 & echo still responsive"
-        // We split only on the first top-level '&' to mimic typical shell semantics.
         bool in_s=false, in_d=false;
         size_t amp = std::string::npos;
         for (size_t j=0;j<seg.size();++j){
@@ -478,22 +459,20 @@ static DWORD execute_with_ops(const std::string& line) {
             std::string right = trim(seg.substr(amp + 1));
             if (!left.empty()) run_chain_segment(left, /*background*/true);
             if (!right.empty()) {
-                // the remainder executes in the current chain (waited)
                 last = run_chain_segment(right, /*background*/false);
                 if (last != 0) return last;
             }
         } else {
-            background = (trailing_bg && is_last);
+            bool background = (trailing_bg && is_last);
             last = run_chain_segment(seg, background);
-            if (last != 0 && !is_last) {
-                // short-circuit for &&
-                return last;
-            }
+            if (last != 0 && !is_last) return last; // short-circuit for &&
         }
     }
     return last;
 }
 
+// -------------------------------
+// Builtins
 // -------------------------------
 /* Builtins:
    - set NAME=VALUE
@@ -505,7 +484,7 @@ static DWORD execute_with_ops(const std::string& line) {
 static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths& paths,
                            History& hist) {
     auto line = trim(raw);
-    if (line.empty()) return true; // treat empty line as “handled”
+    if (line.empty()) return true; // treat empty line as handled
 
     // set NAME=VALUE
     if (to_lower(line.rfind("set ", 0) == 0 ? "set " : "") == "set ") {
@@ -560,7 +539,7 @@ static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths
         return true;
     }
 
-    // alias NAME="value"  (or NAME=value)
+    // alias NAME="value"
     if (to_lower(line.rfind("alias ", 0) == 0 ? "alias " : "") == "alias ") {
         auto spec = trim(line.substr(6));
         auto eq = spec.find('=');
@@ -603,46 +582,45 @@ int main() {
     Aliases aliases;
     aliases.load(paths.aliases_file);
 
-    std::string line;
     while (true) {
-        std::cout << prompt();
-        std::cout.flush();
+        // Read line with tab completion (aliases + filesystem)
+        std::string line = read_line_with_completion(
+            prompt(),
+            [&](const std::string& partial){
+                return completion_matches(partial, aliases);
+            }
+        );
 
-        if (!std::getline(std::cin, line)) break;
         auto original = trim(line);
-if (original.empty()) continue;
+        if (original.empty()) continue;
 
-// Graceful shell exit (classic behavior)
-if (to_lower(original) == "exit" || to_lower(original) == "quit") {
-    std::cout << "Exiting Winix Shell...\n";
-    break;
-}
+        // Graceful shell exit
+        auto lower = to_lower(original);
+        if (lower == "exit" || lower == "quit") {
+            std::cout << "Exiting Winix Shell...\n";
+            break;
+        }
 
-// Expand aliases (first-token expansion, Bash-like)
-std::string ali_expanded = expand_aliases_once(original, aliases);
-
-        // Variable expansion
+        // Alias + variable expansion
+        std::string ali_expanded = expand_aliases_once(original, aliases);
         std::string expanded = expand_vars(ali_expanded);
 
-        // Builtins first (on expanded text)
+        // Builtins
         if (handle_builtin(expanded, aliases, paths, history)) {
-            // only add meaningful commands to history
-            if (!original.empty() && to_lower(trim(original)) != "history")
-            {
+            if (!original.empty() && to_lower(trim(original)) != "history") {
                 history.add(original);
                 history.save(paths.history_file);
             }
             continue;
         }
 
-        // Execute external
+        // External
         DWORD code = execute_with_ops(expanded);
+        (void)code;
 
-        // Record in history if not duplicate
+        // History
         history.add(original);
         history.save(paths.history_file);
-
-        (void)code; // exit code currently unused in the REPL
     }
 
     return 0;
