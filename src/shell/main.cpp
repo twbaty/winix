@@ -446,22 +446,19 @@ static std::string prompt() {
 // --------------------------------------------------
 int main() {
 #ifdef _WIN32
-    {
-        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        DWORD outMode = 0;
-        if (GetConsoleMode(hOut, &outMode)) {
-            outMode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
-            SetConsoleMode(hOut, outMode);
-        }
-
-        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-        DWORD inMode = 0;
-        if (GetConsoleMode(hIn, &inMode)) {
-            inMode |= 0x0200; // ENABLE_VIRTUAL_TERMINAL_INPUT
-            SetConsoleMode(hIn, inMode);
-        }
+{
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD outMode = 0;
+    if (GetConsoleMode(hOut, &outMode)) {
+        outMode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        SetConsoleMode(hOut, outMode);
     }
+
+    // DO NOT enable ENABLE_VIRTUAL_TERMINAL_INPUT
+    // It destroys arrow keys in standard CMD.exe.
+}
 #endif
+
 
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
