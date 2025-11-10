@@ -1,35 +1,44 @@
 #include "completion.hpp"
-#include <filesystem>
+#include <algorithm>
+#include <cctype>
 
-std::vector<std::string> completion_matches(const std::string& input,
+static const std::vector<std::string>& builtin_cmds() {
+    static const std::vector<std::string> v = {
+        "cd", "set", "alias", "unalias", "history",
+        "exit", "quit"
+    };
+    return v;
+}
+
+static bool starts_with_ci(const std::string& s, const std::string& prefix) {
+    if (prefix.size() > s.size()) return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        unsigned char a = (unsigned char)std::tolower(s[i]);
+        unsigned char b = (unsigned char)std::tolower(prefix[i]);
+        if (a != b) return false;
+    }
+    return true;
+}
+
+std::vector<std::string> completion_matches(const std::string& partial,
                                             const Aliases& aliases)
 {
     std::vector<std::string> out;
 
-    // Alias completion (first token)
-    auto pos = input.find(' ');
-    std::string first = (pos == std::string::npos) ? input : input.substr(0,pos);
+    // Builtins
+    for (auto& b : builtin_cmds()) {
+        if (partial.empty() || starts_with_ci(b, partial))
+            out.push_back(b);
+    }
 
-    for (auto& [name, val] : aliases.map) {
-        if (name.rfind(first, 0) == 0)
+    // Alias names
+    for (auto& name : aliases.names()) {
+        if (partial.empty() || starts_with_ci(name, partial))
             out.push_back(name);
     }
 
-    // Filesystem completion
-    namespace fs = std::filesystem;
-    fs::path prefix = input;
-    fs::path dir = prefix.parent_path();
-    std::string partial = prefix.filename().string();
-
-    if (dir.empty()) dir = fs::current_path();
-
-    if (fs::exists(dir)) {
-        for (auto& entry : fs::directory_iterator(dir)) {
-            auto name = entry.path().filename().string();
-            if (name.rfind(partial, 0) == 0)
-                out.push_back((dir / name).string());
-        }
-    }
-
+    // De-dup, keep stable order
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
 }
