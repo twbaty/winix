@@ -289,6 +289,14 @@ static std::string prompt() {
 // ---------- main ----------
 int main() {
     SetConsoleOutputCP(CP_UTF8);
+    // Enable ANSI color (VT sequences)
+    DWORD mode = 0;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleMode(hOut, &mode)) {
+        mode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        SetConsoleMode(hOut, mode);
+    }
+
     std::ios::sync_with_stdio(false);
     std::cout << "Winix Shell — Stable Edition\n";
 
