@@ -1,18 +1,27 @@
 #pragma once
+#include <map>
+#include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-class AliasManager {
+class Aliases {
 public:
-    AliasManager();
+    // Set or update an alias
+    void set(const std::string& name, const std::string& value);
 
-    void setAlias(const std::string& name, const std::string& value);
-    void removeAlias(const std::string& name);
-    bool hasAlias(const std::string& name) const;
-    std::string expand(const std::string& input) const;
-    std::vector<std::pair<std::string, std::string>> listAliases() const;
+    // Remove alias; returns true if removed
+    bool remove(const std::string& name);
+
+    // Retrieve alias value
+    std::optional<std::string> get(const std::string& name) const;
+
+    // All alias names (for completion)
+    std::vector<std::string> names() const;
+
+    // Persistence
+    bool load(const std::string& file_path);
+    bool save(const std::string& file_path) const;
 
 private:
-    std::unordered_map<std::string, std::string> aliases;
+    std::map<std::string, std::string> data_;
 };
