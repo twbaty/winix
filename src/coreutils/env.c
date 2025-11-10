@@ -3,10 +3,10 @@
 
 int main(void) {
 #ifdef _WIN32
-    extern char **_environ;   // MinGW runtime symbol
-    char **p = _environ;
+    extern char **__p__environ;   // MinGW’s official CRT symbol
+    char **p = __p__environ;
 #else
-    extern char **environ;    // POSIX symbol
+    extern char **environ;        // POSIX systems
     char **p = environ;
 #endif
 
