@@ -1,5 +1,5 @@
 // src/shell/main.cpp
-// Winix Shell v1.13 — Persistent History & Aliases
+// Winix Shell v1.13 — Modular Aliases + Completion + LineEditor
 // Build: CMake + MinGW/Clang (C++17)
 
 #include <windows.h>
@@ -18,8 +18,9 @@
 #include <string>
 #include <vector>
 
-#include "line_editor.hpp"   // <-- new (Step 1)
-#include "completion.hpp"    // <-- new (Step 1)
+#include "aliases.hpp"
+#include "line_editor.hpp"
+#include "completion.hpp"
 
 namespace fs = std::filesystem;
 
@@ -70,7 +71,6 @@ static bool setenv_win(const std::string& name, const std::string& value) {
 static std::string user_home() {
     auto u = getenv_win("USERPROFILE");
     if (!u.empty()) return u;
-    // Fallback to current dir if no profile
     return fs::current_path().string();
 }
 
@@ -86,7 +86,7 @@ static std::string prompt() {
 // Persistent files / config
 // -------------------------------
 struct Config {
-    size_t history_max = 50; // default; user can override via .winixrc
+    size_t history_max = 50;
 };
 
 struct Paths {
@@ -126,8 +126,9 @@ static void load_rc(const Paths& paths, Config& cfg) {
 }
 
 // -------------------------------
-// History (no duplicates, capped)
+// History
 // -------------------------------
+
 struct History {
     std::vector<std::string> entries;
     size_t max_entries = 50;
@@ -136,10 +137,8 @@ struct History {
         std::vector<std::string> out;
         out.reserve(entries.size());
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
-            const std::string& s = *it;
-            if (std::find(out.begin(), out.end(), s) == out.end()) {
-                out.push_back(s);
-            }
+            if (std::find(out.begin(), out.end(), *it) == out.end())
+                out.push_back(*it);
         }
         std::reverse(out.begin(), out.end());
         entries.swap(out);
@@ -163,8 +162,7 @@ struct History {
 
     void save(const std::string& file) const {
         std::ofstream out(file, std::ios::trunc);
-        if (!out) return;
-        for (const auto& e : entries) out << e << "\n";
+        for (auto& e : entries) out << e << "\n";
     }
 
     void add(const std::string& cmd) {
@@ -178,161 +176,90 @@ struct History {
         }
     }
 
+    void clear() { entries.clear(); }
+
     void print() const {
         int idx = 1;
-        for (auto& e : entries) {
-            std::cout << idx++ << "  " << e << "\n";
-        }
-    }
-
-    void clear() {
-        entries.clear();
+        for (auto& e : entries) std::cout << idx++ << "  " << e << "\n";
     }
 };
 
 // -------------------------------
-// Aliases (persisted)
+// Tokenization / parsing (unchanged)
 // -------------------------------
-struct Aliases {
-    std::map<std::string, std::string> a;
 
-    void load(const std::string& file) {
-        a.clear();
-        std::ifstream in(file);
-        if (!in) return;
-        std::string line;
-        while (std::getline(in, line)) {
-            line = trim(line);
-            if (line.empty() || line[0] == '#') continue;
-            auto eq = line.find('=');
-            if (eq == std::string::npos) continue;
-            auto name = trim(line.substr(0, eq));
-            auto val  = trim(line.substr(eq + 1));
-            val = unquote(val);
-            if (!name.empty() && !val.empty()) a[name] = val;
-        }
-    }
-
-    void save(const std::string& file) const {
-        std::ofstream out(file, std::ios::trunc);
-        if (!out) return;
-        for (auto& kv : a) {
-            out << kv.first << "=" << kv.second << "\n";
-        }
-    }
-
-    void set(const std::string& name, const std::string& value) {
-        a[name] = value;
-    }
-
-    bool remove(const std::string& name) {
-        return a.erase(name) > 0;
-    }
-
-    std::optional<std::string> get(const std::string& name) const {
-        auto it = a.find(name);
-        if (it == a.end()) return std::nullopt;
-        return it->second;
-    }
-
-    void print() const {
-        for (auto& kv : a) {
-            std::cout << "alias " << kv.first << "=\"" << kv.second << "\"\n";
-        }
-    }
-};
-
-// -------------------------------
-// Tokenization / simple parsing
-// -------------------------------
 static std::vector<std::string> split_top_level(const std::string& s, char sep) {
-    std::vector<std::string> out;
-    std::string cur;
+    std::vector<std::string> out; std::string cur;
     bool in_s = false, in_d = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if (c == '\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
-        if (c == '"'  && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
-        if (!in_s && !in_d && c == sep) {
-            out.push_back(trim(cur));
-            cur.clear();
-        } else {
-            cur.push_back(c);
-        }
+    for (char c : s) {
+        if (c=='\'' && !in_d) { in_s=!in_s; cur.push_back(c); continue; }
+        if (c=='"'  && !in_s) { in_d=!in_d; cur.push_back(c); continue; }
+        if (!in_s && !in_d && c==sep) {
+            out.push_back(trim(cur)); cur.clear();
+        } else cur.push_back(c);
     }
     if (!cur.empty()) out.push_back(trim(cur));
     return out;
 }
 
 static std::vector<std::string> shell_tokens(const std::string& s) {
-    std::vector<std::string> out;
-    std::string cur;
+    std::vector<std::string> out; std::string cur;
     bool in_s = false, in_d = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if (c == '\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
-        if (c == '"'  && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
+    for (char c : s) {
+        if (c=='\'' && !in_d) { in_s=!in_s; cur.push_back(c); continue; }
+        if (c=='"'  && !in_s) { in_d=!in_d; cur.push_back(c); continue; }
         if (!in_s && !in_d && std::isspace((unsigned char)c)) {
             if (!cur.empty()) { out.push_back(cur); cur.clear(); }
-        } else {
-            cur.push_back(c);
-        }
+        } else cur.push_back(c);
     }
     if (!cur.empty()) out.push_back(cur);
     return out;
 }
 
-// Expand aliases like Bash: if first token matches, replace it with alias text
+// Expand aliases: only first token
 static std::string expand_aliases_once(const std::string& line, const Aliases& aliases) {
     auto toks = shell_tokens(line);
     if (toks.empty()) return line;
-    auto name = toks[0];
-    auto ali = aliases.get(name);
+    auto ali = aliases.get(toks[0]);
     if (!ali) return line;
 
     std::string rest;
     for (size_t i = 1; i < toks.size(); ++i) {
-        if (i > 1) rest.push_back(' ');
+        if (i > 1) rest += ' ';
         rest += toks[i];
     }
+
     std::string expanded = *ali;
     if (!rest.empty()) {
-        expanded.push_back(' ');
-        expanded += rest;
+        expanded += " " + rest;
     }
     return expanded;
 }
 
-// Very light variable expansion: %VAR% and $VAR
+// Light var expansion: %VAR% and $VAR
 static std::string expand_vars(const std::string& line) {
     std::string out;
-    bool in_s = false, in_d = false;
-    for (size_t i = 0; i < line.size(); ++i) {
-        char c = line[i];
-        if (c == '\'' && !in_d) { in_s = !in_s; out.push_back(c); continue; }
-        if (c == '"'  && !in_s) { in_d = !in_d; out.push_back(c); continue; }
+    bool in_s=false, in_d=false;
+    for (size_t i=0;i<line.size();++i) {
+        char c=line[i];
+        if (c=='\'' && !in_d){ in_s=!in_s; out.push_back(c); continue; }
+        if (c=='"'  && !in_s){ in_d=!in_d; out.push_back(c); continue; }
 
         if (!in_s) {
-            if (c == '%') {
-                size_t j = i + 1;
-                while (j < line.size() && line[j] != '%') ++j;
-                if (j < line.size() && line[j] == '%') {
-                    auto name = line.substr(i + 1, j - (i + 1));
-                    auto val = getenv_win(name);
-                    out += val;
-                    i = j;
-                    continue;
+            if (c=='%') {
+                size_t j=i+1; while(j<line.size() && line[j] != '%') j++;
+                if (j<line.size()) {
+                    out += getenv_win(line.substr(i+1, j-i-1));
+                    i=j; continue;
                 }
             }
-            if (c == '$') {
-                size_t j = i + 1;
-                while (j < line.size() && (std::isalnum((unsigned char)line[j]) || line[j] == '_')) ++j;
-                if (j > i + 1) {
-                    auto name = line.substr(i + 1, j - (i + 1));
-                    auto val = getenv_win(name);
-                    out += val;
-                    i = j - 1;
-                    continue;
+            if (c=='$') {
+                size_t j=i+1;
+                while(j<line.size() &&
+                      (std::isalnum((unsigned char)line[j]) || line[j]=='_')) j++;
+                if (j>i+1) {
+                    out += getenv_win(line.substr(i+1, j-i-1));
+                    i=j-1; continue;
                 }
             }
         }
@@ -342,42 +269,38 @@ static std::string expand_vars(const std::string& line) {
 }
 
 // -------------------------------
-// Execution
+// Execution logic (unchanged)
 // -------------------------------
-static DWORD spawn_cmd(const std::string& command, bool wait, HANDLE inheritStdHandles = NULL) {
-    std::string full = "cmd.exe /C " + command;
 
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
+static DWORD spawn_cmd(const std::string& cmd, bool wait) {
+    std::string full = "cmd.exe /C " + cmd;
+
+    STARTUPINFOA si{}; si.cb=sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
     si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
     si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION pi{};
-    BOOL ok = CreateProcessA(
-        NULL,
-        (LPSTR)full.c_str(),
-        NULL, NULL, TRUE,
-        CREATE_NEW_PROCESS_GROUP,
-        NULL, NULL,
-        &si, &pi
-    );
+    BOOL ok = CreateProcessA(NULL,
+        (LPSTR)full.c_str(), NULL, NULL, TRUE,
+        CREATE_NEW_PROCESS_GROUP, NULL, NULL, &si, &pi);
+
     if (!ok) {
-        DWORD e = GetLastError();
-        std::cerr << "Error: failed to start: " << command << " (code " << e << ")\n";
+        DWORD e=GetLastError();
+        std::cerr<<"Error starting: "<<cmd<<" (code "<<e<<")\n";
         return e ? e : 1;
     }
 
     if (!wait) {
-        std::cout << "[background] PID " << pi.dwProcessId << " started\n";
+        std::cout<<"[background] PID "<<pi.dwProcessId<<" started\n";
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return 0;
     }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD code = 0;
+    DWORD code=0;
     GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
@@ -386,240 +309,191 @@ static DWORD spawn_cmd(const std::string& command, bool wait, HANDLE inheritStdH
 
 static DWORD run_chain_segment(const std::string& seg, bool background) {
     if (seg.find('|') != std::string::npos) {
-        std::cout << "Pipelines '|' not implemented yet.\n";
+        std::cout<<"Pipelines '|' not implemented.\n";
         return 1;
     }
-    auto t = shell_tokens(seg);
-    if (!t.empty() && to_lower(t[0]) == "cd") {
-        if (t.size() == 1) {
-            std::string home = user_home();
-            std::error_code ec;
-            fs::current_path(home, ec);
-            if (ec) std::cerr << "cd: " << ec.message() << "\n";
+
+    auto t=shell_tokens(seg);
+    if (!t.empty() && to_lower(t[0])=="cd") {
+        if (t.size()==1) {
+            fs::current_path(user_home(), std::error_code{});
             return 0;
         }
-        std::string target = unquote(t[1]);
+        std::string target=unquote(t[1]);
         std::error_code ec;
         fs::current_path(target, ec);
-        if (ec) {
-            std::cerr << "cd: " << target << ": " << ec.message() << "\n";
-            return 1;
-        }
-        return 0;
+        if (ec) std::cerr<<"cd: "<<ec.message()<<"\n";
+        return ec ? 1 : 0;
     }
+
     return spawn_cmd(seg, !background);
 }
 
-// Support for && and &
 static DWORD execute_with_ops(const std::string& line) {
-    std::string s = trim(line);
-    bool trailing_bg = false;
-    if (!s.empty() && s.back() == '&') {
-        trailing_bg = true;
-        s.pop_back();
-        s = trim(s);
+    std::string s=trim(line);
+    bool trailing_bg=false;
+    if (!s.empty() && s.back()=='&') {
+        trailing_bg=true; s.pop_back(); s=trim(s);
     }
 
-    auto segments = split_top_level(s, 0);
-    segments.clear();
+    // Split on &&
+    std::vector<std::string> segments;
     {
+        bool in_s=false,in_d=false;
         std::string cur;
-        bool in_s=false, in_d=false;
         for (size_t i=0;i<s.size();) {
-            if (s[i]=='\'' && !in_d){ in_s=!in_s; cur.push_back(s[i++]); continue; }
-            if (s[i]=='"'  && !in_s){ in_d=!in_d; cur.push_back(s[i++]); continue; }
-            if (!in_s && !in_d && i+1<s.size() && s[i]=='&' && s[i+1]=='&') {
-                segments.push_back(trim(cur));
-                cur.clear();
-                i+=2;
-                continue;
+            char c=s[i];
+            if (c=='\'' && !in_d){ in_s=!in_s; cur.push_back(c); i++; continue; }
+            if (c=='"'  && !in_s){ in_d=!in_d; cur.push_back(c); i++; continue; }
+
+            if (!in_s && !in_d && i+1<s.size() && c=='&' && s[i+1]=='&') {
+                segments.push_back(trim(cur)); cur.clear(); i+=2; continue;
             }
-            cur.push_back(s[i++]);
+            cur.push_back(c); i++;
         }
         if (!cur.empty()) segments.push_back(trim(cur));
     }
 
     if (segments.empty()) return 0;
+    DWORD last=0;
 
-    DWORD last = 0;
-    for (size_t i = 0; i < segments.size(); ++i) {
-        bool is_last = (i + 1 == segments.size());
-        std::string seg = segments[i];
+    for (size_t i=0;i<segments.size();++i) {
+        bool is_last=(i+1==segments.size());
+        std::string seg=segments[i];
 
-        bool in_s=false, in_d=false;
-        size_t amp = std::string::npos;
-        for (size_t j=0;j<seg.size();++j){
-            char c = seg[j];
+        bool in_s=false,in_d=false; size_t amp=std::string::npos;
+        for (size_t j=0;j<seg.size();++j) {
+            char c=seg[j];
             if (c=='\'' && !in_d){ in_s=!in_s; continue; }
             if (c=='"'  && !in_s){ in_d=!in_d; continue; }
-            if (!in_s && !in_d && c=='&'){ amp = j; break; }
+            if (!in_s && !in_d && c=='&'){ amp=j; break; }
         }
-        if (amp != std::string::npos) {
-            std::string left = trim(seg.substr(0, amp));
-            std::string right = trim(seg.substr(amp + 1));
-            if (!left.empty()) run_chain_segment(left, /*background*/true);
+
+        if (amp!=std::string::npos) {
+            std::string left=trim(seg.substr(0,amp));
+            std::string right=trim(seg.substr(amp+1));
+
+            if (!left.empty()) run_chain_segment(left, true);
             if (!right.empty()) {
-                last = run_chain_segment(right, /*background*/false);
-                if (last != 0) return last;
+                last=run_chain_segment(right, false);
+                if (last!=0) return last;
             }
         } else {
-            bool background = (trailing_bg && is_last);
-            last = run_chain_segment(seg, background);
-            if (last != 0 && !is_last) return last; // short-circuit for &&
+            bool background=(trailing_bg && is_last);
+            last=run_chain_segment(seg, background);
+            if (last!=0 && !is_last) return last;
         }
     }
+
     return last;
 }
 
 // -------------------------------
 // Builtins
 // -------------------------------
-/* Builtins:
-   - set NAME=VALUE
-   - alias
-   - alias name="value"
-   - unalias name
-   - history | history -c
-*/
-static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths& paths,
-                           History& hist) {
-    auto line = trim(raw);
-    if (line.empty()) return true; // treat empty line as handled
+
+static bool handle_builtin(const std::string& raw, Aliases& aliases,
+                           const Paths& paths, History& hist) {
+    auto line=trim(raw);
+    if (line.empty()) return true;
 
     // set NAME=VALUE
-    if (to_lower(line.rfind("set ", 0) == 0 ? "set " : "") == "set ") {
-        auto rest = trim(line.substr(4));
-        auto eq = rest.find('=');
-        if (eq == std::string::npos) {
-            std::cerr << "Usage: set NAME=VALUE\n";
-            return true;
+    if (to_lower(line.rfind("set ",0)==0 ? "set " : "") == "set ") {
+        std::string rest=trim(line.substr(4));
+        auto eq=rest.find('=');
+        if (eq==std::string::npos) {
+            std::cerr<<"Usage: set NAME=VALUE\n"; return true;
         }
-        std::string name = trim(rest.substr(0, eq));
-        std::string value = trim(rest.substr(eq + 1));
-        value = unquote(value);
-        if (name.empty()) {
-            std::cerr << "set: NAME missing\n";
-            return true;
-        }
-        if (!setenv_win(name, value)) {
-            std::cerr << "set: failed for " << name << "\n";
-        }
+        std::string name=trim(rest.substr(0,eq));
+        std::string val =trim(rest.substr(eq+1));
+        val=unquote(val);
+        if (!setenv_win(name,val))
+            std::cerr<<"set failed for "<<name<<"\n";
         return true;
     }
 
     // history
-    if (to_lower(line) == "history") {
-        hist.print();
-        return true;
-    }
-    if (to_lower(line) == "history -c") {
-        hist.clear();
-        hist.save(paths.history_file);
-        return true;
-    }
+    if (to_lower(line)=="history"){ hist.print(); return true; }
+    if (to_lower(line)=="history -c"){ hist.clear(); hist.save(paths.history_file); return true; }
 
-    // alias (print)
-    if (to_lower(line) == "alias") {
-        aliases.print();
-        return true;
-    }
+    // alias
+    if (to_lower(line)=="alias"){ aliases.print(); return true; }
 
-    // unalias NAME
-    if (to_lower(line.rfind("unalias ", 0) == 0 ? "unalias " : "") == "unalias ") {
-        auto name = trim(line.substr(8));
-        if (name.empty()) {
-            std::cerr << "Usage: unalias NAME\n";
-            return true;
-        }
-        if (!aliases.remove(name)) {
-            std::cerr << "unalias: " << name << ": not found\n";
-        } else {
+    if (to_lower(line.rfind("unalias ",0)==0 ? "unalias " : "") == "unalias ") {
+        std::string name=trim(line.substr(8));
+        if (!aliases.remove(name))
+            std::cerr<<"unalias: "<<name<<": not found\n";
+        else
             aliases.save(paths.aliases_file);
-        }
         return true;
     }
 
-    // alias NAME="value"
-    if (to_lower(line.rfind("alias ", 0) == 0 ? "alias " : "") == "alias ") {
-        auto spec = trim(line.substr(6));
-        auto eq = spec.find('=');
-        if (eq == std::string::npos) {
-            std::cerr << "Usage: alias name=\"command ...\"\n";
-            return true;
+    if (to_lower(line.rfind("alias ",0)==0 ? "alias " : "") == "alias ") {
+        std::string spec=trim(line.substr(6));
+        auto eq=spec.find('=');
+        if (eq==std::string::npos) {
+            std::cerr<<"Usage: alias NAME=\"VALUE\"\n"; return true;
         }
-        std::string name = trim(spec.substr(0, eq));
-        std::string val  = trim(spec.substr(eq + 1));
-        val = unquote(val);
-        if (name.empty() || val.empty()) {
-            std::cerr << "alias: invalid format\n";
-            return true;
-        }
-        aliases.set(name, val);
+        std::string name=trim(spec.substr(0,eq));
+        std::string val =trim(spec.substr(eq+1));
+        val=unquote(val);
+        aliases.set(name,val);
         aliases.save(paths.aliases_file);
         return true;
     }
 
-    return false; // not a builtin
+    return false;
 }
 
 // -------------------------------
 // REPL
 // -------------------------------
+
 int main() {
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
 
-    std::cout << "Winix Shell v1.13 — Persistent History & Aliases\n";
+    std::cout << "Winix Shell v1.13 — Modular Edition\n";
 
     Config cfg;
-    Paths paths = make_paths();
-    load_rc(paths, cfg);
+    Paths paths=make_paths();
+    load_rc(paths,cfg);
 
-    History history;
-    history.max_entries = cfg.history_max;
+    History history; history.max_entries=cfg.history_max;
     history.load(paths.history_file);
 
     Aliases aliases;
     aliases.load(paths.aliases_file);
 
+    // NEW: Create the line editor with completion callback
+    LineEditor editor([&](const std::string& partial){
+        return completion_matches(partial, aliases);
+    });
+
     while (true) {
-        // Read line with tab completion (aliases + filesystem)
-        std::string line = read_line_with_completion(
-            prompt(),
-            [&](const std::string& partial){
-                return completion_matches(partial, aliases);
-            }
-        );
+        auto line_opt = editor.read_line(prompt());
+        if (!line_opt) break;
 
-        auto original = trim(line);
-        if (original.empty()) continue;
+        std::string line = trim(*line_opt);
+        if (line.empty()) continue;
 
-        // Graceful shell exit
-        auto lower = to_lower(original);
-        if (lower == "exit" || lower == "quit") {
-            std::cout << "Exiting Winix Shell...\n";
+        std::string lower = to_lower(line);
+        if (lower=="exit" || lower=="quit") {
+            std::cout<<"Exiting Winix...\n";
             break;
         }
 
-        // Alias + variable expansion
-        std::string ali_expanded = expand_aliases_once(original, aliases);
+        std::string ali_expanded = expand_aliases_once(line, aliases);
         std::string expanded = expand_vars(ali_expanded);
 
-        // Builtins
         if (handle_builtin(expanded, aliases, paths, history)) {
-            if (!original.empty() && to_lower(trim(original)) != "history") {
-                history.add(original);
-                history.save(paths.history_file);
-            }
+            history.add(line);
+            history.save(paths.history_file);
             continue;
         }
 
-        // External
-        DWORD code = execute_with_ops(expanded);
-        (void)code;
-
-        // History
-        history.add(original);
+        execute_with_ops(expanded);
+        history.add(line);
         history.save(paths.history_file);
     }
 
