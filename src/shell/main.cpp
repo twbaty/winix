@@ -1,5 +1,5 @@
 // src/shell/main.cpp
-// Winix Shell — Stable Edition (matches aliases/line_editor/completion stubs provided)
+// Winix Shell — Stable Edition
 
 #include <windows.h>
 #include <shlwapi.h>
@@ -31,13 +31,18 @@ static std::string trim(const std::string& in) {
     return in.substr(a, b - a);
 }
 static std::string to_lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+    std::transform(s.begin(), s.end(), s.begin(),
+        [](unsigned char c){ return (char)std::tolower(c); });
     return s;
 }
 static bool is_quoted(const std::string& s) {
-    return s.size() >= 2 && ((s.front()=='"' && s.back()=='"') || (s.front()=='\'' && s.back()=='\''));
+    return s.size() >= 2 &&
+           ((s.front()=='"' && s.back()=='"') ||
+            (s.front()=='\'' && s.back()=='\''));
 }
-static std::string unquote(const std::string& s) { return is_quoted(s) ? s.substr(1, s.size()-2) : s; }
+static std::string unquote(const std::string& s) {
+    return is_quoted(s) ? s.substr(1, s.size()-2) : s;
+}
 
 static std::string getenv_win(const std::string& name) {
     DWORD n = GetEnvironmentVariableA(name.c_str(), nullptr, 0);
@@ -65,31 +70,27 @@ struct Paths {
     std::string aliases_file;
     std::string rc_file;
 
-    // NEW: where winix.exe lives
-    std::string bin_dir;
-
-    // NEW: where coreutils/*.exe live
-    std::string coreutils_dir;
+    std::string bin_dir;        // where winix.exe lives
+    std::string coreutils_dir;  // where coreutils .exe live (same directory)
 };
+
 static Paths make_paths() {
     const auto home = user_home();
     Paths p;
 
-    // User files
+    // User dotfiles
     p.history_file = (fs::path(home) / ".winix_history.txt").string();
     p.aliases_file = (fs::path(home) / ".winix_aliases").string();
     p.rc_file      = (fs::path(home) / ".winixrc").string();
 
-    // Executables (YOUR build tree)
+    // Resolve executable directory
     char buf[MAX_PATH];
     GetModuleFileNameA(nullptr, buf, MAX_PATH);
     fs::path exe = fs::path(buf).parent_path();
 
-    // bin directory where winix.exe lives
-    p.bin_dir = exe.string();
-
-    // coreutils live one level deeper (..\coreutils\)
-    p.coreutils_dir = (exe.parent_path() / "coreutils").string();
+    // winix and coreutils both live in build/
+    p.bin_dir       = exe.string();
+    p.coreutils_dir = exe.string();
 
     return p;
 }
@@ -106,7 +107,10 @@ static void load_rc(const Paths& paths, Config& cfg) {
         auto k = to_lower(trim(line.substr(0, eq)));
         auto v = trim(line.substr(eq+1));
         if (k=="history_size") {
-            try { size_t n = (size_t)std::stoul(v); if (n>0 && n<=5000) cfg.history_max = n; } catch (...) {}
+            try {
+                size_t n = (size_t)std::stoul(v);
+                if (n>0 && n<=5000) cfg.history_max = n;
+            } catch (...) {}
         }
     }
 }
@@ -125,15 +129,18 @@ struct History {
             line = trim(line);
             if (!line.empty()) entries.push_back(line);
         }
-        // dedupe keep latest
+        // dedupe keep-latest
         std::vector<std::string> out;
         out.reserve(entries.size());
         for (auto it=entries.rbegin(); it!=entries.rend(); ++it) {
-            if (std::find(out.begin(), out.end(), *it)==out.end()) out.push_back(*it);
+            if (std::find(out.begin(), out.end(), *it)==out.end())
+                out.push_back(*it);
         }
         std::reverse(out.begin(), out.end());
         entries.swap(out);
-        if (entries.size()>max_entries) entries.erase(entries.begin(), entries.begin()+(entries.size()-max_entries));
+        if (entries.size()>max_entries)
+            entries.erase(entries.begin(),
+                          entries.begin() + (entries.size()-max_entries));
     }
     void save(const std::string& file) const {
         std::ofstream out(file, std::ios::trunc);
@@ -143,9 +150,12 @@ struct History {
     void add(const std::string& s) {
         const auto t = trim(s);
         if (t.empty()) return;
-        entries.erase(std::remove(entries.begin(), entries.end(), t), entries.end());
+        entries.erase(std::remove(entries.begin(), entries.end(), t),
+                      entries.end());
         entries.push_back(t);
-        if (entries.size()>max_entries) entries.erase(entries.begin(), entries.begin()+(entries.size()-max_entries));
+        if (entries.size()>max_entries)
+            entries.erase(entries.begin(),
+                          entries.begin() + (entries.size()-max_entries));
     }
     void print() const {
         int i=1;
@@ -154,7 +164,7 @@ struct History {
     void clear() { entries.clear(); }
 };
 
-// ---------- tokenization/expansion ----------
+// ---------- tokens + expansion ----------
 static std::vector<std::string> shell_tokens(const std::string& s) {
     std::vector<std::string> out;
     std::string cur;
@@ -170,13 +180,19 @@ static std::vector<std::string> shell_tokens(const std::string& s) {
     return out;
 }
 
-static std::string expand_aliases_once(const std::string& line, const Aliases& aliases) {
+static std::string expand_aliases_once(const std::string& line,
+                                       const Aliases& aliases)
+{
     auto toks = shell_tokens(line);
     if (toks.empty()) return line;
     auto a = aliases.get(toks[0]);
     if (!a) return line;
+
     std::string rest;
-    for (size_t i=1;i<toks.size();++i) { if (i>1) rest.push_back(' '); rest += toks[i]; }
+    for (size_t i=1;i<toks.size();++i) {
+        if (i>1) rest.push_back(' ');
+        rest += toks[i];
+    }
     return rest.empty() ? *a : (*a + " " + rest);
 }
 
@@ -190,12 +206,24 @@ static std::string expand_vars(const std::string& line) {
 
         if (!in_s) {
             if (c=='%') {
-                size_t j=i+1; while (j<line.size() && line[j] != '%') ++j;
-                if (j<line.size() && line[j]=='%') { out += getenv_win(line.substr(i+1, j-(i+1))); i=j; continue; }
+                size_t j=i+1;
+                while (j<line.size() && line[j] != '%') ++j;
+                if (j<line.size()) {
+                    out += getenv_win(line.substr(i+1, j-(i+1)));
+                    i=j;
+                    continue;
+                }
             }
             if (c=='$') {
-                size_t j=i+1; while (j<line.size() && (std::isalnum((unsigned char)line[j]) || line[j]=='_')) ++j;
-                if (j>i+1) { out += getenv_win(line.substr(i+1, j-(i+1))); i=j-1; continue; }
+                size_t j=i+1;
+                while (j<line.size() &&
+                       (std::isalnum((unsigned char)line[j]) ||
+                        line[j]=='_')) ++j;
+                if (j>i+1) {
+                    out += getenv_win(line.substr(i+1, j-(i+1)));
+                    i=j-1;
+                    continue;
+                }
             }
         }
         out.push_back(c);
@@ -214,13 +242,23 @@ static DWORD spawn_cmd(const std::string& command, bool wait) {
     si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION pi{};
-    BOOL ok = CreateProcessA(NULL,(LPSTR)full.c_str(),NULL,NULL,TRUE,CREATE_NEW_PROCESS_GROUP,NULL,NULL,&si,&pi);
+    BOOL ok = CreateProcessA(
+        NULL, (LPSTR)full.c_str(), NULL, NULL,
+        TRUE, CREATE_NEW_PROCESS_GROUP, NULL, NULL, &si, &pi
+    );
     if (!ok) {
         DWORD e = GetLastError();
-        std::cerr << "Error: failed to start: " << command << " (code " << e << ")\n";
+        std::cerr << "Error: failed to start: " << command
+                  << " (code " << e << ")\n";
         return e ? e : 1;
     }
-    if (!wait) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return 0; }
+
+    if (!wait) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 0;
+    }
+
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code=0; GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
@@ -229,10 +267,11 @@ static DWORD spawn_cmd(const std::string& command, bool wait) {
 
 static DWORD run_segment(const std::string& seg, const Paths& paths) {
     auto t = shell_tokens(seg);
+    if (t.empty()) return 0;
 
-    // ----- built-in "cd" handling -----
-    if (!t.empty() && to_lower(t[0]) == "cd") {
-        if (t.size() == 1) {
+    // builtin: cd
+    if (to_lower(t[0])=="cd") {
+        if (t.size()==1) {
             std::error_code ec;
             fs::current_path(user_home(), ec);
             if (ec) std::cerr << "cd: " << ec.message() << "\n";
@@ -242,86 +281,99 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
         std::error_code ec;
         fs::current_path(target, ec);
         if (ec) {
-            std::cerr << "cd: " << target << ": " << ec.message() << "\n";
+            std::cerr << "cd: " << target << ": "
+                      << ec.message() << "\n";
             return 1;
         }
         return 0;
     }
 
-    // ----- external command resolution -----
-    if (t.empty()) return 0;
-
     const std::string cmd = t[0];
 
-    // 1. Check coreutils directory (build/coreutils)
+    // 1. coreutils in same folder
     {
         fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
         if (fs::exists(p))
-            return spawn_cmd(p.string(), /*wait*/true);
+            return spawn_cmd(p.string(), true);
     }
 
-    // 2. Check Winix bin directory (where winix.exe lives)
+    // 2. winix bin folder
     {
         fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
         if (fs::exists(p))
-            return spawn_cmd(p.string(), /*wait*/true);
+            return spawn_cmd(p.string(), true);
     }
 
-    // 3. Fallback to system PATH
-    return spawn_cmd(seg, /*wait*/true);
+    // 3. fallback to system path
+    return spawn_cmd(seg, true);
 }
 
-
 // ---------- builtins ----------
-static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths& paths, History& hist) {
+static bool handle_builtin(const std::string& raw,
+                           Aliases& aliases,
+                           const Paths& paths,
+                           History& hist)
+{
     const auto line = trim(raw);
     if (line.empty()) return true;
 
     // set NAME=VALUE
-    if (to_lower(line).rfind("set ",0) == 0) {
+    if (to_lower(line).rfind("set ",0)==0) {
         auto rest = trim(line.substr(4));
         auto eq = rest.find('=');
-        if (eq==std::string::npos) { std::cerr << "Usage: set NAME=VALUE\n"; return true; }
+        if (eq==std::string::npos) {
+            std::cerr << "Usage: set NAME=VALUE\n"; return true;
+        }
         auto name = trim(rest.substr(0,eq));
-        auto val  = trim(rest.substr(eq+1));
-        val = unquote(val);
-        if (name.empty()) { std::cerr << "set: NAME missing\n"; return true; }
-        if (!setenv_win(name, val)) std::cerr << "set: failed for " << name << "\n";
+        auto val  = unquote(trim(rest.substr(eq+1)));
+        if (!name.empty()) setenv_win(name, val);
         return true;
     }
 
-    // history / history -c
-    if (to_lower(line)=="history") { hist.print(); return true; }
-    if (to_lower(line)=="history -c") { hist.clear(); hist.save(paths.history_file); return true; }
+    // history
+    if (to_lower(line)=="history") {
+        hist.print();
+        return true;
+    }
+    if (to_lower(line)=="history -c") {
+        hist.clear();
+        hist.save(paths.history_file);
+        return true;
+    }
 
-    // alias (print)
+    // alias
     if (to_lower(line)=="alias") {
         for (auto& name : aliases.names()) {
             auto v = aliases.get(name);
-            if (v) std::cout << "alias " << name << "=\"" << *v << "\"\n";
+            if (v)
+                std::cout << "alias " << name
+                          << "=\"" << *v << "\"\n";
         }
         return true;
     }
 
-    // unalias NAME
-    if (to_lower(line).rfind("unalias ",0) == 0) {
+    if (to_lower(line).rfind("unalias ",0)==0) {
         auto name = trim(line.substr(8));
-        if (name.empty()) { std::cerr << "Usage: unalias NAME\n"; return true; }
-        if (!aliases.remove(name)) std::cerr << "unalias: " << name << ": not found\n";
-        else aliases.save(paths.aliases_file);
+        if (!aliases.remove(name))
+            std::cerr << "unalias: " << name << ": not found\n";
+        else
+            aliases.save(paths.aliases_file);
         return true;
     }
 
-    // alias NAME="value"
-    if (to_lower(line).rfind("alias ",0) == 0) {
+    if (to_lower(line).rfind("alias ",0)==0) {
         auto spec = trim(line.substr(6));
         auto eq = spec.find('=');
-        if (eq==std::string::npos) { std::cerr << "Usage: alias name=\"command ...\"\n"; return true; }
+        if (eq==std::string::npos) {
+            std::cerr << "Usage: alias name=\"cmd...\"\n";
+            return true;
+        }
         auto name = trim(spec.substr(0,eq));
         auto val  = unquote(trim(spec.substr(eq+1)));
-        if (name.empty() || val.empty()) { std::cerr << "alias: invalid format\n"; return true; }
-        aliases.set(name, val);
-        aliases.save(paths.aliases_file);
+        if (!name.empty() && !val.empty()) {
+            aliases.set(name, val);
+            aliases.save(paths.aliases_file);
+        }
         return true;
     }
 
@@ -331,10 +383,10 @@ static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths
 // ---------- prompt ----------
 static std::string prompt() {
     try {
-        std::string cwd = fs::current_path().string();
-        return "\x1b[32m[Winix] " + cwd + " >\x1b[0m ";
-    }
-    catch (...) {
+        return "\x1b[32m[Winix] "
+            + fs::current_path().string()
+            + " >\x1b[0m ";
+    } catch (...) {
         return "\x1b[32m[Winix] >\x1b[0m ";
     }
 }
@@ -342,6 +394,7 @@ static std::string prompt() {
 // ---------- main ----------
 int main() {
 #ifdef _WIN32
+    // Enable VT (ANSI colors) and VT-input (arrow keys)
     {
         HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
         DWORD outMode = 0;
@@ -361,8 +414,8 @@ int main() {
 
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
-    std::cout << "Winix Shell — Stable Edition\n";
 
+    std::cout << "Winix Shell — Stable Edition\n";
 
     Config cfg;
     auto paths = make_paths();
@@ -388,17 +441,17 @@ int main() {
         auto lower = to_lower(original);
         if (lower=="exit" || lower=="quit") break;
 
-        // expand
         auto ali = expand_aliases_once(original, aliases);
         auto exp = expand_vars(ali);
 
-        // builtins?
         if (handle_builtin(exp, aliases, paths, hist)) {
-            if (to_lower(original)!="history") { hist.add(original); hist.save(paths.history_file); }
+            if (to_lower(original)!="history") {
+                hist.add(original);
+                hist.save(paths.history_file);
+            }
             continue;
         }
 
-        // external
         (void)run_segment(exp, paths);
 
         hist.add(original);
