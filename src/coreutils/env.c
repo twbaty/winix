@@ -5,13 +5,15 @@
   #include <windows.h>
 
   int main(void) {
+      // Windows provides environment variables as a contiguous block
       LPCH env = GetEnvironmentStringsA();  // returns double-NUL-terminated block
       if (!env) return 1;
 
+      // Iterate through the block until the final '\0\0'
       for (LPCH p = env; *p; ) {
-          puts(p);
-          while (*p) ++p;   // advance to NUL of this string
-          ++p;              // move to start of next string (or final NUL)
+          puts(p);           // print "NAME=VALUE"
+          while (*p) ++p;    // advance to the end of this string
+          ++p;               // advance to the start of the next
       }
 
       FreeEnvironmentStringsA(env);
@@ -19,6 +21,7 @@
   }
 
 #else
+
   extern char **environ;
 
   int main(void) {
@@ -26,4 +29,5 @@
           puts(*p);
       return 0;
   }
+
 #endif
