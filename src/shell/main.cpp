@@ -59,19 +59,41 @@ static std::string user_home() {
 
 // ---------- config/paths ----------
 struct Config { size_t history_max = 100; };
+
 struct Paths {
     std::string history_file;
     std::string aliases_file;
     std::string rc_file;
+
+    // NEW: where winix.exe lives
+    std::string bin_dir;
+
+    // NEW: where coreutils/*.exe live
+    std::string coreutils_dir;
 };
 static Paths make_paths() {
     const auto home = user_home();
     Paths p;
+
+    // User files
     p.history_file = (fs::path(home) / ".winix_history.txt").string();
     p.aliases_file = (fs::path(home) / ".winix_aliases").string();
     p.rc_file      = (fs::path(home) / ".winixrc").string();
+
+    // Executables (YOUR build tree)
+    char buf[MAX_PATH];
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    fs::path exe = fs::path(buf).parent_path();
+
+    // bin directory where winix.exe lives
+    p.bin_dir = exe.string();
+
+    // coreutils live one level deeper (..\coreutils\)
+    p.coreutils_dir = (exe.parent_path() / "coreutils").string();
+
     return p;
 }
+
 static void load_rc(const Paths& paths, Config& cfg) {
     std::ifstream in(paths.rc_file);
     if (!in) return;
@@ -205,10 +227,12 @@ static DWORD spawn_cmd(const std::string& command, bool wait) {
     return code;
 }
 
-static DWORD run_segment(const std::string& seg) {
+static DWORD run_segment(const std::string& seg, const Paths& paths) {
     auto t = shell_tokens(seg);
-    if (!t.empty() && to_lower(t[0])=="cd") {
-        if (t.size()==1) {
+
+    // ----- built-in "cd" handling -----
+    if (!t.empty() && to_lower(t[0]) == "cd") {
+        if (t.size() == 1) {
             std::error_code ec;
             fs::current_path(user_home(), ec);
             if (ec) std::cerr << "cd: " << ec.message() << "\n";
@@ -217,11 +241,36 @@ static DWORD run_segment(const std::string& seg) {
         std::string target = unquote(t[1]);
         std::error_code ec;
         fs::current_path(target, ec);
-        if (ec) { std::cerr << "cd: " << target << ": " << ec.message() << "\n"; return 1; }
+        if (ec) {
+            std::cerr << "cd: " << target << ": " << ec.message() << "\n";
+            return 1;
+        }
         return 0;
     }
+
+    // ----- external command resolution -----
+    if (t.empty()) return 0;
+
+    const std::string cmd = t[0];
+
+    // 1. Check coreutils directory (build/coreutils)
+    {
+        fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
+        if (fs::exists(p))
+            return spawn_cmd(p.string(), /*wait*/true);
+    }
+
+    // 2. Check Winix bin directory (where winix.exe lives)
+    {
+        fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
+        if (fs::exists(p))
+            return spawn_cmd(p.string(), /*wait*/true);
+    }
+
+    // 3. Fallback to system PATH
     return spawn_cmd(seg, /*wait*/true);
 }
+
 
 // ---------- builtins ----------
 static bool handle_builtin(const std::string& raw, Aliases& aliases, const Paths& paths, History& hist) {
@@ -350,7 +399,7 @@ int main() {
         }
 
         // external
-        (void)run_segment(exp);
+        (void)run_segment(exp, paths);
 
         hist.add(original);
         hist.save(paths.history_file);
