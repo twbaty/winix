@@ -2,34 +2,64 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_LINES 1024
-#define MAX_LEN 1024
+#define MAX_LINES 8192
+#define LINE_LEN  4096
 
-int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: tail <file>\n");
-        return 1;
-    }
+static void tail_stream(FILE *f, int n) {
+    char **ring = malloc(n * sizeof(char *));
+    if (!ring) { fprintf(stderr, "tail: out of memory\n"); return; }
+    for (int i = 0; i < n; i++) ring[i] = NULL;
 
-    FILE *f = fopen(argv[1], "r");
-    if (!f) { perror(argv[1]); return 1; }
-
-    char *lines[MAX_LINES];
+    char buf[LINE_LEN];
     int count = 0;
-    char buffer[MAX_LEN];
-
-    while (fgets(buffer, sizeof(buffer), f)) {
-        lines[count % MAX_LINES] = strdup(buffer);
+    while (fgets(buf, sizeof(buf), f)) {
+        int slot = count % n;
+        free(ring[slot]);
+        ring[slot] = strdup(buf);
         count++;
     }
-    fclose(f);
 
-    int start = count > 10 ? count - 10 : 0;
-    for (int i = start; i < count; i++)
-        fputs(lines[i % MAX_LINES], stdout);
+    int start = count > n ? count - n : 0;
+    for (int i = start; i < count; i++) {
+        char *line = ring[i % n];
+        if (line) fputs(line, stdout);
+    }
 
-    for (int i = 0; i < (count < MAX_LINES ? count : MAX_LINES); i++)
-        free(lines[i % MAX_LINES]);
+    for (int i = 0; i < n; i++) free(ring[i]);
+    free(ring);
+}
 
+int main(int argc, char *argv[]) {
+    int n = 10;
+    int argi = 1;
+
+    if (argi < argc && argv[argi][0] == '-' && argv[argi][1] == 'n') {
+        if (argv[argi][2] != '\0') {
+            n = atoi(argv[argi] + 2);
+            argi++;
+        } else if (argi + 1 < argc) {
+            n = atoi(argv[++argi]);
+            argi++;
+        } else {
+            fprintf(stderr, "tail: option -n requires an argument\n");
+            return 1;
+        }
+        if (n <= 0) { fprintf(stderr, "tail: invalid line count\n"); return 1; }
+    }
+
+    if (argi >= argc) {
+        tail_stream(stdin, n);
+        return 0;
+    }
+
+    int multiple = (argc - argi) > 1;
+    for (int i = argi; i < argc; i++) {
+        FILE *f = fopen(argv[i], "r");
+        if (!f) { perror(argv[i]); continue; }
+        if (multiple) printf("==> %s <==\n", argv[i]);
+        tail_stream(f, n);
+        if (multiple && i < argc - 1) putchar('\n');
+        fclose(f);
+    }
     return 0;
 }
