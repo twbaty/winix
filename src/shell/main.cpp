@@ -71,7 +71,10 @@ static std::string user_home() {
 // --------------------------------------------------
 // Paths + config
 // --------------------------------------------------
-struct Config { size_t history_max = 100; };
+struct Config {
+    size_t history_max   = 100;
+    bool case_sensitive  = false;
+};
 
 struct Paths {
     std::string history_file;
@@ -119,8 +122,17 @@ static void load_rc(const Paths& paths, Config& cfg) {
                 size_t n = std::stoul(v);
                 if (n > 0 && n <= 5000) cfg.history_max = n;
             } catch (...) {}
+        } else if (k == "case") {
+            cfg.case_sensitive = (to_lower(v) == "on");
         }
     }
+}
+
+static void save_rc(const Paths& paths, const Config& cfg) {
+    std::ofstream out(paths.rc_file, std::ios::trunc);
+    if (!out) return;
+    out << "history_size=" << cfg.history_max << "\n";
+    out << "case=" << (cfg.case_sensitive ? "on" : "off") << "\n";
 }
 
 // --------------------------------------------------
@@ -365,15 +377,27 @@ static bool handle_builtin(
     const std::string& raw,
     Aliases& aliases,
     const Paths& paths,
-    History& hist
+    History& hist,
+    Config& cfg
 ) {
     auto line = trim(raw);
     if (line.empty()) return true;
 
     std::string ll = to_lower(line);
 
-    // set NAME=VALUE
-    if (ll.rfind("set ",0) == 0) {
+    // Case-aware comparison helpers.
+    // Builtins always match case-insensitively when case_sensitive=false.
+    auto match  = [&](const std::string& s) {
+        return cfg.case_sensitive ? (line == s) : (ll == s);
+    };
+    auto starts = [&](const std::string& s) {
+        return cfg.case_sensitive
+            ? (line.rfind(s, 0) == 0)
+            : (ll.rfind(s, 0) == 0);
+    };
+
+    // set NAME=VALUE  (intercept shell toggles before env-var fallthrough)
+    if (starts("set ")) {
         auto rest = trim(line.substr(4));
         auto eq = rest.find('=');
         if (eq == std::string::npos) {
@@ -383,21 +407,35 @@ static bool handle_builtin(
         auto name = trim(rest.substr(0, eq));
         auto val  = unquote(trim(rest.substr(eq+1)));
 
+        // Shell toggle: case
+        if (to_lower(name) == "case") {
+            auto v = to_lower(val);
+            if (v == "on" || v == "off") {
+                cfg.case_sensitive = (v == "on");
+                std::cout << "case sensitivity: " << v << "\n";
+                save_rc(paths, cfg);
+            } else {
+                std::cerr << "set: case must be 'on' or 'off'\n";
+            }
+            return true;
+        }
+
+        // Otherwise set as an environment variable
         if (!setenv_win(name, val))
             std::cerr << "set: failed for " << name << "\n";
         return true;
     }
 
     // history
-    if (ll == "history") { hist.print(); return true; }
-    if (ll == "history -c") {
+    if (match("history"))    { hist.print(); return true; }
+    if (match("history -c")) {
         hist.clear();
         hist.save(paths.history_file);
         return true;
     }
 
     // alias print all
-    if (ll == "alias") {
+    if (match("alias")) {
         for (auto& name : aliases.names()) {
             auto v = aliases.get(name);
             if (v)
@@ -408,7 +446,7 @@ static bool handle_builtin(
     }
 
     // unalias NAME
-    if (ll.rfind("unalias ",0) == 0) {
+    if (starts("unalias ")) {
         auto name = trim(line.substr(8));
         if (!aliases.remove(name))
             std::cerr << "unalias: " << name << ": not found\n";
@@ -418,7 +456,7 @@ static bool handle_builtin(
     }
 
     // alias name="value"
-    if (ll.rfind("alias ",0) == 0) {
+    if (starts("alias ")) {
         auto spec = trim(line.substr(6));
         auto eq = spec.find('=');
         if (eq == std::string::npos) {
@@ -484,9 +522,10 @@ int main() {
     Aliases aliases;
     aliases.load(paths.aliases_file);
 
-    LineEditor editor([&](const std::string& partial){
-        return completion_matches(partial, aliases);
-    });
+    LineEditor editor(
+        [&](const std::string& partial){ return completion_matches(partial, aliases); },
+        &hist.entries
+    );
 
     while (true) {
         auto in = editor.read_line(prompt());
@@ -501,7 +540,7 @@ int main() {
         auto expanded = expand_vars(
                             expand_aliases_once(original, aliases));
 
-        if (handle_builtin(expanded, aliases, paths, hist)) {
+        if (handle_builtin(expanded, aliases, paths, hist, cfg)) {
             if (ll != "history") {
                 hist.add(original);
                 hist.save(paths.history_file);
