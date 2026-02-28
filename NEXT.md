@@ -9,7 +9,7 @@
 - [x] Implement simple command history (↑ / ↓ arrow recall)
 - [ ] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
 - [ ] Add basic error codes and uniform exit messages (0/1)
-- [ ] Add case-sensitivity toggle (`set case=on/off`) and persist to `.winixrc`
+- [x] Add case-sensitivity toggle (`set case=on/off`) and persist to `.winixrc`
 
 ---
 
@@ -57,7 +57,7 @@
 - [x] Implement tab-completion / command prediction
 - [ ] Optional *case-sensitive mode* for Unix-like fidelity
 - [ ] Build modular “Winix Core” API for third-party utilities
-- [ ] Package release as `Winix v0.4-alpha`
+- [x] Package release as `Winix v0.4-alpha`
 
 ---
 ---
@@ -67,7 +67,7 @@
 | Version | Stage | Highlights |
 |----------|--------|-------------|
 | **0.3** | Done | Working shell, prompt color, core file ops |
-| **0.4** | In Progress | History ✅, tab completion ✅, arg pass-through ✅, `wc` ✅, coreutils arg parsing ✅ |
+| **0.4** | Done | History ✅, tab completion ✅, arg parsing ✅, error handling ✅, case toggle ✅ |
 | **0.5** | Planned | Argument parsing, better error handling, extended `help` |
 | **0.6** | Future | Add piping and chaining (`cmd1 | cmd2`), install target |
 | **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
