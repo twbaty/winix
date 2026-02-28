@@ -52,6 +52,14 @@ bool Aliases::load(const std::string& file_path) {
     while (std::getline(in, line)) {
         line = trim(line);
         if (line.empty() || line[0] == '#') continue;
+
+        // Accept both "name=value" and bash-style "alias name=value"
+        if (line.size() > 6 &&
+            (line[0]=='a'||line[0]=='A') && (line[1]=='l'||line[1]=='L') &&
+            (line[2]=='i'||line[2]=='I') && (line[3]=='a'||line[3]=='A') &&
+            (line[4]=='s'||line[4]=='S') && line[5]==' ')
+            line = trim(line.substr(6));
+
         auto eq = line.find('=');
         if (eq == std::string::npos) continue;
         std::string key = unquote(trim(line.substr(0, eq)));

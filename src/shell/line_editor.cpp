@@ -48,9 +48,18 @@ std::vector<std::string> LineEditor::suggest(const std::string& partial) const {
 std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
 
-    // Save console mode and switch to raw input.
+    // If stdin is not a real console (e.g. redirected pipe), fall back to
+    // simple line input so winix can be driven by piped scripts/tests.
     DWORD orig_mode = 0;
-    GetConsoleMode(hIn, &orig_mode);
+    if (!GetConsoleMode(hIn, &orig_mode)) {
+        std::cout << prompt_str;
+        std::cout.flush();
+        std::string line;
+        if (!std::getline(std::cin, line)) return std::nullopt;
+        return line;
+    }
+
+    // Save console mode and switch to raw input.
     SetConsoleMode(hIn, orig_mode & ~(ENABLE_LINE_INPUT |
                                       ENABLE_ECHO_INPUT |
                                       ENABLE_PROCESSED_INPUT));
