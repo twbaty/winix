@@ -18,7 +18,7 @@
 - [x] `pwd`, `echo`, `ls`, `cat`, `mv`, `rm`, `mkdir`, `rmdir`  
 - [x] `touch`, `head`, `tail`, `date`, `whoami`, `sleep` (functional)
 - [x] `wc` — flag parsing (`-l`, `-w`, `-c`) working
-- [ ] Add argument parsing (e.g., `head -n 10 file.txt`)
+- [x] Add argument parsing (`head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`)
 - [ ] Add file error handling (missing, permission, etc.)
 - [ ] Implement: `cp`, `chmod`, `chown`, `stat`
 
@@ -68,7 +68,7 @@
 | Version | Stage | Highlights |
 |----------|--------|-------------|
 | **0.3** | Done | Working shell, prompt color, core file ops |
-| **0.4** | In Progress | History ✅, tab completion ✅, arg pass-through ✅, `wc` fix ✅ |
+| **0.4** | In Progress | History ✅, tab completion ✅, arg pass-through ✅, `wc` ✅, coreutils arg parsing ✅ |
 | **0.5** | Planned | Argument parsing, better error handling, extended `help` |
 | **0.6** | Future | Add piping and chaining (`cmd1 | cmd2`), install target |
 | **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
