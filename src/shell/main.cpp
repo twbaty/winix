@@ -280,6 +280,7 @@ static std::string expand_vars(const std::string& line) {
 // --------------------------------------------------
 // Process spawning
 // --------------------------------------------------
+// Spawn a process via cmd.exe /C (used for system PATH fallback).
 static DWORD spawn_cmd(const std::string& command, bool wait) {
     std::string full = "cmd.exe /C " + command;
 
@@ -300,6 +301,50 @@ static DWORD spawn_cmd(const std::string& command, bool wait) {
     if (!ok) {
         DWORD e = GetLastError();
         std::cerr << "Error starting: " << command
+                  << " (code " << e << ")\n";
+        return e ? e : 1;
+    }
+
+    if (!wait) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 0;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code;
+}
+
+// Spawn a known executable directly (bypasses cmd.exe so arguments are
+// never mangled by cmd's quoting rules — important for paths with spaces).
+static DWORD spawn_direct(const std::string& exe_path,
+                          const std::vector<std::string>& args, bool wait) {
+    // Build command line: "exe_path" arg1 arg2 ...
+    std::string cmdline = "\"" + exe_path + "\"";
+    for (auto& a : args) cmdline += " " + a;
+
+    STARTUPINFOA si{}; si.cb = sizeof(si);
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+
+    PROCESS_INFORMATION pi{};
+    BOOL ok = CreateProcessA(
+        exe_path.c_str(), (LPSTR)cmdline.c_str(),
+        NULL, NULL, TRUE,
+        0,
+        NULL, NULL, &si, &pi
+    );
+
+    if (!ok) {
+        DWORD e = GetLastError();
+        std::cerr << "Error starting: " << exe_path
                   << " (code " << e << ")\n";
         return e ? e : 1;
     }
@@ -344,29 +389,23 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
 
     const std::string cmd = t[0];
 
+    std::vector<std::string> rest_args(t.begin() + 1, t.end());
+
     // Check coreutils dir
     {
         fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
-        if (fs::exists(p)) {
-            std::string full = "\"" + p.string() + "\"";
-            for (size_t i = 1; i < t.size(); ++i)
-                full += " " + t[i];
-            return spawn_cmd(full, true);
-        }
+        if (fs::exists(p))
+            return spawn_direct(p.string(), rest_args, true);
     }
 
     // Check Winix bin dir
     {
         fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
-        if (fs::exists(p)) {
-            std::string full = "\"" + p.string() + "\"";
-            for (size_t i = 1; i < t.size(); ++i)
-                full += " " + t[i];
-            return spawn_cmd(full, true);
-        }
+        if (fs::exists(p))
+            return spawn_direct(p.string(), rest_args, true);
     }
 
-    // Fallback: system PATH
+    // Fallback: system PATH via cmd.exe
     return spawn_cmd(seg, true);
 }
 
@@ -460,7 +499,12 @@ static bool handle_builtin(
         auto spec = trim(line.substr(6));
         auto eq = spec.find('=');
         if (eq == std::string::npos) {
-            std::cerr << "Usage: alias name=\"cmd...\"\n";
+            // No '=' — treat as a lookup for a single alias.
+            auto val = aliases.get(spec);
+            if (val)
+                std::cout << "alias " << spec << "=\"" << *val << "\"\n";
+            else
+                std::cerr << "alias: " << spec << ": not found\n";
             return true;
         }
 

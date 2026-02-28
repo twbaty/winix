@@ -1,5 +1,6 @@
 #include "line_editor.hpp"
 #include <windows.h>
+#include <io.h>
 #include <iostream>
 #include <algorithm>
 #include <cctype>
@@ -135,6 +136,7 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
         // ---- Enter ----
         if (vk == VK_RETURN) {
             std::cout << '\n';
+            std::cout.flush();
             restore();
             return buf;
         }
