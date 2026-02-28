@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <stdbool.h>
@@ -48,6 +49,7 @@ int main(int argc, char *argv[]) {
     }
 
     bool listed = false;
+    int ret = 0;
 
     // Process each path argument
     for (int i = 1; i < argc; ++i) {
@@ -64,14 +66,15 @@ int main(int argc, char *argv[]) {
             }
             listed = true;
         } else {
-            fprintf(stderr, "ls: No such file or directory\n");
+            fprintf(stderr, "ls: %s: %s\n", path, strerror(errno));
+            ret = 1;
         }
     }
 
     // Default to current directory if no paths provided
-    if (!listed) {
+    if (!listed && ret == 0) {
         list_directory(".");
     }
 
-    return 0;
+    return ret;
 }

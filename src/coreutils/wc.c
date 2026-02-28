@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include <ctype.h>
 #include <stdbool.h>
 
@@ -58,13 +59,15 @@ int main(int argc, char* argv[]) {
 
     int total_l = 0, total_w = 0, total_c = 0;
     int file_count = 0;
+    int ret = 0;
 
     for (int i = first_file; i < argc; ++i) {
         if (argv[i][0] == '-' && argv[i][1] != '\0') continue; // skip flags
 
         FILE *f = strcmp(argv[i], "-") == 0 ? stdin : fopen(argv[i], "r");
         if (!f) {
-            fprintf(stderr, "wc: cannot open %s\n", argv[i]);
+            fprintf(stderr, "wc: %s: %s\n", argv[i], strerror(errno));
+            ret = 1;
             continue;
         }
 
@@ -81,5 +84,5 @@ int main(int argc, char* argv[]) {
     if (file_count > 1)
         print_counts(total_l, total_w, total_c, show_l, show_w, show_c, "total");
 
-    return 0;
+    return ret;
 }

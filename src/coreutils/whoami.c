@@ -10,16 +10,19 @@ int main(void) {
 #ifdef _WIN32
     char name[256];
     DWORD size = sizeof(name);
-    if (GetUserNameA(name, &size))
+    if (GetUserNameA(name, &size)) {
         printf("%s\n", name);
-    else
-        perror("whoami");
+        return 0;
+    }
+    fprintf(stderr, "whoami: failed to get username\n");
+    return 1;
 #else
     struct passwd *pw = getpwuid(getuid());
-    if (pw)
+    if (pw) {
         printf("%s\n", pw->pw_name);
-    else
-        perror("whoami");
+        return 0;
+    }
+    fprintf(stderr, "whoami: failed to get username\n");
+    return 1;
 #endif
-    return 0;
 }

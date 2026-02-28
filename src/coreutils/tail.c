@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #define MAX_LINES 8192
 #define LINE_LEN  4096
@@ -52,14 +53,15 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    int ret = 0;
     int multiple = (argc - argi) > 1;
     for (int i = argi; i < argc; i++) {
         FILE *f = fopen(argv[i], "r");
-        if (!f) { perror(argv[i]); continue; }
+        if (!f) { fprintf(stderr, "tail: %s: %s\n", argv[i], strerror(errno)); ret = 1; continue; }
         if (multiple) printf("==> %s <==\n", argv[i]);
         tail_stream(f, n);
         if (multiple && i < argc - 1) putchar('\n');
         fclose(f);
     }
-    return 0;
+    return ret;
 }

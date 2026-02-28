@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
+#include <errno.h>
 
 static bool number_lines = false;
 
@@ -33,15 +35,16 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    int ret = 0;
     for (int i = argi; i < argc; i++) {
         if (argv[i][0] == '-' && argv[i][1] == '\0') {
             cat_stream(stdin, &line_num);
             continue;
         }
         FILE *f = fopen(argv[i], "r");
-        if (!f) { perror(argv[i]); continue; }
+        if (!f) { fprintf(stderr, "cat: %s: %s\n", argv[i], strerror(errno)); ret = 1; continue; }
         cat_stream(f, &line_num);
         fclose(f);
     }
-    return 0;
+    return ret;
 }

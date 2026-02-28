@@ -24,6 +24,6 @@ int main(int argc, char *argv[]) {
         token = strtok(NULL, ";");
     }
 
-    printf("%s not found\n", argv[1]);
+    fprintf(stderr, "which: %s not found\n", argv[1]);
     return 1;
 }

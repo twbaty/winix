@@ -18,8 +18,9 @@ int main(int argc, char *argv[]) {
     int result = rmdir(argv[1]);
 #endif
 
-    if (result != 0)
+    if (result != 0) {
         perror(argv[1]);
-
+        return 1;
+    }
     return 0;
 }

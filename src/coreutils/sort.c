@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <ctype.h>
 #include <stdbool.h>
 
@@ -44,12 +45,13 @@ int main(int argc, char *argv[]) {
     if (!lines) { fprintf(stderr, "sort: out of memory\n"); return 1; }
     int n = 0;
 
+    int ret = 0;
     if (argi >= argc) {
         sort_stream(stdin, lines, &n);
     } else {
         for (int i = argi; i < argc; i++) {
             FILE *f = fopen(argv[i], "r");
-            if (!f) { perror(argv[i]); continue; }
+            if (!f) { fprintf(stderr, "sort: %s: %s\n", argv[i], strerror(errno)); ret = 1; continue; }
             sort_stream(f, lines, &n);
             fclose(f);
         }
@@ -70,5 +72,5 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < n; i++) free(lines[i]);
 
     free(lines);
-    return 0;
+    return ret;
 }
