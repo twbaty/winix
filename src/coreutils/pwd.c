@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #ifdef _WIN32
+#include <windows.h>
 #include <direct.h>
 #define GETCWD _getcwd
 #else
@@ -10,7 +11,7 @@
 #endif
 
 int main(void) {
-    char buffer[1024];
+    char buffer[MAX_PATH];
     if (GETCWD(buffer, sizeof(buffer)) != NULL) {
         printf("%s\n", buffer);
         return 0;

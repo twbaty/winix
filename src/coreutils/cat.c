@@ -19,6 +19,7 @@ int main(int argc, char *argv[]) {
     int argi = 1;
 
     for (; argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0'; argi++) {
+        if (argv[argi][1] == '-') { argi++; break; }  // -- ends option parsing; --xxx ignored
         for (char *p = argv[argi] + 1; *p; p++) {
             if (*p == 'n') number_lines = true;
             else {
