@@ -9,8 +9,7 @@
 - [x] Implement simple command history (↑ / ↓ arrow recall)
 - [ ] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
 - [ ] Add basic error codes and uniform exit messages (0/1)
-- [ ] Add `set` command (for toggles and shell vars, e.g. `set case=on`)
-- [ ] Add case-sensitivity toggle (`set case=on/off`)
+- [ ] Add case-sensitivity toggle (`set case=on/off`) and persist to `.winixrc`
 
 ---
 
@@ -19,7 +18,7 @@
 - [x] `touch`, `head`, `tail`, `date`, `whoami`, `sleep` (functional)
 - [x] `wc` — flag parsing (`-l`, `-w`, `-c`) working
 - [x] Add argument parsing (`head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`)
-- [ ] Add file error handling (missing, permission, etc.)
+- [x] Add file error handling — uniform exit codes and error messages
 - [ ] Implement: `cp`, `chmod`, `chown`, `stat`
 
 ---
