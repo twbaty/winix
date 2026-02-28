@@ -1,35 +1,37 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 0.3 → 0.4 Prep  
-**Date:** 2025-10-22  
+**Version:** 0.4 (in progress)
+**Date:** 2026-02-28
 
 ---
 
 ## 🔥 Immediate Next Steps
-- [x] Fix argument passing for external commands  
-- [ ] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`  
-- [ ] Add basic error codes and uniform exit messages (0/1)  
-- [ ] Implement simple command history (↑ / ↓ arrow recall)  
-- [ ] Add `set` command (for toggles and shell vars, e.g. `set case=on`)  
-- [ ] Add case-sensitivity toggle (`set case=on/off`)  
+- [x] Fix argument passing for external commands
+- [x] Implement simple command history (↑ / ↓ arrow recall)
+- [ ] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
+- [ ] Add basic error codes and uniform exit messages (0/1)
+- [ ] Add `set` command (for toggles and shell vars, e.g. `set case=on`)
+- [ ] Add case-sensitivity toggle (`set case=on/off`)
 
 ---
 
 ## 🧰 Coreutils Development
 - [x] `pwd`, `echo`, `ls`, `cat`, `mv`, `rm`, `mkdir`, `rmdir`  
-- [x] `touch`, `head`, `tail`, `date`, `whoami`, `sleep` (functional)  
-- [ ] Add argument parsing (e.g., `head -n 10 file.txt`)  
-- [ ] Add file error handling (missing, permission, etc.)  
-- [ ] Implement: `cp`, `chmod`, `chown`, `stat`, `wc`  
+- [x] `touch`, `head`, `tail`, `date`, `whoami`, `sleep` (functional)
+- [x] `wc` — flag parsing (`-l`, `-w`, `-c`) working
+- [ ] Add argument parsing (e.g., `head -n 10 file.txt`)
+- [ ] Add file error handling (missing, permission, etc.)
+- [ ] Implement: `cp`, `chmod`, `chown`, `stat`
 
 ---
 
 ## 🧠 Shell Features
 - [x] Colored prompt  
 - [x] Directory awareness  
-- [ ] Customizable prompt strings (PS1-style)  
-- [ ] Built-in command `history`  
-- [ ] Extended `help` index with grouped categories  
-- [ ] Basic piping (`cmd1 | cmd2`)  
+- [x] Built-in command `history`
+- [x] Tab completion (commands, aliases, filesystem paths and arguments)
+- [ ] Customizable prompt strings (PS1-style)
+- [ ] Extended `help` index with grouped categories
+- [ ] Basic piping (`cmd1 | cmd2`)
 
 ---
 
@@ -52,11 +54,11 @@
 ---
 
 ## 🌄 Future Vision
-- [ ] Optional *case-sensitive mode* for Unix-like fidelity  
-- [ ] Add `alias` and environment support  
-- [ ] Implement tab-completion / command prediction  
-- [ ] Build modular “Winix Core” API for third-party utilities  
-- [ ] Package release as `Winix v0.4-alpha`  
+- [x] Add `alias` and environment support
+- [x] Implement tab-completion / command prediction
+- [ ] Optional *case-sensitive mode* for Unix-like fidelity
+- [ ] Build modular “Winix Core” API for third-party utilities
+- [ ] Package release as `Winix v0.4-alpha`
 
 ---
 ---
@@ -65,8 +67,8 @@
 
 | Version | Stage | Highlights |
 |----------|--------|-------------|
-| **0.3** | Current | Working shell, prompt color, core file ops |
-| **0.4** | In Progress | History, input cleanup, `set` command, case toggle |
+| **0.3** | Done | Working shell, prompt color, core file ops |
+| **0.4** | In Progress | History ✅, tab completion ✅, arg pass-through ✅, `wc` fix ✅ |
 | **0.5** | Planned | Argument parsing, better error handling, extended `help` |
 | **0.6** | Future | Add piping and chaining (`cmd1 | cmd2`), install target |
 | **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
