@@ -335,15 +335,23 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
     // Check coreutils dir
     {
         fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
-        if (fs::exists(p))
-            return spawn_cmd("\"" + p.string() + "\"", true);
+        if (fs::exists(p)) {
+            std::string full = "\"" + p.string() + "\"";
+            for (size_t i = 1; i < t.size(); ++i)
+                full += " " + t[i];
+            return spawn_cmd(full, true);
+        }
     }
 
     // Check Winix bin dir
     {
         fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
-        if (fs::exists(p))
-            return spawn_cmd("\"" + p.string() + "\"", true);
+        if (fs::exists(p)) {
+            std::string full = "\"" + p.string() + "\"";
+            for (size_t i = 1; i < t.size(); ++i)
+                full += " " + t[i];
+            return spawn_cmd(full, true);
+        }
     }
 
     // Fallback: system PATH
