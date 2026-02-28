@@ -12,6 +12,15 @@ static std::string trim(std::string s) {
     return s;
 }
 
+// Strip a single layer of matching surrounding quotes (" or ')
+static std::string unquote(const std::string& s) {
+    if (s.size() >= 2 &&
+        ((s.front() == '"'  && s.back() == '"') ||
+         (s.front() == '\'' && s.back() == '\'')))
+        return s.substr(1, s.size() - 2);
+    return s;
+}
+
 void Aliases::set(const std::string& name, const std::string& value) {
     if (name.empty()) return;
     data_[name] = value;
@@ -45,8 +54,8 @@ bool Aliases::load(const std::string& file_path) {
         if (line.empty() || line[0] == '#') continue;
         auto eq = line.find('=');
         if (eq == std::string::npos) continue;
-        std::string key = trim(line.substr(0, eq));
-        std::string val = trim(line.substr(eq + 1));
+        std::string key = unquote(trim(line.substr(0, eq)));
+        std::string val = unquote(trim(line.substr(eq + 1)));
         if (!key.empty()) data_[key] = val;
     }
     return true;

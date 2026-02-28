@@ -464,7 +464,7 @@ static bool handle_builtin(
             return true;
         }
 
-        auto name = trim(spec.substr(0, eq));
+        auto name = unquote(trim(spec.substr(0, eq)));
         auto val  = unquote(trim(spec.substr(eq+1)));
 
         aliases.set(name, val);
