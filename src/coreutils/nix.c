@@ -10,7 +10,9 @@
  *   Ctrl+S  19  Save file
  *   Ctrl+Q  17  Quit (prompts if modified)
  *   Ctrl+X  24  Save + quit
- *   Ctrl+W  23  Find
+ *   Ctrl+W  23  Find (prompts for pattern)
+ *   Ctrl+N  14  Find next (repeats last pattern)
+ *   Ctrl+Z  26  Undo
  *   Ctrl+K  11  Cut line
  *   Ctrl+U  21  Paste line above
  *   Ctrl+A   1  Start of line
@@ -35,9 +37,33 @@
 #include <conio.h>
 #include <windows.h>
 
-#define VERSION      "nix 1.0 (Winix 1.0)"
-#define MAX_PATH_LEN MAX_PATH
+#define VERSION       "nix 1.0 (Winix 1.0)"
+#define MAX_PATH_LEN  MAX_PATH
 #define LINE_CAP_INIT 64
+#define UNDO_MAX      512
+
+/* ── Undo record ────────────────────────────────────────────────────────── */
+
+typedef enum {
+    UT_INS_CHAR,       /* typed char at (cx,cy); undo: delete at (cx,cy) */
+    UT_DEL_CHAR_BS,    /* BS deleted char at (cx-1,cy); undo: insert back */
+    UT_DEL_CHAR_DEL,   /* Del deleted char at (cx,cy); undo: insert back */
+    UT_JOIN_PREV,      /* BS at col 0 joined line cy onto cy-1 at col aux */
+    UT_JOIN_NEXT,      /* Del at EOL joined next line at col aux */
+    UT_SPLIT,          /* Enter split line cy at col cx */
+    UT_TAB,            /* Tab inserted 4 spaces at (cx,cy) */
+    UT_CUT,            /* Ctrl+K cut line (aux=1 deleted, 0 cleared) */
+    UT_PASTE,          /* Ctrl+U inserted line at cy */
+} UndoType;
+
+typedef struct {
+    UndoType type;
+    int  cx, cy;    /* cursor position BEFORE the operation */
+    char ch;        /* char for INS/DEL_CHAR ops */
+    int  aux;       /* join col for JOIN_PREV/NEXT; delete-flag for CUT */
+    char *text;     /* heap: saved line content (CUT only) */
+    int   textlen;
+} UndoRecord;
 
 /* ── Data model ─────────────────────────────────────────────────────────── */
 
@@ -56,6 +82,11 @@ typedef struct {
     char  msg[256];          /* transient status-bar message (shown once) */
     char *clip;              /* single-line clipboard (Ctrl+K / Ctrl+U) */
     int   cliplen;
+    char  last_search[256];  /* last Find pattern, shared by ^W and ^N */
+    /* undo ring buffer */
+    UndoRecord undo_ring[UNDO_MAX];
+    int        undo_head;    /* oldest entry index */
+    int        undo_cnt;     /* number of valid entries */
 } Editor;
 
 /* ── Console helpers ────────────────────────────────────────────────────── */
@@ -144,7 +175,6 @@ static void line_free(Line *l) {
 
 /* ── Editor helpers ─────────────────────────────────────────────────────── */
 
-/* Ensure e->lcap >= need (total line slots). */
 static void editor_ensure_lines(Editor *e, int need) {
     if (need <= e->lcap) return;
     int nc = e->lcap * 2;
@@ -172,25 +202,170 @@ static void editor_delete_line(Editor *e, int at) {
     e->nlines--;
 }
 
+/*
+ * Split line at_line at at_col: chars from at_col onwards move to a new
+ * line inserted at at_line+1.  The original line is truncated to at_col.
+ * NOTE: may realloc e->lines — do not hold stale Line* across this call.
+ */
+static void editor_split_line(Editor *e, int at_line, int at_col) {
+    editor_insert_line(e, at_line + 1);
+    Line *cur  = &e->lines[at_line];
+    Line *next = &e->lines[at_line + 1];
+    int   tail = cur->len - at_col;
+    if (tail > 0) {
+        line_ensure(next, tail);
+        memcpy(next->d, cur->d + at_col, tail + 1);
+        next->len      = tail;
+        cur->d[at_col] = '\0';
+        cur->len       = at_col;
+    }
+}
+
+/* Join line at_line with the line below it (at_line+1). */
+static void editor_join_lines(Editor *e, int at_line) {
+    Line *cur  = &e->lines[at_line];
+    Line *next = &e->lines[at_line + 1];
+    line_ensure(cur, cur->len + next->len);
+    memcpy(cur->d + cur->len, next->d, next->len + 1);
+    cur->len += next->len;
+    editor_delete_line(e, at_line + 1);
+}
+
 static void editor_init(Editor *e) {
     e->lcap  = 64;
     e->lines = (Line *)malloc(e->lcap * sizeof(Line));
     if (!e->lines) { fprintf(stderr, "nix: OOM\n"); exit(1); }
-    e->nlines = 1;
+    e->nlines      = 1;
     line_init(&e->lines[0]);
-    e->cx = e->cy = 0;
-    e->top_row = e->left_col = 0;
-    e->modified   = false;
+    e->cx = e->cy  = 0;
+    e->top_row     = e->left_col = 0;
+    e->modified    = false;
     e->filename[0] = '\0';
     e->msg[0]      = '\0';
     e->clip        = NULL;
     e->cliplen     = 0;
+    e->last_search[0] = '\0';
+    e->undo_head   = 0;
+    e->undo_cnt    = 0;
 }
 
 static void editor_free(Editor *e) {
     for (int i = 0; i < e->nlines; i++) line_free(&e->lines[i]);
     free(e->lines);
     free(e->clip);
+    /* Free any heap text in the undo ring */
+    for (int i = 0; i < e->undo_cnt; i++) {
+        int slot = (e->undo_head + i) % UNDO_MAX;
+        free(e->undo_ring[slot].text);
+    }
+}
+
+/* ── Undo helpers ───────────────────────────────────────────────────────── */
+
+static void undo_push(Editor *e, UndoRecord r) {
+    if (e->undo_cnt == UNDO_MAX) {
+        /* Ring is full — drop oldest, freeing its heap text */
+        free(e->undo_ring[e->undo_head].text);
+        e->undo_ring[e->undo_head].text = NULL;
+        e->undo_head = (e->undo_head + 1) % UNDO_MAX;
+        e->undo_cnt--;
+    }
+    int slot = (e->undo_head + e->undo_cnt) % UNDO_MAX;
+    e->undo_ring[slot] = r;
+    e->undo_cnt++;
+}
+
+/* Returns 1 and fills *r on success; 0 if stack is empty. */
+static int undo_pop(Editor *e, UndoRecord *r) {
+    if (e->undo_cnt == 0) return 0;
+    e->undo_cnt--;
+    int slot = (e->undo_head + e->undo_cnt) % UNDO_MAX;
+    *r = e->undo_ring[slot];
+    e->undo_ring[slot].text = NULL; /* ownership transferred to caller */
+    return 1;
+}
+
+static void editor_apply_undo(Editor *e) {
+    UndoRecord r;
+    if (!undo_pop(e, &r)) {
+        snprintf(e->msg, sizeof(e->msg), "Nothing to undo");
+        return;
+    }
+
+    switch (r.type) {
+
+    case UT_INS_CHAR:
+        /* Undo insert: delete the char that was inserted at (cx, cy) */
+        line_delete_char(&e->lines[r.cy], r.cx);
+        break;
+
+    case UT_DEL_CHAR_BS:
+        /* Undo backspace: re-insert the char that was at (cx-1, cy) */
+        line_insert_char(&e->lines[r.cy], r.cx - 1, r.ch);
+        break;
+
+    case UT_DEL_CHAR_DEL:
+        /* Undo delete-key: re-insert the char that was at (cx, cy) */
+        line_insert_char(&e->lines[r.cy], r.cx, r.ch);
+        break;
+
+    case UT_JOIN_PREV:
+        /*
+         * Undo BS-at-col-0: line (r.cy-1) was extended by joining r.cy onto
+         * it at column r.aux.  Reverse by splitting (r.cy-1) at r.aux.
+         */
+        editor_split_line(e, r.cy - 1, r.aux);
+        break;
+
+    case UT_JOIN_NEXT:
+        /*
+         * Undo Del-at-EOL: line r.cy was extended at column r.aux.
+         * Reverse by splitting r.cy at r.aux.
+         */
+        editor_split_line(e, r.cy, r.aux);
+        break;
+
+    case UT_SPLIT:
+        /* Undo Enter: join lines r.cy and r.cy+1 back together */
+        editor_join_lines(e, r.cy);
+        break;
+
+    case UT_TAB:
+        /* Undo Tab: delete the 4 spaces inserted at (cx, cy) */
+        for (int i = 0; i < 4; i++)
+            line_delete_char(&e->lines[r.cy], r.cx);
+        break;
+
+    case UT_CUT:
+        /* Undo Ctrl+K: restore the cut line */
+        if (r.aux) {
+            /* Line was deleted — re-insert it */
+            editor_insert_line(e, r.cy);
+        }
+        /* Restore line content (both delete and clear cases) */
+        {
+            Line *ln = &e->lines[r.cy];
+            line_ensure(ln, r.textlen);
+            memcpy(ln->d, r.text, r.textlen + 1);
+            ln->len = r.textlen;
+        }
+        free(r.text);
+        break;
+
+    case UT_PASTE:
+        /* Undo Ctrl+U: delete the line that was pasted */
+        editor_delete_line(e, r.cy);
+        if (r.cy > e->nlines - 1) /* clamp in case it was the last line */
+            ; /* cursor restore below handles it */
+        break;
+    }
+
+    /* Restore cursor to where it was before the operation */
+    e->cy = r.cy;
+    e->cx = r.cx;
+    if (e->cy >= e->nlines) e->cy = e->nlines - 1;
+    if (e->cx > e->lines[e->cy].len) e->cx = e->lines[e->cy].len;
+    e->modified = true;
 }
 
 /* ── File I/O ───────────────────────────────────────────────────────────── */
@@ -273,7 +448,6 @@ static void prompt_in_status(const char *prompt, char *buf, int bufsz) {
     buf[0]   = '\0';
 
     for (;;) {
-        /* Redraw the status bar with prompt + current input */
         move_cursor(0, rows - 1);
         char line[512];
         snprintf(line, sizeof(line), "  %s%s", prompt, buf);
@@ -282,14 +456,13 @@ static void prompt_in_status(const char *prompt, char *buf, int bufsz) {
         for (int i = llen; i < cols; i++) putchar(' ');
         printf("\033[0m");
 
-        /* Place cursor after typed text */
         move_cursor(2 + (int)strlen(prompt) + pos, rows - 1);
         fflush(stdout);
 
         int c = _getch();
-        if (c == 13) break;                              /* Enter */
-        if (c == 27) { buf[0] = '\0'; break; }          /* ESC — cancel */
-        if (c == 8 && pos > 0) { buf[--pos] = '\0'; }   /* Backspace */
+        if (c == 13) break;                             /* Enter */
+        if (c == 27) { buf[0] = '\0'; break; }         /* ESC — cancel */
+        if (c == 8 && pos > 0) { buf[--pos] = '\0'; }  /* Backspace */
         else if (c >= 32 && c < 127 && pos < bufsz - 1) {
             buf[pos++] = (char)c;
             buf[pos]   = '\0';
@@ -310,8 +483,7 @@ static void draw(Editor *e) {
     /* ── Title bar (row 0) ── */
     move_cursor(0, 0);
     const char *fname = e->filename[0] ? e->filename : "[No Name]";
-    /* Extract basename for display */
-    const char *base = fname;
+    const char *base  = fname;
     for (const char *p = fname; *p; p++)
         if (*p == '/' || *p == '\\') base = p + 1;
     char title[512];
@@ -333,7 +505,7 @@ static void draw(Editor *e) {
             if (vis > cols) vis = cols;
             if (vis > 0) fwrite(ln->d + start, 1, vis, stdout);
         }
-        printf("\033[K"); /* clear to end of line */
+        printf("\033[K");
     }
 
     /* ── Status bar (row rows-1) ── */
@@ -344,7 +516,7 @@ static void draw(Editor *e) {
         e->msg[0] = '\0';
     } else {
         const char *hints =
-            "  ^S:Save  ^Q:Quit  ^X:Save+Quit  ^W:Find  ^K:Cut  ^U:Paste";
+            "  ^S:Save  ^Q:Quit  ^W:Find  ^N:Next  ^Z:Undo  ^K:Cut  ^U:Paste";
         char right[64];
         snprintf(right, sizeof(right), "Ln:%d Col:%d  ",
                  e->cy + 1, e->cx + 1);
@@ -367,25 +539,37 @@ static void draw(Editor *e) {
 
 /* ── Find ───────────────────────────────────────────────────────────────── */
 
-static void editor_find(Editor *e) {
-    static char last_pat[256];
-    char pat[256];
-    prompt_in_status("Find: ", pat, sizeof(pat));
-    if (pat[0]) strncpy(last_pat, pat, sizeof(last_pat) - 1);
-    if (!last_pat[0]) return;
-
-    /* Search forward from cy+1, wrapping around */
+/* Search forward from cy+1 using e->last_search.  Wraps around. */
+static void editor_do_search(Editor *e) {
+    if (!e->last_search[0]) {
+        snprintf(e->msg, sizeof(e->msg), "No previous search pattern");
+        return;
+    }
     for (int i = 1; i <= e->nlines; i++) {
-        int li    = (e->cy + i) % e->nlines;
-        char *hit = strstr(e->lines[li].d, last_pat);
+        int   li  = (e->cy + i) % e->nlines;
+        char *hit = strstr(e->lines[li].d, e->last_search);
         if (hit) {
             e->cy = li;
             e->cx = (int)(hit - e->lines[li].d);
-            snprintf(e->msg, sizeof(e->msg), "Found '%s'", last_pat);
+            snprintf(e->msg, sizeof(e->msg), "Found '%s'", e->last_search);
             return;
         }
     }
-    snprintf(e->msg, sizeof(e->msg), "Not found: %s", last_pat);
+    snprintf(e->msg, sizeof(e->msg), "Not found: %s", e->last_search);
+}
+
+/* Ctrl+W: prompt for pattern, then search. */
+static void editor_find(Editor *e) {
+    char pat[256];
+    prompt_in_status("Find: ", pat, sizeof(pat));
+    if (pat[0])
+        strncpy(e->last_search, pat, sizeof(e->last_search) - 1);
+    editor_do_search(e);
+}
+
+/* Ctrl+N: repeat last search without prompting. */
+static void editor_find_next(Editor *e) {
+    editor_do_search(e);
 }
 
 /* ── Key handler ────────────────────────────────────────────────────────── */
@@ -443,15 +627,17 @@ static int handle_key(Editor *e, int ch) {
         case 83: { /* Delete */
             Line *cur = &e->lines[e->cy];
             if (e->cx < cur->len) {
+                undo_push(e, (UndoRecord){
+                    UT_DEL_CHAR_DEL, e->cx, e->cy,
+                    cur->d[e->cx], 0, NULL, 0
+                });
                 line_delete_char(cur, e->cx);
                 e->modified = true;
             } else if (e->cy < e->nlines - 1) {
-                /* Join with next line */
-                Line *next = &e->lines[e->cy + 1];
-                line_ensure(cur, cur->len + next->len);
-                memcpy(cur->d + cur->len, next->d, next->len + 1);
-                cur->len += next->len;
-                editor_delete_line(e, e->cy + 1);
+                undo_push(e, (UndoRecord){
+                    UT_JOIN_NEXT, e->cx, e->cy, 0, e->cx, NULL, 0
+                });
+                editor_join_lines(e, e->cy);
                 e->modified = true;
             }
             break;
@@ -486,7 +672,6 @@ static int handle_key(Editor *e, int ch) {
             if (!resp[0]) break; /* ESC — stay */
             if ((resp[0] == 'y' || resp[0] == 'Y') && e->filename[0])
                 editor_save(e);
-            /* 'n' or any other key — quit without saving */
         }
         return 0;
 
@@ -498,15 +683,31 @@ static int handle_key(Editor *e, int ch) {
         editor_find(e);
         break;
 
+    case 14: /* Ctrl+N — find next */
+        editor_find_next(e);
+        break;
+
+    case 26: /* Ctrl+Z — undo */
+        editor_apply_undo(e);
+        break;
+
     case 11: { /* Ctrl+K — cut line */
         Line *cur = &e->lines[e->cy];
+        /* Save to undo: store line content, note whether line gets deleted */
+        char *saved = (char *)malloc(cur->len + 1);
+        if (saved) memcpy(saved, cur->d, cur->len + 1);
+        int will_delete = (e->nlines > 1) ? 1 : 0;
+        undo_push(e, (UndoRecord){
+            UT_CUT, e->cx, e->cy, 0, will_delete, saved, cur->len
+        });
+        /* Copy to clipboard */
         free(e->clip);
         e->clip = (char *)malloc(cur->len + 1);
         if (e->clip) {
             memcpy(e->clip, cur->d, cur->len + 1);
             e->cliplen = cur->len;
         }
-        if (e->nlines > 1) {
+        if (will_delete) {
             editor_delete_line(e, e->cy);
             if (e->cy >= e->nlines) e->cy = e->nlines - 1;
         } else {
@@ -520,6 +721,9 @@ static int handle_key(Editor *e, int ch) {
 
     case 21: /* Ctrl+U — paste line above cursor */
         if (e->clip) {
+            undo_push(e, (UndoRecord){
+                UT_PASTE, e->cx, e->cy, 0, 0, NULL, 0
+            });
             editor_insert_line(e, e->cy); /* may realloc e->lines */
             Line *nl = &e->lines[e->cy];  /* fresh pointer */
             line_ensure(nl, e->cliplen);
@@ -540,6 +744,9 @@ static int handle_key(Editor *e, int ch) {
 
     case 9: { /* Tab — insert 4 spaces */
         Line *cur = &e->lines[e->cy];
+        undo_push(e, (UndoRecord){
+            UT_TAB, e->cx, e->cy, 0, 0, NULL, 0
+        });
         for (int i = 0; i < 4; i++) {
             line_insert_char(cur, e->cx, ' ');
             e->cx++;
@@ -549,17 +756,10 @@ static int handle_key(Editor *e, int ch) {
     }
 
     case 13: { /* Enter — split line at cursor */
-        editor_insert_line(e, e->cy + 1); /* may realloc e->lines */
-        Line *cur  = &e->lines[e->cy];    /* re-fetch after possible realloc */
-        Line *next = &e->lines[e->cy + 1];
-        int   tail = cur->len - e->cx;
-        if (tail > 0) {
-            line_ensure(next, tail);
-            memcpy(next->d, cur->d + e->cx, tail + 1);
-            next->len     = tail;
-            cur->d[e->cx] = '\0';
-            cur->len      = e->cx;
-        }
+        undo_push(e, (UndoRecord){
+            UT_SPLIT, e->cx, e->cy, 0, 0, NULL, 0
+        });
+        editor_split_line(e, e->cy, e->cx); /* may realloc e->lines */
         e->cy++;
         e->cx       = 0;
         e->modified = true;
@@ -569,18 +769,21 @@ static int handle_key(Editor *e, int ch) {
     case 8: { /* Backspace — delete left / join with previous line */
         Line *cur = &e->lines[e->cy];
         if (e->cx > 0) {
+            undo_push(e, (UndoRecord){
+                UT_DEL_CHAR_BS, e->cx, e->cy,
+                cur->d[e->cx - 1], 0, NULL, 0
+            });
             line_delete_char(cur, e->cx - 1);
             e->cx--;
             e->modified = true;
         } else if (e->cy > 0) {
-            Line *prev = &e->lines[e->cy - 1];
-            int   plen = prev->len;
-            line_ensure(prev, prev->len + cur->len);
-            memcpy(prev->d + prev->len, cur->d, cur->len + 1);
-            prev->len += cur->len;
-            editor_delete_line(e, e->cy);
+            int prev_len = e->lines[e->cy - 1].len;
+            undo_push(e, (UndoRecord){
+                UT_JOIN_PREV, e->cx, e->cy, 0, prev_len, NULL, 0
+            });
+            editor_join_lines(e, e->cy - 1);
             e->cy--;
-            e->cx       = plen;
+            e->cx       = prev_len;
             e->modified = true;
         }
         break;
@@ -589,6 +792,9 @@ static int handle_key(Editor *e, int ch) {
     default:
         if (ch >= 32 && ch < 256) {
             Line *cur = &e->lines[e->cy];
+            undo_push(e, (UndoRecord){
+                UT_INS_CHAR, e->cx, e->cy, 0, 0, NULL, 0
+            });
             line_insert_char(cur, e->cx, (char)ch);
             e->cx++;
             e->modified = true;
@@ -612,7 +818,9 @@ int main(int argc, char *argv[]) {
                "  Ctrl+S        Save file\n"
                "  Ctrl+Q        Quit (prompts if modified)\n"
                "  Ctrl+X        Save and quit\n"
-               "  Ctrl+W        Find text\n"
+               "  Ctrl+W        Find text (prompt)\n"
+               "  Ctrl+N        Find next (repeat last search)\n"
+               "  Ctrl+Z        Undo last edit\n"
                "  Ctrl+K        Cut current line to clipboard\n"
                "  Ctrl+U        Paste clipboard line above cursor\n"
                "  Ctrl+A        Move to start of line\n"
