@@ -1697,6 +1697,81 @@ _, _, rc = run('bc', '--invalid')
 check('bc invalid option exits 1', rc == 1)
 
 
+# ── awk ───────────────────────────────────────────────────────────────────────
+
+section('awk')
+
+out, _, rc = run('awk', '--version')
+check('awk --version', rc == 0 and 'awk' in out.lower())
+
+out, _, rc = run('awk', '--help')
+check('awk --help exits 0', rc == 0)
+
+def awk(prog, *files, stdin_text=None):
+    """Run awk prog [files]; return stripped stdout."""
+    out, _, _ = run('awk', prog, *files, stdin_text=stdin_text)
+    return out.strip()
+
+# Field access and FS
+check('awk $2',         awk('{print $2}',          stdin_text='hello world\n') == 'world')
+check('awk -F: $2',     awk('-F:', '{print $2}',   stdin_text='a:b:c\n') == 'b')
+check('awk NF',         awk('{print NF}',           stdin_text='a b c\n') == '3')
+check('awk $NF',        awk('{print $NF}',          stdin_text='x y z\n') == 'z')
+
+# Arithmetic / END
+check('awk sum',        awk('{s+=$1} END{print s}', stdin_text='1\n2\n3\n') == '6')
+check('awk NR count',   awk('END{print NR}',        stdin_text='a\nb\nc\n') == '3')
+
+# BEGIN-only (no stdin)
+check('awk BEGIN print',awk('BEGIN{print "hi"}') == 'hi')
+check('awk BEGIN for',  awk('BEGIN{for(i=1;i<=3;i++) print i}') == '1\n2\n3')
+check('awk BEGIN arith',awk('BEGIN{print 2+2}') == '4')
+check('awk BEGIN while',awk('BEGIN{i=0;while(i<3){i++;print i}}') == '1\n2\n3')
+
+# Regex pattern  (no path conversion needed — subprocess list args)
+check('awk regex pat',  awk('/foo/{print}',      stdin_text='foo\nbar\nbaz\n') == 'foo')
+check('awk regex multi',awk('/a/{print NR}',     stdin_text='a\nb\na\n') == '1\n3')
+
+# Arrays
+check('awk array count', sorted(awk('{c[$1]++} END{for(k in c) print k,c[k]}',
+                           stdin_text='a\na\nb\n').split('\n')) == ['a 2','b 1'])
+
+# String functions
+check('awk substr',  awk('BEGIN{print substr("hello",2,3)}') == 'ell')
+check('awk length',  awk('BEGIN{print length("hello")}') == '5')
+check('awk index',   awk('BEGIN{print index("hello","ll")}') == '3')
+check('awk tolower', awk('BEGIN{print tolower("Hello")}') == 'hello')
+check('awk toupper', awk('BEGIN{print toupper("hi")}') == 'HI')
+check('awk split',   awk('BEGIN{n=split("a:b:c",a,":"); print n,a[1],a[2],a[3]}') == '3 a b c')
+
+# Regex match operator (~ / !~)
+check('awk tilde',   awk('BEGIN{if("foo"~/oo/) print "yes"; else print "no"}') == 'yes')
+check('awk not tilde',awk('BEGIN{if("foo"!~/xx/) print "yes"; else print "no"}') == 'yes')
+
+# printf / sprintf
+check('awk printf', awk('BEGIN{printf "%d %s\n", 42, "hi"}') == '42 hi')
+check('awk sprintf',awk('BEGIN{s=sprintf("%.2f",3.14159); print s}') == '3.14')
+
+# Math
+out = awk('BEGIN{printf "%.4f\n",sin(3.14159/2)}')
+check('awk sin', out.startswith('1.000'))
+check('awk sqrt', awk('BEGIN{printf "%.4f\n",sqrt(2)}') == '1.4142')
+
+# OFS / ORS
+check('awk OFS',  awk('BEGIN{OFS=","} {print $1,$2}', stdin_text='a b\n') == 'a,b')
+
+# User-defined function
+check('awk function', awk('function sq(x){return x*x} BEGIN{print sq(5)}') == '25')
+
+# sub / gsub
+check('awk sub',  awk('{sub(/a/,"X"); print}', stdin_text='banana\n') == 'bXnana')
+check('awk gsub', awk('{gsub(/a/,"X"); print}', stdin_text='banana\n') == 'bXnXnX')
+
+# Error / version
+_, _, rc = run('awk')
+check('awk no program exits 1', rc == 1)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

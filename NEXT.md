@@ -100,8 +100,8 @@
 | **1.0** | Done | Windows-native Unix parity — clean, documented, extensible ✅ |
 | **1.1** | Done | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
 | **1.2** | Done | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $(()) ✅, case/esac ✅, read ✅ |
-| **1.3** | **Current** | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion ✅, `local VAR` ✅, `.sh` file association |
-| **1.4** | **Current** | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅ — `awk` remaining |
+| **1.3** | Done | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion ✅, `local VAR` ✅, `.sh` file association |
+| **1.4** | Done | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅, `awk` ✅ |
 
 ---
 
@@ -166,7 +166,7 @@
 - [x] Flags: `-i` (ignore case), `-w` (ignore all whitespace), `-b` (ignore whitespace changes), `-q` (brief)
 
 ## v1.4 Coreutils (Planned)
-- [ ] `awk` — pattern-action text processing (priority)
+- [x] `awk` — pattern-action text processing (priority)
 - [x] `mktemp` — create temp files/dirs (`mktemp`, `mktemp -d`)
 - [x] `realpath` — resolve symlinks and relative paths
 - [x] `column` — format output into aligned columns (`-t`, `-s`)

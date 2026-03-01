@@ -157,6 +157,9 @@ add_executable(watch    src/coreutils/watch.c)
 add_executable(bc       src/coreutils/bc.c)
 target_link_libraries(bc m)
 
+add_executable(awk      src/coreutils/awk.c)
+target_link_libraries(awk m)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -172,6 +175,6 @@ install(TARGETS
     md5sum sha256sum hexdump
     test_cmd lbracket
     mktemp realpath cmp fold expand unexpand
-    column time watch bc
+    column time watch bc awk
     DESTINATION bin
 )
