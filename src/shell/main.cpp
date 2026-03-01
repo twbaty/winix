@@ -243,7 +243,7 @@ static std::string expand_aliases_once(const std::string& line, const Aliases& a
     return rest.empty() ? *val : (*val + " " + rest);
 }
 
-static std::string expand_vars(const std::string& line) {
+static std::string expand_vars(const std::string& line, int last_exit = 0) {
     std::string out;
     bool in_s=false, in_d=false;
 
@@ -252,6 +252,21 @@ static std::string expand_vars(const std::string& line) {
 
         if (c=='\'' && !in_d) { in_s=!in_s; out.push_back(c); continue; }
         if (c=='"'  && !in_s) { in_d=!in_d; out.push_back(c); continue; }
+
+        if (!in_s && !in_d) {
+            // ~ at word boundary → home directory
+            if (c == '~') {
+                bool at_word = (i == 0 || std::isspace((unsigned char)line[i-1]));
+                if (at_word) {
+                    size_t j = i + 1;
+                    if (j >= line.size() || line[j]=='/' || line[j]=='\\' ||
+                        std::isspace((unsigned char)line[j])) {
+                        out += user_home();
+                        continue;
+                    }
+                }
+            }
+        }
 
         if (!in_s) {
             // %VAR%
@@ -263,6 +278,12 @@ static std::string expand_vars(const std::string& line) {
                     i=j;
                     continue;
                 }
+            }
+            // $? — last exit code
+            if (c == '$' && i+1 < line.size() && line[i+1] == '?') {
+                out += std::to_string(last_exit);
+                i++;
+                continue;
             }
             // $VAR
             if (c == '$') {
@@ -301,14 +322,17 @@ static std::vector<std::string> split_pipe(const std::string& s) {
 // Process spawning
 // --------------------------------------------------
 // Spawn a process via cmd.exe /C (used for system PATH fallback).
-static DWORD spawn_cmd(const std::string& command, bool wait) {
+static DWORD spawn_cmd(const std::string& command, bool wait,
+                       HANDLE h_in  = INVALID_HANDLE_VALUE,
+                       HANDLE h_out = INVALID_HANDLE_VALUE,
+                       HANDLE h_err = INVALID_HANDLE_VALUE) {
     std::string full = "cmd.exe /C " + command;
 
     STARTUPINFOA si{}; si.cb = sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
-    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
-    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput  = (h_in  != INVALID_HANDLE_VALUE) ? h_in  : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = (h_out != INVALID_HANDLE_VALUE) ? h_out : GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = (h_err != INVALID_HANDLE_VALUE) ? h_err : GetStdHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION pi{};
     BOOL ok = CreateProcessA(
@@ -343,16 +367,19 @@ static DWORD spawn_cmd(const std::string& command, bool wait) {
 // Spawn a known executable directly (bypasses cmd.exe so arguments are
 // never mangled by cmd's quoting rules — important for paths with spaces).
 static DWORD spawn_direct(const std::string& exe_path,
-                          const std::vector<std::string>& args, bool wait) {
+                          const std::vector<std::string>& args, bool wait,
+                          HANDLE h_in  = INVALID_HANDLE_VALUE,
+                          HANDLE h_out = INVALID_HANDLE_VALUE,
+                          HANDLE h_err = INVALID_HANDLE_VALUE) {
     // Build command line: "exe_path" arg1 arg2 ...
     std::string cmdline = "\"" + exe_path + "\"";
     for (auto& a : args) cmdline += " " + a;
 
     STARTUPINFOA si{}; si.cb = sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
-    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
-    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput  = (h_in  != INVALID_HANDLE_VALUE) ? h_in  : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = (h_out != INVALID_HANDLE_VALUE) ? h_out : GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = (h_err != INVALID_HANDLE_VALUE) ? h_err : GetStdHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION pi{};
     BOOL ok = CreateProcessA(
@@ -404,14 +431,162 @@ static std::string resolve_exe(const std::string& cmd, const Paths& paths) {
 }
 
 // --------------------------------------------------
+// Redirection
+// --------------------------------------------------
+struct Redirects {
+    std::string in_file;
+    std::string out_file;
+    std::string err_file;
+    bool out_append = false;
+};
+
+// Strip >, >>, <, 2> operators from cmd and populate r.
+// Returns the cleaned command string.
+static std::string parse_redirects(const std::string& cmd, Redirects& r) {
+    auto tokens = shell_tokens(cmd);
+    std::vector<std::string> kept;
+
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const auto& t = tokens[i];
+
+        // Standalone operators with separate filename token
+        if ((t == ">" || t == ">>" || t == "<" || t == "2>") && i+1 < tokens.size()) {
+            std::string f = unquote(tokens[++i]);
+            if (t == ">")   { r.out_file = f; r.out_append = false; }
+            else if (t == ">>")  { r.out_file = f; r.out_append = true;  }
+            else if (t == "<")   { r.in_file  = f; }
+            else if (t == "2>")  { r.err_file = f; }
+            continue;
+        }
+        // Attached: >file  >>file  2>file  <file
+        if (t.size() > 1 && t[0] == '>' && t[1] == '>') {
+            r.out_file = unquote(t.substr(2)); r.out_append = true;  continue;
+        }
+        if (t.size() > 1 && t[0] == '>') {
+            r.out_file = unquote(t.substr(1)); r.out_append = false; continue;
+        }
+        if (t.size() > 1 && t[0] == '<') {
+            r.in_file  = unquote(t.substr(1)); continue;
+        }
+        if (t.size() > 2 && t[0]=='2' && t[1]=='>') {
+            r.err_file = unquote(t.substr(2)); continue;
+        }
+        kept.push_back(t);
+    }
+
+    std::string result;
+    for (size_t i = 0; i < kept.size(); i++) {
+        if (i) result += ' ';
+        result += kept[i];
+    }
+    return result;
+}
+
+// Open a file handle for redirection; made inheritable for child processes.
+static HANDLE open_redir(const std::string& path, bool write, bool append) {
+    DWORD access    = write ? GENERIC_WRITE : GENERIC_READ;
+    DWORD creation  = write ? (append ? OPEN_ALWAYS : CREATE_ALWAYS) : OPEN_EXISTING;
+    SECURITY_ATTRIBUTES sa{}; sa.nLength = sizeof(sa); sa.bInheritHandle = TRUE;
+    HANDLE h = CreateFileA(path.c_str(), access, FILE_SHARE_READ|FILE_SHARE_WRITE,
+                           &sa, creation, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE && write && append)
+        SetFilePointer(h, 0, NULL, FILE_END);
+    return h;
+}
+
+// --------------------------------------------------
+// Command chaining  (;  &&  ||)
+// --------------------------------------------------
+enum class ChainOp { FIRST, ALWAYS, AND, OR };
+
+struct ChainedCmd { std::string cmd; ChainOp op; };
+
+static std::vector<ChainedCmd> split_chain(const std::string& s) {
+    std::vector<ChainedCmd> result;
+    std::string cur;
+    bool in_s = false, in_d = false;
+    ChainOp pending = ChainOp::FIRST;
+
+    auto flush = [&]() {
+        auto t = trim(cur);
+        if (!t.empty()) result.push_back({t, pending});
+        cur.clear();
+    };
+
+    for (size_t i = 0; i < s.size(); i++) {
+        char c = s[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; cur += c; continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; cur += c; continue; }
+        if (in_s || in_d)       { cur += c; continue; }
+
+        // || — OR (must check before single |)
+        if (c == '|' && i+1 < s.size() && s[i+1] == '|') {
+            flush(); pending = ChainOp::OR; i++; continue;
+        }
+        // && — AND
+        if (c == '&' && i+1 < s.size() && s[i+1] == '&') {
+            flush(); pending = ChainOp::AND; i++; continue;
+        }
+        // ; — always
+        if (c == ';') {
+            flush(); pending = ChainOp::ALWAYS; continue;
+        }
+        cur += c;
+    }
+    flush();
+    return result;
+}
+
+// --------------------------------------------------
 // Resolve & run external commands
 // --------------------------------------------------
 static DWORD run_segment(const std::string& seg, const Paths& paths) {
-    auto t = shell_tokens(seg);
+    // Parse redirection operators out first
+    Redirects redir;
+    std::string clean = parse_redirects(seg, redir);
+
+    auto t = shell_tokens(clean);
     if (t.empty()) return 0;
 
-    // handle cd
+    // Open redirect handles (inheritable, so children can use them)
+    HANDLE h_in  = INVALID_HANDLE_VALUE;
+    HANDLE h_out = INVALID_HANDLE_VALUE;
+    HANDLE h_err = INVALID_HANDLE_VALUE;
+
+    if (!redir.in_file.empty()) {
+        h_in = open_redir(redir.in_file, false, false);
+        if (h_in == INVALID_HANDLE_VALUE) {
+            std::cerr << "winix: cannot open '" << redir.in_file << "' for reading\n";
+            return 1;
+        }
+    }
+    if (!redir.out_file.empty()) {
+        h_out = open_redir(redir.out_file, true, redir.out_append);
+        if (h_out == INVALID_HANDLE_VALUE) {
+            std::cerr << "winix: cannot open '" << redir.out_file << "' for writing\n";
+            if (h_in != INVALID_HANDLE_VALUE) CloseHandle(h_in);
+            return 1;
+        }
+    }
+    if (!redir.err_file.empty()) {
+        h_err = open_redir(redir.err_file, true, false);
+        if (h_err == INVALID_HANDLE_VALUE) {
+            std::cerr << "winix: cannot open '" << redir.err_file << "' for writing\n";
+            if (h_in  != INVALID_HANDLE_VALUE) CloseHandle(h_in);
+            if (h_out != INVALID_HANDLE_VALUE) CloseHandle(h_out);
+            return 1;
+        }
+    }
+
+    auto close_redirs = [&]() {
+        if (h_in  != INVALID_HANDLE_VALUE) CloseHandle(h_in);
+        if (h_out != INVALID_HANDLE_VALUE) CloseHandle(h_out);
+        if (h_err != INVALID_HANDLE_VALUE) CloseHandle(h_err);
+    };
+
+    // handle cd (builtin — redirection is a no-op for it)
     if (to_lower(t[0]) == "cd") {
+        close_redirs();
         if (t.size() == 1) {
             std::error_code ec;
             fs::current_path(user_home(), ec);
@@ -427,25 +602,33 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
     }
 
     const std::string cmd = t[0];
-
     std::vector<std::string> rest_args(t.begin() + 1, t.end());
+    DWORD code = 0;
 
     // Check coreutils dir
     {
         fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
-        if (fs::exists(p))
-            return spawn_direct(p.string(), rest_args, true);
+        if (fs::exists(p)) {
+            code = spawn_direct(p.string(), rest_args, true, h_in, h_out, h_err);
+            close_redirs();
+            return code;
+        }
     }
 
     // Check Winix bin dir
     {
         fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
-        if (fs::exists(p))
-            return spawn_direct(p.string(), rest_args, true);
+        if (fs::exists(p)) {
+            code = spawn_direct(p.string(), rest_args, true, h_in, h_out, h_err);
+            close_redirs();
+            return code;
+        }
     }
 
     // Fallback: system PATH via cmd.exe
-    return spawn_cmd(seg, true);
+    code = spawn_cmd(clean, true, h_in, h_out, h_err);
+    close_redirs();
+    return code;
 }
 
 static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& paths) {
@@ -640,10 +823,18 @@ static void print_help() {
         {"false",   "",                "exit 1"},
     }) row(c);
 
-    section("PIPING & CHAINING");
+    section("PIPING, CHAINING & REDIRECTION");
     std::cout << "    " << DIM
-              << "cmd1 | cmd2       pipe output of cmd1 into cmd2\n"
-              << "    cmd1 | cmd2 | cmd3  multi-stage pipeline\n"
+              << "cmd1 | cmd2        pipe output of cmd1 into cmd2\n"
+              << "    cmd1 && cmd2       run cmd2 only if cmd1 succeeds\n"
+              << "    cmd1 || cmd2       run cmd2 only if cmd1 fails\n"
+              << "    cmd1 ; cmd2        run cmd2 regardless\n"
+              << "    cmd > file         redirect stdout to file (overwrite)\n"
+              << "    cmd >> file        redirect stdout to file (append)\n"
+              << "    cmd < file         read stdin from file\n"
+              << "    cmd 2> file        redirect stderr to file\n"
+              << "    echo $?            last exit code\n"
+              << "    cd ~/path          tilde expands to home directory\n"
               << RST;
 
     std::cout << "\n" << DIM
@@ -902,6 +1093,8 @@ int main() {
         &hist.entries
     );
 
+    int last_exit = 0;
+
     while (true) {
         auto in = editor.read_line(prompt(cfg));
         if (!in.has_value()) break;
@@ -913,8 +1106,9 @@ int main() {
         if (ll == "exit" || ll == "quit") break;
 
         auto expanded = expand_vars(
-                            expand_aliases_once(original, aliases));
+                            expand_aliases_once(original, aliases), last_exit);
 
+        // Single builtin — handle before chain splitting
         if (handle_builtin(expanded, aliases, paths, hist, cfg)) {
             if (ll != "history") {
                 hist.add(original);
@@ -923,11 +1117,25 @@ int main() {
             continue;
         }
 
-        auto segs = split_pipe(expanded);
-        if (segs.size() > 1)
-            run_pipeline(segs, paths);
-        else
-            run_segment(expanded, paths);
+        // Split on ; && || then execute each segment conditionally
+        auto chain = split_chain(expanded);
+        for (auto& cc : chain) {
+            bool run = false;
+            switch (cc.op) {
+                case ChainOp::FIRST:
+                case ChainOp::ALWAYS: run = true;              break;
+                case ChainOp::AND:    run = (last_exit == 0);  break;
+                case ChainOp::OR:     run = (last_exit != 0);  break;
+            }
+            if (!run) continue;
+
+            auto segs = split_pipe(cc.cmd);
+            if (segs.size() > 1)
+                last_exit = (int)run_pipeline(segs, paths);
+            else
+                last_exit = (int)run_segment(cc.cmd, paths);
+        }
+
         hist.add(original);
         hist.save(paths.history_file);
     }

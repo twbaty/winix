@@ -31,6 +31,10 @@
 - [x] Customizable prompt strings (PS1-style)
 - [x] Extended `help` index with grouped categories
 - [x] Basic piping (`cmd1 | cmd2`)
+- [x] Redirection (`>`, `>>`, `<`, `2>`)
+- [x] Command chaining (`&&`, `||`, `;`)
+- [x] Tilde expansion in paths (`~/foo`)
+- [x] `$?` last exit code
 
 ---
 
