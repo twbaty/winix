@@ -1550,6 +1550,80 @@ with tempfile.TemporaryDirectory() as td:
     check('unexpand converts leading spaces to tab', rc == 0 and '\t' in out)
 
 
+# ── column ────────────────────────────────────────────────────────────────────
+
+section('column')
+
+out, _, rc = run('column', '--version')
+check('column --version', rc == 0 and 'column' in out)
+
+with tempfile.TemporaryDirectory() as td:
+    # table mode: -t aligns fields
+    f1 = os.path.join(td, 'data.txt')
+    with open(f1, 'w') as f:
+        f.write('NAME AGE CITY\nAlice 30 Boston\nBob 25 Denver\n')
+    out, _, rc = run('column', '-t', f1)
+    lines = out.strip().splitlines()
+    check('column -t produces 3 rows', len(lines) == 3)
+    # Each row should have consistent alignment — col 1 width >= 5 ("Alice")
+    check('column -t aligns NAME column', lines[1].startswith('Alice'))
+    # Fields should be separated by at least 2 spaces
+    check('column -t adds padding', '  ' in lines[0])
+
+    # table mode with custom separator
+    f2 = os.path.join(td, 'csv.txt')
+    with open(f2, 'w') as f:
+        f.write('a:bb:ccc\ndd:e:ff\n')
+    out, _, rc = run('column', '-t', '-s', ':', f2)
+    lines = out.strip().splitlines()
+    check('column -t -s : splits on colon', len(lines) == 2 and 'a' in lines[0])
+
+    # multi-column mode: items arranged in columns
+    f3 = os.path.join(td, 'items.txt')
+    with open(f3, 'w') as f:
+        for i in range(20):
+            f.write(f'item{i}\n')
+    out, _, rc = run('column', f3)
+    lines = out.strip().splitlines()
+    check('column multi-col reduces row count', len(lines) < 20)
+
+
+# ── time ──────────────────────────────────────────────────────────────────────
+
+section('time')
+
+out, _, rc = run('time', '--version')
+check('time --version', rc == 0 and 'time' in out)
+
+# time a fast command — stderr should contain real/user/sys
+out, err, rc = run('time', 'echo', 'hello')
+check('time passes through exit code 0',  rc == 0)
+check('time output includes real',  'real' in err)
+check('time output includes user',  'user' in err)
+check('time output includes sys',   'sys'  in err)
+check('time stdout has command output', 'hello' in out)
+
+# time reports non-zero exit code
+out, err, rc = run('time', 'false')
+check('time propagates non-zero exit', rc != 0)
+
+
+# ── wait (shell builtin) ──────────────────────────────────────────────────────
+
+section('wait')
+
+with tempfile.TemporaryDirectory() as td:
+    # Run a background job and wait for it
+    flag = os.path.join(td, 'done.txt')
+    script = os.path.join(td, 'test_wait.sh')
+    # Use touch to create a file after a brief sleep, then wait
+    flag_fwd = flag.replace('\\', '/')
+    with open(script, 'w') as f:
+        f.write(f'touch "{flag_fwd}" &\nwait\n')
+    out, err, rc = run('winix', script)
+    check('wait waits for all background jobs', rc == 0 and os.path.isfile(flag))
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

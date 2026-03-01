@@ -1401,6 +1401,34 @@ static bool handle_builtin(
         return true;
     }
 
+    // wait [%N | PID] — wait for background job(s)
+    if (match("wait") || starts("wait ")) {
+        if (starts("wait ")) {
+            std::string arg = trim(line.substr(5));
+            int target = -1;
+            bool by_jid = (!arg.empty() && arg[0] == '%');
+            try { target = std::stoi(by_jid ? arg.substr(1) : arg); } catch (...) {}
+            for (auto it = g_jobs.begin(); it != g_jobs.end(); ++it) {
+                bool hit = by_jid ? (it->id == target) : ((int)it->pid == target);
+                if (hit) {
+                    WaitForSingleObject(it->hProcess, INFINITE);
+                    CloseHandle(it->hProcess);
+                    it = g_jobs.erase(it);
+                    return true;
+                }
+            }
+            std::cerr << "wait: no such job: " << arg << "\n";
+        } else {
+            // wait with no args — wait for all background jobs
+            for (auto& j : g_jobs) {
+                WaitForSingleObject(j.hProcess, INFINITE);
+                CloseHandle(j.hProcess);
+            }
+            g_jobs.clear();
+        }
+        return true;
+    }
+
     // source / . — execute a shell script file
     if (starts("source ") || (line.size() >= 2 && line[0] == '.' && line[1] == ' ')) {
         std::string arg = trim(line.substr(starts("source ") ? 7 : 2));

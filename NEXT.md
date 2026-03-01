@@ -169,9 +169,9 @@
 - [ ] `awk` — pattern-action text processing (priority)
 - [x] `mktemp` — create temp files/dirs (`mktemp`, `mktemp -d`)
 - [x] `realpath` — resolve symlinks and relative paths
-- [ ] `column` — format output into aligned columns (`-t`, `-s`)
-- [ ] `time` — time a command (`time make`, reports real/user/sys)
-- [ ] `wait` — wait for background jobs (shell builtin companion to `&`)
+- [x] `column` — format output into aligned columns (`-t`, `-s`)
+- [x] `time` — time a command (`time make`, reports real/user/sys)
+- [x] `wait` — wait for background jobs (shell builtin companion to `&`)
 - [ ] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
 - [ ] `watch` — run command periodically (`watch -n 2 cmd`)
 - [x] `cmp` — byte-level file comparison
