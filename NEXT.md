@@ -94,10 +94,12 @@
 - [x] File load/save (Unix line endings), new-file support
 - [x] Viewport scrolling (horizontal + vertical)
 - [x] Find (Ctrl+W) with wrap-around search
+- [x] Find next (Ctrl+N) — repeats last pattern without re-prompting
+- [x] Undo (Ctrl+Z) — 512-entry ring buffer, all edit ops covered
 - [x] Cut/paste single line (Ctrl+K / Ctrl+U)
 - [x] Unsaved-changes prompt on quit
 - [ ] Multi-line clipboard
-- [ ] Find + replace
+- [ ] Find + replace (Ctrl+R)
 - [ ] Syntax highlighting
 
 ## cp
