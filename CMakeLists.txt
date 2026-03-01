@@ -97,10 +97,19 @@ add_executable(nix src/coreutils/nix.c)
 target_link_libraries(nix winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr)
+foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
+
+add_executable(id src/coreutils/id.c)
+target_link_libraries(id winixcommon advapi32)
+
+add_executable(timeout src/coreutils/timeout.c)
+target_link_libraries(timeout winixcommon)
+
+add_executable(ln src/coreutils/ln.c)
+target_link_libraries(ln winixcommon)
 
 add_executable(ps src/coreutils/ps.c)
 target_link_libraries(ps winixcommon psapi)
@@ -134,5 +143,6 @@ install(TARGETS
     ps kill uname uptime env ver cut tr
     printf basename dirname which true false
     nix find diff sed xargs
+    tac rev nl id timeout ln
     DESTINATION bin
 )

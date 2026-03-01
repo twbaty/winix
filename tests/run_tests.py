@@ -911,6 +911,62 @@ with TempDir() as d:
     expect_exit('diff missing file exits 2', code, 2)
 
 
+# ── tac / rev / nl / id / timeout / ln ───────────────────────────────────────
+
+section('tac')
+out, _, _ = run('tac', stdin_text='a\nb\nc\n')
+check('tac reverses lines', out.strip().splitlines() == ['c', 'b', 'a'])
+out, _, _ = run('tac', '--version')
+check('tac --version', 'tac' in out and 'Winix' in out)
+
+section('rev')
+out, _, _ = run('rev', stdin_text='hello\nworld\n')
+check('rev reverses chars', out.strip().splitlines() == ['olleh', 'dlrow'])
+out, _, _ = run('rev', '--version')
+check('rev --version', 'rev' in out and 'Winix' in out)
+
+section('nl')
+out, _, _ = run('nl', stdin_text='foo\nbar\nbaz\n')
+lines = out.strip().splitlines()
+check('nl numbers lines', len(lines) == 3 and '1' in lines[0] and 'foo' in lines[0])
+out, _, _ = run('nl', '-b', 'a', stdin_text='foo\n\nbar\n')
+check('nl -b a numbers blank lines', '2' in out)
+out, _, _ = run('nl', '--version')
+check('nl --version', 'nl' in out and 'Winix' in out)
+
+section('id')
+out, _, _ = run('id')
+check('id prints uid=', 'uid=' in out)
+check('id prints gid=', 'gid=' in out)
+out_u, _, _ = run('id', '-u')
+check('id -u prints a number', out_u.strip().isdigit())
+out_n, _, _ = run('id', '-un')
+check('id -un prints username', len(out_n.strip()) > 0)
+out, _, _ = run('id', '--version')
+check('id --version', 'id' in out and 'Winix' in out)
+
+section('timeout')
+import time
+_, _, code = run('timeout', '5', 'echo', 'hello')
+check('timeout passes through exit 0', code == 0)
+_, _, code = run('timeout', '5', 'true')
+check('timeout with quick command exits 0', code == 0)
+out, _, _ = run('timeout', '--version')
+check('timeout --version', 'timeout' in out and 'Winix' in out)
+
+section('ln')
+with tempfile.TemporaryDirectory() as d:
+    src = os.path.join(d, 'src.txt')
+    lnk = os.path.join(d, 'lnk.txt')
+    with open(src, 'w') as f: f.write('hello\n')
+    _, _, code = run('ln', src, lnk)
+    check('ln hard link created', code == 0 and os.path.exists(lnk))
+    with open(lnk) as f:
+        check('ln hard link has same content', f.read() == 'hello\n')
+out, _, _ = run('ln', '--version')
+check('ln --version', 'ln' in out and 'Winix' in out)
+
+
 # ── sed ───────────────────────────────────────────────────────────────────────
 
 section('sed')

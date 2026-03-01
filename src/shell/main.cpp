@@ -405,13 +405,47 @@ static BOOL WINAPI console_ctrl_handler(DWORD event) {
 }
 
 // --------------------------------------------------
+// Background job tracking
+// --------------------------------------------------
+struct Job {
+    int         id;
+    HANDLE      hProcess;
+    DWORD       pid;
+    std::string cmd;
+};
+static std::vector<Job> g_jobs;
+static int              g_next_jid = 1;
+
+static void job_add(HANDLE hproc, DWORD pid, const std::string& cmd) {
+    int id = g_next_jid++;
+    g_jobs.push_back({id, hproc, pid, cmd});
+    std::cout << "[" << id << "] " << pid << "\n";
+}
+
+static void jobs_reap_notify() {
+    for (auto it = g_jobs.begin(); it != g_jobs.end(); ) {
+        if (WaitForSingleObject(it->hProcess, 0) == WAIT_OBJECT_0) {
+            DWORD code = 0;
+            GetExitCodeProcess(it->hProcess, &code);
+            CloseHandle(it->hProcess);
+            std::cout << "\n[" << it->id << "]  Done\t\t" << it->cmd << "\n";
+            it = g_jobs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// --------------------------------------------------
 // Process spawning
 // --------------------------------------------------
 // Spawn a process via cmd.exe /C (used for system PATH fallback).
 static DWORD spawn_cmd(const std::string& command, bool wait,
                        HANDLE h_in  = INVALID_HANDLE_VALUE,
                        HANDLE h_out = INVALID_HANDLE_VALUE,
-                       HANDLE h_err = INVALID_HANDLE_VALUE) {
+                       HANDLE h_err = INVALID_HANDLE_VALUE,
+                       HANDLE* out_hproc = nullptr,
+                       DWORD*  out_pid   = nullptr) {
     std::string full = "cmd.exe /C " + command;
 
     STARTUPINFOA si{}; si.cb = sizeof(si);
@@ -437,7 +471,8 @@ static DWORD spawn_cmd(const std::string& command, bool wait,
 
     if (!wait) {
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        if (out_hproc) { *out_hproc = pi.hProcess; if (out_pid) *out_pid = pi.dwProcessId; }
+        else            CloseHandle(pi.hProcess);
         return 0;
     }
 
@@ -454,9 +489,11 @@ static DWORD spawn_cmd(const std::string& command, bool wait,
 // never mangled by cmd's quoting rules — important for paths with spaces).
 static DWORD spawn_direct(const std::string& exe_path,
                           const std::vector<std::string>& args, bool wait,
-                          HANDLE h_in  = INVALID_HANDLE_VALUE,
-                          HANDLE h_out = INVALID_HANDLE_VALUE,
-                          HANDLE h_err = INVALID_HANDLE_VALUE) {
+                          HANDLE h_in      = INVALID_HANDLE_VALUE,
+                          HANDLE h_out     = INVALID_HANDLE_VALUE,
+                          HANDLE h_err     = INVALID_HANDLE_VALUE,
+                          HANDLE* out_hproc = nullptr,
+                          DWORD*  out_pid   = nullptr) {
     // Build command line: "exe_path" arg1 arg2 ...
     std::string cmdline = "\"" + exe_path + "\"";
     for (auto& a : args) cmdline += " " + quote_arg(a);
@@ -484,7 +521,8 @@ static DWORD spawn_direct(const std::string& exe_path,
 
     if (!wait) {
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        if (out_hproc) { *out_hproc = pi.hProcess; if (out_pid) *out_pid = pi.dwProcessId; }
+        else            CloseHandle(pi.hProcess);
         return 0;
     }
 
@@ -626,7 +664,8 @@ static std::vector<ChainedCmd> split_chain(const std::string& s) {
 // --------------------------------------------------
 // Resolve & run external commands
 // --------------------------------------------------
-static DWORD run_segment(const std::string& seg, const Paths& paths) {
+static DWORD run_segment(const std::string& seg, const Paths& paths,
+                         bool bg = false, HANDLE* out_hproc = nullptr, DWORD* out_pid = nullptr) {
     // Parse redirection operators out first
     Redirects redir;
     std::string clean = parse_redirects(seg, redir);
@@ -695,7 +734,7 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
     {
         fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
         if (fs::exists(p)) {
-            code = spawn_direct(p.string(), rest_args, true, h_in, h_out, h_err);
+            code = spawn_direct(p.string(), rest_args, !bg, h_in, h_out, h_err, out_hproc, out_pid);
             close_redirs();
             return code;
         }
@@ -705,19 +744,20 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
     {
         fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
         if (fs::exists(p)) {
-            code = spawn_direct(p.string(), rest_args, true, h_in, h_out, h_err);
+            code = spawn_direct(p.string(), rest_args, !bg, h_in, h_out, h_err, out_hproc, out_pid);
             close_redirs();
             return code;
         }
     }
 
     // Fallback: system PATH via cmd.exe
-    code = spawn_cmd(clean, true, h_in, h_out, h_err);
+    code = spawn_cmd(clean, !bg, h_in, h_out, h_err, out_hproc, out_pid);
     close_redirs();
     return code;
 }
 
-static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& paths) {
+static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& paths,
+                          bool bg = false, HANDLE* out_hproc = nullptr, DWORD* out_pid = nullptr) {
     int n = (int)segs.size();
 
     struct Pipe { HANDLE read, write; };
@@ -740,6 +780,7 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
     }
 
     std::vector<HANDLE> procs;
+    std::vector<DWORD>  pids;
 
     for (int i = 0; i < n; ++i) {
         auto t = glob_expand(shell_tokens(segs[i]));
@@ -788,6 +829,7 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
         } else {
             CloseHandle(pi.hThread);
             procs.push_back(pi.hProcess);
+            pids.push_back(pi.dwProcessId);
         }
     }
 
@@ -799,10 +841,16 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
 
     DWORD last_code = 0;
     for (size_t i = 0; i < procs.size(); ++i) {
-        WaitForSingleObject(procs[i], INFINITE);
-        if (i == procs.size() - 1)
-            GetExitCodeProcess(procs[i], &last_code);
-        CloseHandle(procs[i]);
+        bool is_last = (i == procs.size() - 1);
+        if (bg && is_last) {
+            // Background: hand off last process handle to caller
+            if (out_hproc) { *out_hproc = procs[i]; if (out_pid) *out_pid = pids[i]; }
+            else            CloseHandle(procs[i]);
+        } else {
+            WaitForSingleObject(procs[i], INFINITE);
+            if (is_last) GetExitCodeProcess(procs[i], &last_code);
+            CloseHandle(procs[i]);
+        }
     }
 
     return last_code;
@@ -1043,6 +1091,39 @@ static bool handle_builtin(
         return true;
     }
 
+    // jobs
+    if (match("jobs")) {
+        if (g_jobs.empty()) { std::cout << "No background jobs.\n"; return true; }
+        for (auto& j : g_jobs) {
+            bool done = (WaitForSingleObject(j.hProcess, 0) == WAIT_OBJECT_0);
+            std::cout << "[" << j.id << "]  "
+                      << (done ? "Done    " : "Running ") << "\t"
+                      << j.cmd << "\n";
+        }
+        jobs_reap_notify();
+        return true;
+    }
+
+    // fg [N]  — bring background job to foreground
+    if (match("fg") || starts("fg ")) {
+        if (g_jobs.empty()) { std::cerr << "fg: no current jobs\n"; return true; }
+        int target_id = -1;
+        if (starts("fg ")) {
+            try { target_id = std::stoi(trim(line.substr(3))); } catch (...) {}
+        }
+        for (auto it = g_jobs.begin(); it != g_jobs.end(); ++it) {
+            if (target_id < 0 || it->id == target_id) {
+                std::cout << it->cmd << "\n";
+                WaitForSingleObject(it->hProcess, INFINITE);
+                CloseHandle(it->hProcess);
+                g_jobs.erase(it);
+                return true;
+            }
+        }
+        std::cerr << "fg: no such job: " << target_id << "\n";
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -1210,6 +1291,7 @@ int main() {
     int last_exit = 0;
 
     while (true) {
+        jobs_reap_notify();
         auto in = editor.read_line(prompt(cfg));
         if (!in.has_value()) break;
 
@@ -1243,11 +1325,25 @@ int main() {
             }
             if (!run) continue;
 
-            auto segs = split_pipe(cc.cmd);
+            // Detect trailing & (background operator)
+            std::string cmd_str = trim(cc.cmd);
+            bool bg = false;
+            if (!cmd_str.empty() && cmd_str.back() == '&') {
+                bg = true;
+                cmd_str = trim(cmd_str.substr(0, cmd_str.size() - 1));
+            }
+
+            HANDLE bg_hproc = INVALID_HANDLE_VALUE;
+            DWORD  bg_pid   = 0;
+
+            auto segs = split_pipe(cmd_str);
             if (segs.size() > 1)
-                last_exit = (int)run_pipeline(segs, paths);
+                last_exit = (int)run_pipeline(segs, paths, bg, &bg_hproc, &bg_pid);
             else
-                last_exit = (int)run_segment(cc.cmd, paths);
+                last_exit = (int)run_segment(cmd_str, paths, bg, &bg_hproc, &bg_pid);
+
+            if (bg && bg_hproc != INVALID_HANDLE_VALUE)
+                job_add(bg_hproc, bg_pid, cmd_str);
         }
 
         hist.add(original);
