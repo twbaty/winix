@@ -1,0 +1,34 @@
+{
+    "configurations": [
+        {
+            "name": "Winix (MinGW-w64)",
+            "compilerPath": "C:/mingw64/bin/gcc.exe",
+            "compilerArgs": [],
+            "cStandard": "c99",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/src/include",
+                "${workspaceFolder}/src/common",
+                "${workspaceFolder}/src/shell",
+                "C:/mingw64/include",
+                "C:/mingw64/x86_64-w64-mingw32/include",
+                "C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include"
+            ],
+            "defines": [
+                "_WIN32",
+                "_WIN64",
+                "WINVER=0x0A00",
+                "_WIN32_WINNT=0x0A00"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src",
+                    "C:/mingw64/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}
