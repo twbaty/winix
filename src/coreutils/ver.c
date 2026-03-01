@@ -2,7 +2,7 @@
 #include <string.h>
 #include <windows.h>
 
-#define WINIX_VERSION "0.8"
+#define WINIX_VERSION "0.9"
 
 static void get_real_version(DWORD *major, DWORD *minor, DWORD *build) {
     *major = 0; *minor = 0; *build = 0;

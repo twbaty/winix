@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 0.8
+**Version:** 0.9
 **Date:** 2026-02-28
 
 ---
@@ -75,6 +75,7 @@
 | **0.6** | Done | Piping ✅, install target ✅ (`install.bat` → `C:\Winix\bin`, system PATH) |
 | **0.7** | Done | PS1 prompts ✅, cp -r ✅, chmod ✅, grep -i ✅, help ✅, install.bat ✅, .winixrc ✅ |
 | **0.8** | Done | Redirection ✅, chaining ✅, tilde ✅, $? ✅ — shell fully rounded out |
+| **0.9** | Done | Coreutil audit ✅, test harness ✅, CI badge ✅, clear/cls ✅, docs complete ✅ |
 | **1.0** | Stable | Windows-native Unix parity — clean, documented, extensible |
 
 ---

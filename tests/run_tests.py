@@ -486,7 +486,7 @@ section('ver')
 out, _, code = run('ver')
 expect_exit('ver exits 0', code)
 expect_contains('ver shows Winix', out, 'Winix')
-expect_contains('ver shows version number', out, '0.8')
+expect_contains('ver shows version number', out, '0.9')
 
 out, _, code = run('ver', '--version')
 expect_exit('ver --version exits 0', code)
