@@ -911,6 +911,83 @@ with TempDir() as d:
     expect_exit('diff missing file exits 2', code, 2)
 
 
+# ── sed ───────────────────────────────────────────────────────────────────────
+
+section('sed')
+
+with tempfile.TemporaryDirectory() as d:
+    f1 = os.path.join(d, 'a.txt')
+    with open(f1, 'w') as f:
+        f.write('hello world\nfoo bar\nbaz\n')
+
+    out, _, _ = run('sed','s/hello/goodbye/', stdin_text='hello world\n')
+    check('sed s substitute', out.strip() == 'goodbye world')
+
+    out, _, _ = run('sed','s/o/0/g', stdin_text='foo boo moo\n')
+    check('sed s global flag', out.strip() == 'f00 b00 m00')
+
+    out, _, _ = run('sed','/foo/d', stdin_text='keep\nfoo\nkeep2\n')
+    check('sed d delete matching', out.strip() == 'keep\nkeep2')
+
+    out, _, _ = run('sed','-n', '/foo/p', stdin_text='keep\nfoo\nkeep2\n')
+    check('sed -n with p print only matching', out.strip() == 'foo')
+
+    out, _, _ = run('sed','s/^/> /', stdin_text='line1\nline2\n')
+    lines = out.strip().splitlines()
+    check('sed s anchor caret', lines == ['> line1', '> line2'])
+
+    out, _, _ = run('sed','s/ *$//', stdin_text='hello   \nworld\n')
+    check('sed s trim trailing spaces', out.strip() == 'hello\nworld')
+
+    out, _, _ = run('sed','s/[aeiou]/*/gi', stdin_text='Hello World\n')
+    check('sed s char class and i flag', out.strip() == 'H*ll* W*rld')
+
+    out, _, _ = run('sed','2d', stdin_text='line1\nline2\nline3\n')
+    check('sed line address delete', out.strip() == 'line1\nline3')
+
+    out, _, _ = run('sed','-e', 's/foo/bar/', '-e', 's/baz/qux/', stdin_text='foo baz\n')
+    check('sed multiple -e expressions', out.strip() == 'bar qux')
+
+    out, _, _ = run('sed', '--version')
+    check('sed --version', 'sed' in out and 'Winix' in out)
+
+    out, _, _ = run('sed', '--help')
+    check('sed --help', 'Usage' in out)
+
+
+# ── xargs ─────────────────────────────────────────────────────────────────────
+
+section('xargs')
+
+with tempfile.TemporaryDirectory() as d:
+    out, _, _ = run('xargs','echo', stdin_text='a b c\n')
+    check('xargs basic echo', out.strip() == 'a b c')
+
+    out, _, _ = run('xargs','-n', '1', 'echo', stdin_text='a b c\n')
+    lines = out.strip().splitlines()
+    check('xargs -n 1 one per line', lines == ['a', 'b', 'c'])
+
+    out, _, _ = run('xargs','-n', '2', 'echo', stdin_text='a b c d\n')
+    lines = out.strip().splitlines()
+    check('xargs -n 2 two per invocation', len(lines) == 2)
+
+    out, _, _ = run('xargs','-I{}', 'echo', 'item:{}', stdin_text='foo\nbar\n')
+    lines = out.strip().splitlines()
+    check('xargs -I{} replace placeholder', lines == ['item:foo', 'item:bar'])
+
+    out, _, _ = run('xargs','-r', 'echo', 'should_not_run', stdin_text='')
+    check('xargs -r no-run on empty stdin', out.strip() == '')
+
+    out, _, _ = run('xargs','-d', '\n', 'echo', stdin_text='hello world\n')
+    check('xargs -d newline delimiter', 'hello world' in out)
+
+    out, _, _ = run('xargs', '--version')
+    check('xargs --version', 'xargs' in out and 'Winix' in out)
+
+    out, _, _ = run('xargs', '--help')
+    check('xargs --help', 'Usage' in out)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

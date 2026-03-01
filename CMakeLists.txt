@@ -119,6 +119,12 @@ target_link_libraries(find winixcommon)
 add_executable(diff src/coreutils/diff.c)
 target_link_libraries(diff winixcommon)
 
+add_executable(sed src/coreutils/sed.c)
+target_link_libraries(sed winixcommon)
+
+add_executable(xargs src/coreutils/xargs.c)
+target_link_libraries(xargs winixcommon)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -127,6 +133,6 @@ install(TARGETS
     stat wc du df sort uniq grep tee alias export history
     ps kill uname uptime env ver cut tr
     printf basename dirname which true false
-    nix find diff
+    nix find diff sed xargs
     DESTINATION bin
 )
