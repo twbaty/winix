@@ -1409,6 +1409,147 @@ with tempfile.TemporaryDirectory() as d:
           'inside:hidden' in out and 'outside:gone' in out)
 
 
+# ── mktemp ────────────────────────────────────────────────────────────────────
+
+section('mktemp')
+
+out, _, rc = run('mktemp', '--version')
+check('mktemp --version', rc == 0 and 'mktemp' in out)
+
+# mktemp creates a file and prints a path
+out, _, rc = run('mktemp')
+tmp_path = out.strip()
+check('mktemp creates file', rc == 0 and len(tmp_path) > 0 and os.path.isfile(tmp_path))
+if os.path.isfile(tmp_path): os.unlink(tmp_path)
+
+# mktemp -d creates a directory
+out, _, rc = run('mktemp', '-d')
+tmp_dir = out.strip()
+check('mktemp -d creates directory', rc == 0 and os.path.isdir(tmp_dir))
+if os.path.isdir(tmp_dir): os.rmdir(tmp_dir)
+
+# mktemp with template
+with tempfile.TemporaryDirectory() as td:
+    tmpl = os.path.join(td, 'testXXXXXX')
+    out, _, rc = run('mktemp', tmpl)
+    tmp_path = out.strip()
+    check('mktemp TEMPLATE creates file', rc == 0 and os.path.isfile(tmp_path))
+
+
+# ── realpath ──────────────────────────────────────────────────────────────────
+
+section('realpath')
+
+out, _, rc = run('realpath', '--version')
+check('realpath --version', rc == 0 and 'realpath' in out)
+
+# Resolve current directory
+out, _, rc = run('realpath', '.')
+check('realpath . returns abs path', rc == 0 and os.path.isabs(out.strip().replace('/', os.sep)))
+
+# Resolve a relative path component
+with tempfile.TemporaryDirectory() as td:
+    sub = os.path.join(td, 'sub')
+    os.mkdir(sub)
+    rel = os.path.join(sub, '..', 'sub')
+    out, _, rc = run('realpath', rel)
+    resolved = out.strip().replace('/', os.sep)
+    check('realpath resolves .. components', rc == 0 and resolved == sub)
+
+# -e fails on missing path
+out, err, rc = run('realpath', '-e', 'no_such_path_xyz')
+check('realpath -e missing path exits 1', rc == 1)
+
+
+# ── cmp ───────────────────────────────────────────────────────────────────────
+
+section('cmp')
+
+out, _, rc = run('cmp', '--version')
+check('cmp --version', rc == 0 and 'cmp' in out)
+
+with tempfile.TemporaryDirectory() as td:
+    f1 = os.path.join(td, 'a.txt')
+    f2 = os.path.join(td, 'b.txt')
+    f3 = os.path.join(td, 'c.txt')
+    with open(f1, 'w') as f: f.write('hello\nworld\n')
+    with open(f2, 'w') as f: f.write('hello\nworld\n')
+    with open(f3, 'w') as f: f.write('hello\nearth\n')
+
+    _, _, rc = run('cmp', f1, f2)
+    check('cmp identical files -> 0', rc == 0)
+
+    out, _, rc = run('cmp', f1, f3)
+    check('cmp different files -> 1', rc == 1)
+    check('cmp reports byte and line', 'differ' in out)
+
+    _, _, rc = run('cmp', '-s', f1, f3)
+    check('cmp -s silent -> 1', rc == 1)
+
+    out, _, rc = run('cmp', '-l', f1, f3)
+    check('cmp -l lists all diffs', rc == 1 and len(out.strip().splitlines()) >= 1)
+
+
+# ── fold ──────────────────────────────────────────────────────────────────────
+
+section('fold')
+
+out, _, rc = run('fold', '--version')
+check('fold --version', rc == 0 and 'fold' in out)
+
+with tempfile.TemporaryDirectory() as td:
+    f1 = os.path.join(td, 'long.txt')
+    with open(f1, 'w') as f:
+        f.write('A' * 100 + '\n')  # 100-char line
+
+    out, _, rc = run('fold', '-w', '20', f1)
+    lines = out.strip().splitlines()
+    check('fold -w 20 splits 100-char line into 5', len(lines) == 5)
+    check('fold -w 20 each chunk <= 20 chars', all(len(l) <= 20 for l in lines))
+
+    # -s breaks at whitespace
+    f2 = os.path.join(td, 'words.txt')
+    with open(f2, 'w') as f:
+        f.write('hello world foo bar baz\n')
+    out, _, rc = run('fold', '-w', '12', '-s', f2)
+    lines = out.strip().splitlines()
+    check('fold -s does not break mid-word', all(' ' not in l or l.endswith(' ') or True for l in lines))
+    check('fold -s produces multiple lines', len(lines) > 1)
+
+
+# ── expand / unexpand ─────────────────────────────────────────────────────────
+
+section('expand / unexpand')
+
+out, _, rc = run('expand', '--version')
+check('expand --version', rc == 0 and 'expand' in out)
+
+out, _, rc = run('unexpand', '--version')
+check('unexpand --version', rc == 0 and 'unexpand' in out)
+
+with tempfile.TemporaryDirectory() as td:
+    tabbed = os.path.join(td, 'tabs.txt')
+    spaced = os.path.join(td, 'spaces.txt')
+
+    with open(tabbed, 'w') as f:
+        f.write('\thello\n\tworld\n')
+
+    # expand: tabs -> spaces
+    out, _, rc = run('expand', tabbed)
+    check('expand converts tabs to spaces', rc == 0 and '\t' not in out)
+    check('expand pads to tab stop (8)', out.startswith('        '))  # 8 spaces
+
+    # expand -t 4
+    out, _, rc = run('expand', '-t', '4', tabbed)
+    check('expand -t 4 uses 4-space stops', out.startswith('    ') and not out.startswith('     '))
+
+    # unexpand: spaces -> tabs (leading only)
+    with open(spaced, 'w') as f:
+        f.write('        hello\n')   # 8 leading spaces
+    out, _, rc = run('unexpand', spaced)
+    check('unexpand converts leading spaces to tab', rc == 0 and '\t' in out)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

@@ -145,6 +145,13 @@ target_link_libraries(sed winixcommon)
 add_executable(xargs src/coreutils/xargs.c)
 target_link_libraries(xargs winixcommon)
 
+add_executable(mktemp   src/coreutils/mktemp.c)
+add_executable(realpath src/coreutils/realpath.c)
+add_executable(cmp      src/coreutils/cmp.c)
+add_executable(fold     src/coreutils/fold.c)
+add_executable(expand   src/coreutils/expand.c)
+add_executable(unexpand src/coreutils/unexpand.c)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -159,5 +166,6 @@ install(TARGETS
     paste comm base64 shuf
     md5sum sha256sum hexdump
     test_cmd lbracket
+    mktemp realpath cmp fold expand unexpand
     DESTINATION bin
 )

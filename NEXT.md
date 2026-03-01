@@ -167,15 +167,15 @@
 
 ## v1.4 Coreutils (Planned)
 - [ ] `awk` — pattern-action text processing (priority)
-- [ ] `mktemp` — create temp files/dirs (`mktemp`, `mktemp -d`)
-- [ ] `realpath` — resolve symlinks and relative paths
+- [x] `mktemp` — create temp files/dirs (`mktemp`, `mktemp -d`)
+- [x] `realpath` — resolve symlinks and relative paths
 - [ ] `column` — format output into aligned columns (`-t`, `-s`)
 - [ ] `time` — time a command (`time make`, reports real/user/sys)
 - [ ] `wait` — wait for background jobs (shell builtin companion to `&`)
 - [ ] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
 - [ ] `watch` — run command periodically (`watch -n 2 cmd`)
-- [ ] `cmp` — byte-level file comparison
-- [ ] `fold` — wrap long lines at a given width
-- [ ] `expand` / `unexpand` — convert tabs to/from spaces
+- [x] `cmp` — byte-level file comparison
+- [x] `fold` — wrap long lines at a given width
+- [x] `expand` / `unexpand` — convert tabs to/from spaces
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
