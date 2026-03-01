@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build (Windows / MinGW-w64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            make
+
+      - name: Configure (CMake)
+        shell: msys2 {0}
+        run: |
+          mkdir -p build
+          cd build
+          cmake -G "MinGW Makefiles" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/c/Winix \
+                ..
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cd build
+          mingw32-make -j$(nproc)
+
+      - name: Smoke test — all binaries present
+        shell: msys2 {0}
+        run: |
+          missing=0
+          for exe in \
+            winix \
+            echo pwd ls cat mv rm mkdir rmdir touch head tail \
+            date whoami sleep cp chmod chown more less \
+            stat wc du df sort uniq grep tee alias export \
+            history ps kill uname uptime env ver \
+            printf basename dirname which true false; do
+            if [ ! -f "build/${exe}.exe" ]; then
+              echo "MISSING: ${exe}.exe"
+              missing=1
+            fi
+          done
+          if [ $missing -eq 1 ]; then
+            echo "One or more binaries failed to build."
+            exit 1
+          fi
+          echo "All binaries present."
+
+      - name: Smoke test — basic invocations
+        shell: msys2 {0}
+        run: |
+          ./build/true.exe
+          ./build/false.exe || true
+          ./build/echo.exe "hello from winix ci" | grep -q "hello from winix ci"
+          ./build/pwd.exe
+          echo "Smoke tests passed."
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: winix-windows-x64
+          path: build/*.exe
+          retention-days: 7
