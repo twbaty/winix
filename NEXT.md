@@ -7,8 +7,8 @@
 ## 🔥 Immediate Next Steps
 - [x] Fix argument passing for external commands
 - [x] Implement simple command history (↑ / ↓ arrow recall)
-- [ ] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
-- [ ] Add basic error codes and uniform exit messages (0/1)
+- [x] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
+- [x] Add basic error codes and uniform exit messages (0/1)
 - [x] Add case-sensitivity toggle (`set case=on/off`) and persist to `.winixrc`
 
 ---
@@ -19,7 +19,7 @@
 - [x] `wc` — flag parsing (`-l`, `-w`, `-c`) working
 - [x] Add argument parsing (`head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`)
 - [x] Add file error handling — uniform exit codes and error messages
-- [ ] Implement: `cp`, `chmod`, `chown`, `stat`
+- [x] Implement: `cp`, `stat` (done); `chmod`, `chown` stubs exist (see roadmap below)
 
 ---
 
@@ -29,15 +29,15 @@
 - [x] Built-in command `history`
 - [x] Tab completion (commands, aliases, filesystem paths and arguments)
 - [ ] Customizable prompt strings (PS1-style)
-- [ ] Extended `help` index with grouped categories
-- [ ] Basic piping (`cmd1 | cmd2`)
+- [x] Extended `help` index with grouped categories
+- [x] Basic piping (`cmd1 | cmd2`)
 
 ---
 
 ## ⚙️ Build System / Repo
 - [x] CMake functional for Windows + MinGW  
 - [ ] Add GitHub Actions CI (auto-build test)  
-- [ ] Add `install` target to copy executables to `C:\Winix\bin`  
+- [x] Add `install` target to copy executables to `C:\Winix\bin`
 - [ ] Add `.vscode/` config for IntelliSense  
 - [ ] Add `docs/build_instructions.md`  
 
@@ -69,7 +69,7 @@
 | **0.3** | Done | Working shell, prompt color, core file ops |
 | **0.4** | Done | History ✅, tab completion ✅, arg parsing ✅, error handling ✅, case toggle ✅ |
 | **0.5** | Planned | Argument parsing, better error handling, extended `help` |
-| **0.6** | Future | Add piping and chaining (`cmd1 | cmd2`), install target |
+| **0.6** | Done | Piping ✅, install target ✅ (`install.bat` → `C:\Winix\bin`, system PATH) |
 | **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
 | **1.0** | Stable | Windows-native Unix parity — clean, documented, extensible |
 
@@ -84,13 +84,13 @@
 
 ## cp
 - [x] Basic copy (works)
-- [ ] Add recursive copy (-r)
+- [x] Add recursive copy (-r)
 - [ ] Preserve timestamps (-p)
-- [ ] Error on directory to file copy
+- [x] Error on directory to file copy
 
 ## chmod
 - [x] Stub implementation
-- [ ] Implement SetFileAttributes() mapping (read-only/hidden)
+- [x] Implement SetFileAttributes() mapping (read-only/writable)
 - [ ] Add sidecar POSIX permission emulation (.meta)
 
 ## chown

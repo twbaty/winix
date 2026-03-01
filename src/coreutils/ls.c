@@ -6,10 +6,12 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <stdbool.h>
+#include <io.h>
 
-static bool show_all      = false;
-static bool long_list     = false;
+static bool show_all       = false;
+static bool long_list      = false;
 static bool human_readable = false;
+static bool one_per_line   = false;  // true when stdout is not a tty
 
 static void fmt_size(long long bytes, char *buf, size_t buflen) {
     const char *units[] = { "B", "K", "M", "G", "T" };
@@ -25,7 +27,7 @@ static void fmt_size(long long bytes, char *buf, size_t buflen) {
 static void list_directory(const char *path) {
     DIR *dir = opendir(path);
     if (!dir) {
-        perror("ls");
+        fprintf(stderr, "ls: cannot open '%s': %s\n", path, strerror(errno));
         return;
     }
 
@@ -36,7 +38,7 @@ static void list_directory(const char *path) {
 
         if (long_list) {
             struct stat st;
-            char fullpath[1024];
+            char fullpath[4096];
             snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
             if (stat(fullpath, &st) == 0) {
                 // Type + simplified permissions
@@ -61,16 +63,20 @@ static void list_directory(const char *path) {
             } else {
                 printf("??????????  %s\n", entry->d_name);
             }
+        } else if (one_per_line) {
+            printf("%s\n", entry->d_name);
         } else {
             printf("%s  ", entry->d_name);
         }
     }
-    if (!long_list) printf("\n");
+    if (!long_list && !one_per_line) printf("\n");
 
     closedir(dir);
 }
 
 int main(int argc, char *argv[]) {
+    one_per_line = !_isatty(_fileno(stdout));
+
     // Parse flags and paths
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-') {

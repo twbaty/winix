@@ -4,6 +4,11 @@ project(Winix C CXX)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
+# Default install location — override with cmake --install build --prefix <path>
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "C:/Winix" CACHE PATH "Winix install root" FORCE)
+endif()
+
 include_directories(src/include src/common src/shell)
 
 # ------------------------------------------------------------
@@ -98,4 +103,13 @@ add_executable(which src/coreutils/which.c)
 add_executable(true src/coreutils/true.c)
 add_executable(false src/coreutils/false.c)
 
-install(TARGETS echo pwd winix DESTINATION usr/bin)
+# Install all targets to C:\Winix\bin (or --prefix override)/bin
+install(TARGETS
+    winix
+    echo pwd ls cat mv rm mkdir rmdir touch head tail
+    date whoami sleep cp chmod chown more less
+    stat wc du df sort uniq grep tee alias export history
+    ps kill uname uptime env ver
+    printf basename dirname which true false
+    DESTINATION bin
+)

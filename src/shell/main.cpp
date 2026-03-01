@@ -277,6 +277,20 @@ static std::string expand_vars(const std::string& line) {
     return out;
 }
 
+static std::vector<std::string> split_pipe(const std::string& s) {
+    std::vector<std::string> segs;
+    std::string cur;
+    bool in_s = false, in_d = false;
+    for (char c : s) {
+        if (c == '\'' && !in_d) { in_s = !in_s; cur.push_back(c); continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; cur.push_back(c); continue; }
+        if (!in_s && !in_d && c == '|') { segs.push_back(trim(cur)); cur.clear(); }
+        else cur.push_back(c);
+    }
+    segs.push_back(trim(cur));
+    return segs;
+}
+
 // --------------------------------------------------
 // Process spawning
 // --------------------------------------------------
@@ -364,6 +378,25 @@ static DWORD spawn_direct(const std::string& exe_path,
     return code;
 }
 
+static HANDLE make_inheritable(HANDLE h) {
+    HANDLE dup = INVALID_HANDLE_VALUE;
+    DuplicateHandle(GetCurrentProcess(), h,
+                    GetCurrentProcess(), &dup,
+                    0, TRUE, DUPLICATE_SAME_ACCESS);
+    return dup;
+}
+
+static std::string resolve_exe(const std::string& cmd, const Paths& paths) {
+    { fs::path p = fs::path(paths.coreutils_dir) / (cmd + ".exe");
+      if (fs::exists(p)) return p.string(); }
+    { fs::path p = fs::path(paths.bin_dir) / (cmd + ".exe");
+      if (fs::exists(p)) return p.string(); }
+    char buf[MAX_PATH] = {};
+    if (SearchPathA(NULL, (cmd + ".exe").c_str(), NULL, MAX_PATH, buf, NULL) > 0)
+        return std::string(buf);
+    return {};
+}
+
 // --------------------------------------------------
 // Resolve & run external commands
 // --------------------------------------------------
@@ -407,6 +440,209 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
 
     // Fallback: system PATH via cmd.exe
     return spawn_cmd(seg, true);
+}
+
+static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& paths) {
+    int n = (int)segs.size();
+
+    struct Pipe { HANDLE read, write; };
+    std::vector<Pipe> pipes(n - 1);
+
+    // Create n-1 anonymous pipes with non-inheritable originals
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = FALSE;
+    for (int i = 0; i < n - 1; ++i) {
+        if (!CreatePipe(&pipes[i].read, &pipes[i].write, &sa, 0)) {
+            std::cerr << "pipeline: CreatePipe failed\n";
+            // Close any already-opened pipes
+            for (int j = 0; j < i; ++j) {
+                CloseHandle(pipes[j].read);
+                CloseHandle(pipes[j].write);
+            }
+            return 1;
+        }
+    }
+
+    std::vector<HANDLE> procs;
+
+    for (int i = 0; i < n; ++i) {
+        auto t = shell_tokens(segs[i]);
+        if (t.empty()) continue;
+
+        HANDLE raw_in  = (i == 0)     ? GetStdHandle(STD_INPUT_HANDLE)  : pipes[i-1].read;
+        HANDLE raw_out = (i == n - 1) ? GetStdHandle(STD_OUTPUT_HANDLE) : pipes[i].write;
+
+        HANDLE h_in  = make_inheritable(raw_in);
+        HANDLE h_out = make_inheritable(raw_out);
+
+        std::string exe = resolve_exe(t[0], paths);
+        std::string cmdline;
+        const char* app = nullptr;
+
+        if (!exe.empty()) {
+            cmdline = "\"" + exe + "\"";
+            for (size_t j = 1; j < t.size(); ++j) cmdline += " " + t[j];
+            app = exe.c_str();
+        } else {
+            cmdline = "cmd.exe /C " + segs[i];
+            app = nullptr;
+        }
+
+        STARTUPINFOA si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput  = h_in;
+        si.hStdOutput = h_out;
+        si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
+
+        PROCESS_INFORMATION pi{};
+        BOOL ok = CreateProcessA(
+            app, (LPSTR)cmdline.c_str(),
+            NULL, NULL, TRUE, 0,
+            NULL, NULL, &si, &pi
+        );
+
+        CloseHandle(h_in);
+        CloseHandle(h_out);
+
+        if (!ok) {
+            DWORD e = GetLastError();
+            std::cerr << "pipeline: failed to start '" << t[0]
+                      << "' (code " << e << ")\n";
+        } else {
+            CloseHandle(pi.hThread);
+            procs.push_back(pi.hProcess);
+        }
+    }
+
+    // Close all pipe ends in parent so children receive EOF
+    for (auto& p : pipes) {
+        CloseHandle(p.read);
+        CloseHandle(p.write);
+    }
+
+    DWORD last_code = 0;
+    for (size_t i = 0; i < procs.size(); ++i) {
+        WaitForSingleObject(procs[i], INFINITE);
+        if (i == procs.size() - 1)
+            GetExitCodeProcess(procs[i], &last_code);
+        CloseHandle(procs[i]);
+    }
+
+    return last_code;
+}
+
+// --------------------------------------------------
+// Help
+// --------------------------------------------------
+static void print_help() {
+    // Colors
+    const char* GRN  = "\x1b[32m";   // section headers
+    const char* CYN  = "\x1b[36m";   // command names
+    const char* YLW  = "\x1b[33m";   // flags/hints
+    const char* DIM  = "\x1b[2m";    // descriptions
+    const char* RST  = "\x1b[0m";
+
+    auto section = [&](const char* title) {
+        std::cout << "\n" << GRN << "  " << title << RST << "\n";
+    };
+
+    struct Cmd { const char* name; const char* flags; const char* desc; };
+    auto row = [&](const Cmd& c) {
+        std::cout << "    " << CYN << std::left;
+        // pad name to 10 chars
+        std::string n(c.name);
+        std::cout << n;
+        for (int i = (int)n.size(); i < 10; ++i) std::cout << ' ';
+        std::cout << RST << YLW;
+        std::string f(c.flags);
+        std::cout << f;
+        for (int i = (int)f.size(); i < 18; ++i) std::cout << ' ';
+        std::cout << RST << DIM << c.desc << RST << "\n";
+    };
+
+    std::cout << GRN
+              << "╔══════════════════════════════════════════════════╗\n"
+              << "║            Winix Shell — Command Reference        ║\n"
+              << "╚══════════════════════════════════════════════════╝"
+              << RST << "\n";
+
+    section("SHELL BUILTINS");
+    for (auto& c : (Cmd[]){
+        {"cd",      "[dir]",           "change directory (no arg = home)"},
+        {"alias",   "[name[=value]]",  "set or list aliases"},
+        {"unalias", "<name>",          "remove an alias"},
+        {"set",     "<NAME=VALUE>",    "set env var or shell option (case=on/off)"},
+        {"history", "[-c]",            "show or clear command history"},
+        {"exit",    "",                "quit the shell"},
+        {"help",    "",                "show this reference card"},
+    }) row(c);
+
+    section("FILES & DIRECTORIES");
+    for (auto& c : (Cmd[]){
+        {"ls",      "[-alh]",          "list directory contents"},
+        {"pwd",     "",                "print working directory"},
+        {"cat",     "[-n] <file>",     "print file contents"},
+        {"cp",      "[-r] <src> <dst>","copy file or directory"},
+        {"mv",      "[-fv] <src> <dst>","move / rename"},
+        {"rm",      "[-rf] <path>",    "remove file or directory"},
+        {"mkdir",   "[-p] <dir>",      "create directory"},
+        {"rmdir",   "<dir>",           "remove empty directory"},
+        {"touch",   "<file>",          "create or update timestamp"},
+        {"stat",    "<file>",          "show file metadata"},
+        {"chmod",   "<mode> <file>",   "change file permissions"},
+        {"chown",   "<owner> <file>",  "change file owner"},
+        {"du",      "[-sh] [path]",    "disk usage"},
+        {"df",      "[-h]",            "disk free space"},
+    }) row(c);
+
+    section("TEXT PROCESSING");
+    for (auto& c : (Cmd[]){
+        {"grep",    "[-i] <pat> [file]","search for pattern"},
+        {"wc",      "[-lwc] [file]",   "count lines, words, chars"},
+        {"sort",    "[-ruf] [file]",   "sort lines"},
+        {"uniq",    "[-cd] [file]",    "filter duplicate lines"},
+        {"head",    "[-n N] [file]",   "first N lines (default 10)"},
+        {"tail",    "[-n N] [file]",   "last N lines (default 10)"},
+        {"more",    "<file>",          "page through a file"},
+        {"less",    "<file>",          "page through a file (scrollable)"},
+        {"tee",     "<file>",          "read stdin, write to file + stdout"},
+    }) row(c);
+
+    section("SYSTEM & INFO");
+    for (auto& c : (Cmd[]){
+        {"ps",      "",                "list running processes"},
+        {"kill",    "<pid>",           "terminate a process"},
+        {"whoami",  "",                "print current username"},
+        {"uname",   "[-a]",            "system information"},
+        {"uptime",  "",                "system uptime"},
+        {"date",    "",                "current date and time"},
+        {"env",     "",                "print environment variables"},
+        {"ver",     "",                "Winix version info"},
+    }) row(c);
+
+    section("UTILITIES");
+    for (auto& c : (Cmd[]){
+        {"echo",    "[-ne] <text>",    "print text"},
+        {"printf",  "<fmt> [args]",    "formatted print"},
+        {"sleep",   "<seconds>",       "pause for N seconds"},
+        {"which",   "<cmd>",           "locate a command"},
+        {"basename","<path>",          "filename portion of path"},
+        {"dirname", "<path>",          "directory portion of path"},
+        {"true",    "",                "exit 0"},
+        {"false",   "",                "exit 1"},
+    }) row(c);
+
+    section("PIPING & CHAINING");
+    std::cout << "    " << DIM
+              << "cmd1 | cmd2       pipe output of cmd1 into cmd2\n"
+              << "    cmd1 | cmd2 | cmd3  multi-stage pipeline\n"
+              << RST;
+
+    std::cout << "\n" << DIM
+              << "  Tip: use Tab for completion, ↑/↓ for history\n"
+              << RST << "\n";
 }
 
 // --------------------------------------------------
@@ -464,6 +700,9 @@ static bool handle_builtin(
             std::cerr << "set: failed for " << name << "\n";
         return true;
     }
+
+    // help
+    if (match("help")) { print_help(); return true; }
 
     // history
     if (match("history"))    { hist.print(); return true; }
@@ -592,7 +831,11 @@ int main() {
             continue;
         }
 
-        run_segment(expanded, paths);
+        auto segs = split_pipe(expanded);
+        if (segs.size() > 1)
+            run_pipeline(segs, paths);
+        else
+            run_segment(expanded, paths);
         hist.add(original);
         hist.save(paths.history_file);
     }

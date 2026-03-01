@@ -1,5 +1,15 @@
-# winix
-Winix Project Overview
+# Winix
+
+![Version](https://img.shields.io/badge/version-0.6-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D4)
+![Language](https://img.shields.io/badge/language-C%2FC%2B%2B-orange)
+
+> The Unix Windows should have had.
+
+---
+
+## Project Overview
 Mission
 Winix is an open-source initiative to build a native, fast, Unix-like command environment for Windows — delivering the familiarity and power of GNU utilities without relying on compatibility layers like MSYS, MinGW, or WSL.
 Our mission is simple:
@@ -38,4 +48,6 @@ Shared Library	C	Common argument parsing, error handling, and I/O routines
 Build System	CMake	Unified cross-platform build and packaging framework
 ________________________________________
 
-The Unix Windows should have had.
+---
+
+*Copyright (c) 2025 twbaty — MIT License*
