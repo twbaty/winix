@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 1.1
+**Version:** 1.3
 **Date:** 2026-03-01
 
 ---
@@ -14,7 +14,7 @@
 ---
 
 ## 🧰 Coreutils Development
-- [x] `pwd`, `echo`, `ls`, `cat`, `mv`, `rm`, `mkdir`, `rmdir`  
+- [x] `pwd`, `echo`, `ls`, `cat`, `mv`, `rm`, `mkdir`, `rmdir`
 - [x] `touch`, `head`, `tail`, `date`, `whoami`, `sleep` (functional)
 - [x] `wc` — flag parsing (`-l`, `-w`, `-c`) working
 - [x] Add argument parsing (`head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`)
@@ -52,24 +52,27 @@
 - [x] `case/esac` statement
 - [x] `read VAR` — read line from stdin into variable
 - [ ] Here-docs (`<<EOF`)
+- [ ] `${VAR:-default}`, `${VAR:=val}`, `${#VAR}` parameter expansion
+- [ ] `local VAR` — function-local variables
 
 ---
 
 ## ⚙️ Build System / Repo
-- [x] CMake functional for Windows + MinGW  
+- [x] CMake functional for Windows + MinGW
 - [x] Add GitHub Actions CI (auto-build test)
 - [x] Add `install` target to copy executables to `C:\Winix\bin`
 - [x] Add `.vscode/` config for IntelliSense
 - [x] Add `docs/build_instructions.md`
+- [ ] Register `.sh` file association in Windows (run with `winix.exe`) — installer step
 
 ---
 
 ## 📚 Documentation
 - [x] Project Charter & Overview
-- [x] Add “Winix Design Spec”
-- [x] Add “Coding Standards” (naming, style, return codes)
+- [x] Add "Winix Design Spec"
+- [x] Add "Coding Standards" (naming, style, return codes)
 - [x] Add Developer Onboarding Guide
-- [x] Add “Testing Guide” for utilities
+- [x] Add "Testing Guide" for utilities
 
 ---
 
@@ -96,14 +99,16 @@
 | **0.9.1** | Done | Glob expansion ✅, Ctrl+C ✅, case sensitivity wired to coreutils ✅ |
 | **1.0** | Done | Windows-native Unix parity — clean, documented, extensible ✅ |
 | **1.1** | Done | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
-| **1.2** | **Current** | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $VAR ✅ |
+| **1.2** | Done | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $(()) ✅, case/esac ✅, read ✅ |
+| **1.3** | **Current** | Here-docs ✅, nix multi-line clipboard, `${VAR:-default}` expansion, `local VAR`, `.sh` file association |
+| **1.4** | Planned | `awk`, `mktemp`, `realpath`, `column`, `time`, `wait`, `bc`, `watch`, `cmp` — see roadmap |
 
 ---
 
-📌 *Rule of thumb:*  
-- Increment **minor** (x.y) when new features appear.  
-- Increment **patch** (x.y.z) for fixes or optimizations.  
-- Don’t bump **major** until you’re feature-complete and stable.
+📌 *Rule of thumb:*
+- Increment **minor** (x.y) when new features appear.
+- Increment **patch** (x.y.z) for fixes or optimizations.
+- Don't bump **major** until you're feature-complete and stable.
 
 # Coreutils Roadmap
 
@@ -117,9 +122,9 @@
 - [x] Undo (Ctrl+Z) — 512-entry ring buffer, all edit ops covered
 - [x] Cut/paste single line (Ctrl+K / Ctrl+U)
 - [x] Unsaved-changes prompt on quit
-- [ ] Multi-line clipboard
 - [x] Find + replace (Ctrl+R) — y/n/a/ESC interactive, undo per replacement
-- [ ] Syntax highlighting
+- [ ] Multi-line clipboard (repeated Ctrl+K cuts accumulate; Ctrl+U pastes all)
+- [ ] Syntax highlighting (v1.4+)
 
 ## cp
 - [x] Basic copy (works)
@@ -159,5 +164,18 @@
 - [x] Normal diff output (`NcN`, `NdN`, `NaN` hunks)
 - [x] Unified diff (`-u`, `-U N`) with `@@` hunk headers
 - [x] Flags: `-i` (ignore case), `-w` (ignore all whitespace), `-b` (ignore whitespace changes), `-q` (brief)
+
+## v1.4 Coreutils (Planned)
+- [ ] `awk` — pattern-action text processing (priority)
+- [ ] `mktemp` — create temp files/dirs (`mktemp`, `mktemp -d`)
+- [ ] `realpath` — resolve symlinks and relative paths
+- [ ] `column` — format output into aligned columns (`-t`, `-s`)
+- [ ] `time` — time a command (`time make`, reports real/user/sys)
+- [ ] `wait` — wait for background jobs (shell builtin companion to `&`)
+- [ ] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
+- [ ] `watch` — run command periodically (`watch -n 2 cmd`)
+- [ ] `cmp` — byte-level file comparison
+- [ ] `fold` — wrap long lines at a given width
+- [ ] `expand` / `unexpand` — convert tabs to/from spaces
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
