@@ -48,7 +48,7 @@ jobs:
             date whoami sleep cp chmod chown more less \
             stat wc du df sort uniq grep tee alias export \
             history ps kill uname uptime env ver \
-            printf basename dirname which true false; do
+            printf basename dirname which true false clear; do
             if [ ! -f "build/${exe}.exe" ]; then
               echo "MISSING: ${exe}.exe"
               missing=1

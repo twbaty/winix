@@ -937,6 +937,24 @@ static bool handle_builtin(
         return true;
     }
 
+    // cls / clear
+    if (match("cls") || match("clear")) {
+        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(h, &csbi)) {
+            DWORD cells = csbi.dwSize.X * csbi.dwSize.Y;
+            COORD origin = {0, 0};
+            DWORD written;
+            FillConsoleOutputCharacterA(h, ' ', cells, origin, &written);
+            FillConsoleOutputAttribute(h, csbi.wAttributes, cells, origin, &written);
+            SetConsoleCursorPosition(h, origin);
+        } else {
+            std::cout << "\033[2J\033[H";
+            std::cout.flush();
+        }
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));

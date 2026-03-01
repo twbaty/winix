@@ -105,12 +105,13 @@ add_executable(dirname src/coreutils/dirname.c)
 add_executable(which src/coreutils/which.c)
 add_executable(true src/coreutils/true.c)
 add_executable(false src/coreutils/false.c)
+add_executable(clear src/coreutils/clear.c)
 
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
     echo pwd ls cat mv rm mkdir rmdir touch head tail
-    date whoami sleep cp chmod chown more less
+    date whoami sleep cp chmod chown more less clear
     stat wc du df sort uniq grep tee alias export history
     ps kill uname uptime env ver
     printf basename dirname which true false
