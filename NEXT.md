@@ -40,10 +40,10 @@
 
 ## ⚙️ Build System / Repo
 - [x] CMake functional for Windows + MinGW  
-- [ ] Add GitHub Actions CI (auto-build test)  
+- [x] Add GitHub Actions CI (auto-build test)
 - [x] Add `install` target to copy executables to `C:\Winix\bin`
-- [ ] Add `.vscode/` config for IntelliSense  
-- [ ] Add `docs/build_instructions.md`  
+- [x] Add `.vscode/` config for IntelliSense
+- [x] Add `docs/build_instructions.md`
 
 ---
 

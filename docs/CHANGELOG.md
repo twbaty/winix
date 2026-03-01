@@ -1,83 +1,84 @@
 # Winix Changelog
-All notable changes to this project will be documented in this file.
 
-This project adheres to [Semantic Versioning](https://semver.org/) and follows the
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+All notable changes to this project will be documented in this file.
+Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ---
 
 ## [Unreleased]
-_Changes currently in development and not yet part of a formal release._
+_Changes in development, not yet in a formal release._
 
+---
+
+## [0.8] – 2026-02-28
 ### Added
-- Initial framework for Winix shell environment.
-- Command history persistence across sessions.
-- Windows CMD (`cmd.exe`) compatibility confirmed.
-- Support for long command recall and edit buffer.
-
-### Changed
-- Adjusted input redraw logic for smoother line editing.
-- Updated cursor handling for multi-line commands.
+- Shell redirection: `>`, `>>`, `<`, `2>` via inheritable Windows handles
+- Command chaining: `&&`, `||`, `;` with exit-code gating
+- Tilde expansion (`~/path`) in all path arguments
+- `$?` last exit code variable
+- `cp -p` preserve timestamps (atime/mtime via `utime()`)
+- Real `chown` using `LookupAccountNameA` + `SetNamedSecurityInfoA` (advapi32)
+- GitHub Actions CI workflow (MSYS2/MinGW-w64, windows-latest)
+- `.vscode/` IntelliSense, build tasks, and GDB debug launch config
+- `docs/build_instructions.md`
 
 ### Fixed
-- History overflow behavior when session resumes.
-- Arrow key handling under Windows terminal variants.
+- Input sanitization for `cat`, `mv`, `pwd`, `echo`
 
 ---
 
-## [0.9.3] – 2025-10-25
+## [0.7] – 2026-02-28
 ### Added
-- Installer packaging scripts and directory structure.
-- Optional SHA-256 and GPG signature verification steps.
-- Documentation updates (`Winix Project Overview`, `Developer Quick Start`).
+- PS1-style customizable prompt strings (`\u`, `\h`, `\w`, `\W`, `\$`, `\t`, `\d`, `\e`)
+- `set PS1=...` builtin, persisted to `.winixrc`
+- Real `chmod` using `SetFileAttributes()` (octal and symbolic modes, `-R`, `-v`)
+- `cp -r` recursive directory copy (`-r`/`-R`/`-f`/`-v` flags)
+- CMake `install` target — copies all binaries to `C:\Winix\bin`
+- `install.bat` — admin check, cmake install, system PATH update
+- `grep -i` case-insensitive search with color highlight on matched text
+- Extended `help` index with grouped command categories
 
 ### Fixed
-- Cursor positioning bug when editing recalled commands.
-- Line overflow issue under DOS prompt compatibility mode.
+- `ls` error message format and path buffer (1024 → 4096)
+- Alias loading for bash-style `alias name=value` format
 
 ---
 
-## [0.9.2] – 2025-10-15
+## [0.6] – 2025-11-10
 ### Added
-- Persistent command history across Winix sessions.
-- Session-aware command buffer with recall navigation.
-
-### Fixed
-- History truncation on long command entries.
-- Command echo duplication in certain consoles.
+- Basic piping (`cmd1 | cmd2`)
+- Tab completion for commands, aliases, and filesystem paths
+- Uniform exit codes (0/1) across all coreutils
+- `wc` flag parsing (`-l`, `-w`, `-c`)
+- Argument parsing for `head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`
 
 ---
 
-## [0.9.0] – 2025-09-30
+## [0.5] – 2025-10-26
 ### Added
-- Base Winix architecture established.
-- Initial command parser and execution handler.
-- Default directory scaffolding:
-  - `src`, `etc`, `usr`, `var`, `tests`, and `docs`.
-- CMake build configuration (`CMakeLists.txt`).
-- Basic documentation (`README.md`, `LICENSE`, `Project Charter`).
+- `alias` and environment variable support
+- Command history persistence (`↑`/`↓` recall across sessions)
+- `case` sensitivity toggle (`set case=on/off`) persisted to `.winixrc`
+- `cp`, `stat` coreutils (initial)
+- `chmod`, `chown` stubs
 
 ---
 
-## [1.0.0] – *TBD*
-_This will represent the first stable, publicly installable release._
-
+## [0.4-alpha] – 2025-10-22
 ### Added
-- Self-extracting installer (`WinixSetup.exe`).
-- Verified SHA-256 / GPG integrity system.
-- Complete documentation suite.
-- Contributor and developer onboarding guides.
-
-### Security
-- Signed release artifacts and published verification keys.
-
----
-
-## [Past Development Notes]
-_Informal development history prior to changelog adoption._
-
-- Early source tree commits and experimental builds.
-- Environment setup, architecture planning, and repository initialization.
+- Colored prompt and directory awareness
+- Built-in `history` command
+- Core file operation utilities: `pwd`, `echo`, `ls`, `cat`, `mv`, `rm`, `mkdir`, `rmdir`
+- Extended utilities: `touch`, `head`, `tail`, `date`, `whoami`, `sleep`
+- CMake build system (MinGW-w64 / Windows)
+- Initial repository structure (`src/`, `docs/`, `etc/`, `usr/`, `var/`, `tests/`)
 
 ---
 
+## [1.0] – *TBD*
+_First stable, fully documented, publicly installable release._
+
+### Planned
+- Self-contained installer
+- Complete documentation suite (Design Spec, Coding Standards, Testing Guide)
+- Windows-native Unix parity across all core utilities
