@@ -51,7 +51,7 @@
 - [x] Arithmetic expansion `$(( expr ))`
 - [x] `case/esac` statement
 - [x] `read VAR` — read line from stdin into variable
-- [ ] Here-docs (`<<EOF`)
+- [x] Here-docs (`<<EOF`)
 - [ ] `${VAR:-default}`, `${VAR:=val}`, `${#VAR}` parameter expansion
 - [ ] `local VAR` — function-local variables
 
@@ -100,7 +100,7 @@
 | **1.0** | Done | Windows-native Unix parity — clean, documented, extensible ✅ |
 | **1.1** | Done | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
 | **1.2** | Done | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $(()) ✅, case/esac ✅, read ✅ |
-| **1.3** | **Current** | Here-docs ✅, nix multi-line clipboard, `${VAR:-default}` expansion, `local VAR`, `.sh` file association |
+| **1.3** | **Current** | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion, `local VAR`, `.sh` file association |
 | **1.4** | Planned | `awk`, `mktemp`, `realpath`, `column`, `time`, `wait`, `bc`, `watch`, `cmp` — see roadmap |
 
 ---
@@ -123,7 +123,7 @@
 - [x] Cut/paste single line (Ctrl+K / Ctrl+U)
 - [x] Unsaved-changes prompt on quit
 - [x] Find + replace (Ctrl+R) — y/n/a/ESC interactive, undo per replacement
-- [ ] Multi-line clipboard (repeated Ctrl+K cuts accumulate; Ctrl+U pastes all)
+- [x] Multi-line clipboard (repeated Ctrl+K cuts accumulate; Ctrl+U pastes all)
 - [ ] Syntax highlighting (v1.4+)
 
 ## cp

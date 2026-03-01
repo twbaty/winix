@@ -14,8 +14,8 @@
  *   Ctrl+N  14  Find next (repeats last pattern)
  *   Ctrl+R  18  Find + replace
  *   Ctrl+Z  26  Undo
- *   Ctrl+K  11  Cut line
- *   Ctrl+U  21  Paste line above
+ *   Ctrl+K  11  Cut line (repeat to accumulate; any other key resets)
+ *   Ctrl+U  21  Paste all cut lines above cursor
  *   Ctrl+A   1  Start of line
  *   Ctrl+E   5  End of line
  *   Ctrl+C   3  Force quit
@@ -82,8 +82,9 @@ typedef struct {
     bool  modified;
     char  filename[MAX_PATH_LEN];
     char  msg[256];          /* transient status-bar message (shown once) */
-    char *clip;              /* single-line clipboard (Ctrl+K / Ctrl+U) */
-    int   cliplen;
+    char **clip_lines;       /* multi-line clipboard (Ctrl+K / Ctrl+U) */
+    int    clip_nlines;
+    bool   clip_active;      /* true if last op was Ctrl+K (enables line accumulation) */
     char  last_search[256];  /* last Find pattern, shared by ^W and ^N */
     /* undo ring buffer */
     UndoRecord undo_ring[UNDO_MAX];
@@ -244,8 +245,9 @@ static void editor_init(Editor *e) {
     e->modified    = false;
     e->filename[0] = '\0';
     e->msg[0]      = '\0';
-    e->clip        = NULL;
-    e->cliplen     = 0;
+    e->clip_lines  = NULL;
+    e->clip_nlines = 0;
+    e->clip_active = false;
     e->last_search[0] = '\0';
     e->undo_head   = 0;
     e->undo_cnt    = 0;
@@ -254,7 +256,8 @@ static void editor_init(Editor *e) {
 static void editor_free(Editor *e) {
     for (int i = 0; i < e->nlines; i++) line_free(&e->lines[i]);
     free(e->lines);
-    free(e->clip);
+    for (int i = 0; i < e->clip_nlines; i++) free(e->clip_lines[i]);
+    free(e->clip_lines);
     /* Free any heap text in the undo ring */
     for (int i = 0; i < e->undo_cnt; i++) {
         int slot = (e->undo_head + i) % UNDO_MAX;
@@ -676,6 +679,9 @@ static int handle_key(Editor *e, int ch) {
     int content = rows - 2;
     if (content < 1) content = 1;
 
+    /* Any key other than Ctrl+K breaks an ongoing cut sequence */
+    e->clip_active = false;
+
     /* ── Extended keys (arrows, Del, Home, End, PgUp, PgDn) ── */
     if (ch == 224 || ch == 0) {
         int k = _getch();
@@ -791,7 +797,7 @@ static int handle_key(Editor *e, int ch) {
         editor_apply_undo(e);
         break;
 
-    case 11: { /* Ctrl+K — cut line */
+    case 11: { /* Ctrl+K — cut line (consecutive presses accumulate) */
         Line *cur = &e->lines[e->cy];
         /* Save to undo: store line content, note whether line gets deleted */
         char *saved = (char *)malloc(cur->len + 1);
@@ -800,12 +806,23 @@ static int handle_key(Editor *e, int ch) {
         undo_push(e, (UndoRecord){
             UT_CUT, e->cx, e->cy, 0, will_delete, saved, cur->len
         });
-        /* Copy to clipboard */
-        free(e->clip);
-        e->clip = (char *)malloc(cur->len + 1);
-        if (e->clip) {
-            memcpy(e->clip, cur->d, cur->len + 1);
-            e->cliplen = cur->len;
+        /* If not continuing a cut sequence, start fresh clipboard */
+        if (!e->clip_active) {
+            for (int i = 0; i < e->clip_nlines; i++) free(e->clip_lines[i]);
+            free(e->clip_lines);
+            e->clip_lines  = NULL;
+            e->clip_nlines = 0;
+        }
+        /* Append current line to clipboard */
+        char **nl = (char **)realloc(e->clip_lines,
+                                     (e->clip_nlines + 1) * sizeof(char *));
+        if (nl) {
+            e->clip_lines = nl;
+            char *lc = (char *)malloc(cur->len + 1);
+            if (lc) {
+                memcpy(lc, cur->d, cur->len + 1);
+                e->clip_lines[e->clip_nlines++] = lc;
+            }
         }
         if (will_delete) {
             editor_delete_line(e, e->cy);
@@ -814,21 +831,29 @@ static int handle_key(Editor *e, int ch) {
             cur->d[0] = '\0';
             cur->len  = 0;
         }
-        e->cx       = 0;
-        e->modified = true;
+        e->cx          = 0;
+        e->modified    = true;
+        e->clip_active = true;  /* next Ctrl+K will accumulate */
         break;
     }
 
-    case 21: /* Ctrl+U — paste line above cursor */
-        if (e->clip) {
-            undo_push(e, (UndoRecord){
-                UT_PASTE, e->cx, e->cy, 0, 0, NULL, 0
-            });
-            editor_insert_line(e, e->cy); /* may realloc e->lines */
-            Line *nl = &e->lines[e->cy];  /* fresh pointer */
-            line_ensure(nl, e->cliplen);
-            memcpy(nl->d, e->clip, e->cliplen + 1);
-            nl->len     = e->cliplen;
+    case 21: /* Ctrl+U — paste all clipboard lines above cursor */
+        if (e->clip_nlines > 0) {
+            /* Push one UT_PASTE record per line (LIFO undo removes last first) */
+            for (int i = 0; i < e->clip_nlines; i++) {
+                undo_push(e, (UndoRecord){
+                    UT_PASTE, 0, e->cy + i, 0, 0, NULL, 0
+                });
+            }
+            /* Insert all lines starting at current cursor row */
+            for (int i = 0; i < e->clip_nlines; i++) {
+                editor_insert_line(e, e->cy + i); /* may realloc e->lines */
+                Line *nl = &e->lines[e->cy + i];  /* fresh pointer after realloc */
+                int llen = (int)strlen(e->clip_lines[i]);
+                line_ensure(nl, llen);
+                memcpy(nl->d, e->clip_lines[i], llen + 1);
+                nl->len = llen;
+            }
             e->cx       = 0;
             e->modified = true;
         }
@@ -922,8 +947,8 @@ int main(int argc, char *argv[]) {
                "  Ctrl+N        Find next (repeat last search)\n"
                "  Ctrl+R        Find and replace\n"
                "  Ctrl+Z        Undo last edit\n"
-               "  Ctrl+K        Cut current line to clipboard\n"
-               "  Ctrl+U        Paste clipboard line above cursor\n"
+               "  Ctrl+K        Cut current line (repeat to accumulate multiple lines)\n"
+               "  Ctrl+U        Paste clipboard lines above cursor\n"
                "  Ctrl+A        Move to start of line\n"
                "  Ctrl+E        Move to end of line\n"
                "  Tab           Insert 4 spaces\n"
