@@ -1,6 +1,6 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 1.0
-**Date:** 2026-02-28
+**Version:** 1.1
+**Date:** 2026-03-01
 
 ---
 
@@ -20,6 +20,10 @@
 - [x] Add argument parsing (`head -n`, `tail -n`, `sort -ruf`, `cat -n`, `rm -rf`, `mkdir -p`, `mv -fv`, `echo -ne`)
 - [x] Add file error handling — uniform exit codes and error messages
 - [x] Implement: `cp`, `stat` (done); `chmod`, `chown` stubs exist (see roadmap below)
+- [x] `cut` — field/char extraction (`-f`, `-c`, `-b`, `-d`, `-s`, range syntax)
+- [x] `tr` — translate/delete/squeeze with POSIX classes, ranges, escape sequences
+- [x] `find` — recursive traversal (`-name`, `-type`, `-maxdepth`, `-exec`, `-delete`, etc.)
+- [x] `diff` — LCS-based file comparison, normal + unified (`-u`) output, `-i`/`-w`/`-b`/`-q`
 
 ---
 
@@ -77,7 +81,8 @@
 | **0.8** | Done | Redirection ✅, chaining ✅, tilde ✅, $? ✅ — shell fully rounded out |
 | **0.9** | Done | Coreutil audit ✅, test harness ✅, CI badge ✅, clear/cls ✅, docs complete ✅ |
 | **0.9.1** | Done | Glob expansion ✅, Ctrl+C ✅, case sensitivity wired to coreutils ✅ |
-| **1.0** | **Stable** | Windows-native Unix parity — clean, documented, extensible ✅ |
+| **1.0** | Done | Windows-native Unix parity — clean, documented, extensible ✅ |
+| **1.1** | **Current** | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
 
 ---
 
@@ -117,5 +122,28 @@
 - [x] Stub for Windows
 - [x] Map usernames using LookupAccountNameA() → SID → SetNamedSecurityInfoA()
 - [ ] Integrate future Windows SID translation (ACL inheritance)
+
+## cut
+- [x] Field extraction (`-f`) with custom delimiter (`-d`) and suppress (`-s`)
+- [x] Character/byte extraction (`-c`, `-b`)
+- [x] Range syntax: `N`, `N-M`, `N-`, `-M`
+
+## tr
+- [x] Translate (`tr SET1 SET2`), delete (`-d`), squeeze (`-s`)
+- [x] POSIX character classes (`[:lower:]`, `[:upper:]`, `[:digit:]`, etc.)
+- [x] Ranges (`a-z`), escape sequences (`\n`, `\t`, `\xHH`)
+- [x] Complement (`-c`), combined modes (`-ds`)
+
+## find
+- [x] Recursive directory traversal with depth control (`-maxdepth`, `-mindepth`)
+- [x] Predicates: `-name`, `-iname`, `-type f/d`, `-newer`, `-size`
+- [x] Actions: `-print` (default), `-delete`, `-exec CMD {} \;`
+- [x] Glob wildcards (`*`, `?`) in `-name`/`-iname`
+
+## diff
+- [x] LCS-based line comparison, exit codes 0/1/2
+- [x] Normal diff output (`NcN`, `NdN`, `NaN` hunks)
+- [x] Unified diff (`-u`, `-U N`) with `@@` hunk headers
+- [x] Flags: `-i` (ignore case), `-w` (ignore all whitespace), `-b` (ignore whitespace changes), `-q` (brief)
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
