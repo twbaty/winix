@@ -60,7 +60,6 @@
 - [x] Add `alias` and environment support
 - [x] Implement tab-completion / command prediction
 - [ ] Optional *case-sensitive mode* for Unix-like fidelity
-- [ ] Build modular “Winix Core” API for third-party utilities
 - [x] Package release as `Winix v0.4-alpha`
 
 ---
@@ -72,7 +71,7 @@
 |----------|--------|-------------|
 | **0.3** | Done | Working shell, prompt color, core file ops |
 | **0.4** | Done | History ✅, tab completion ✅, arg parsing ✅, error handling ✅, case toggle ✅ |
-| **0.5** | Planned | Argument parsing, better error handling, extended `help` |
+| **0.5** | Done | Aliases ✅, env vars ✅, history persistence ✅, case toggle ✅, cp/stat/chmod/chown stubs ✅ |
 | **0.6** | Done | Piping ✅, install target ✅ (`install.bat` → `C:\Winix\bin`, system PATH) |
 | **0.7** | Done | PS1 prompts ✅, cp -r ✅, chmod ✅, grep -i ✅, help ✅, install.bat ✅, .winixrc ✅ |
 | **0.8** | Done | Redirection ✅, chaining ✅, tilde ✅, $? ✅ — shell fully rounded out |
