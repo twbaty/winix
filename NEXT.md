@@ -101,7 +101,7 @@
 | **1.1** | Done | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
 | **1.2** | Done | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $(()) ✅, case/esac ✅, read ✅ |
 | **1.3** | **Current** | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion ✅, `local VAR` ✅, `.sh` file association |
-| **1.4** | Planned | `awk`, `mktemp`, `realpath`, `column`, `time`, `wait`, `bc`, `watch`, `cmp` — see roadmap |
+| **1.4** | **Current** | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅ — `awk` remaining |
 
 ---
 
@@ -172,7 +172,7 @@
 - [x] `column` — format output into aligned columns (`-t`, `-s`)
 - [x] `time` — time a command (`time make`, reports real/user/sys)
 - [x] `wait` — wait for background jobs (shell builtin companion to `&`)
-- [ ] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
+- [x] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
 - [x] `watch` — run command periodically (`watch -n 2 cmd`)
 - [x] `cmp` — byte-level file comparison
 - [x] `fold` — wrap long lines at a given width

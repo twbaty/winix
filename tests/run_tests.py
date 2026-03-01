@@ -1657,6 +1657,46 @@ check('watch -n invalid exits 1',
       run('watch', '-n', '-1', 'echo', 'hi')[2] == 1)
 
 
+# ── bc ────────────────────────────────────────────────────────────────────────
+
+section('bc')
+
+out, _, rc = run('bc', '--version')
+check('bc --version', rc == 0 and 'bc' in out)
+
+out, _, rc = run('bc', '--help')
+check('bc --help exits 0', rc == 0)
+check('bc --help mentions scale', 'scale' in out)
+
+def bc(expr):
+    """Pipe expr to bc, return stripped stdout."""
+    out, _, _ = run('bc', stdin_text=expr + '\n')
+    return out.strip()
+
+check('bc 2+3',           bc('2+3') == '5')
+check('bc 10-3',          bc('10-3') == '7')
+check('bc 6*7',           bc('6*7') == '42')
+check('bc 10/3',          bc('10/3') == '3')
+check('bc 2^10',          bc('2^10') == '1024')
+check('bc 10%3',          bc('10%3') == '1')
+check('bc unary minus',   bc('-5+10') == '5')
+check('bc scale division',bc('scale=4\n1/3') == '0.3333')
+check('bc sqrt',          bc('scale=10\nsqrt(2)').startswith('1.4142135'))
+check('bc variable',      bc('x=7\nx*x') == '49')
+check('bc if true',       bc('if(3>2){print "yes\\n"}') == 'yes')
+check('bc if false',      bc('if(1>2){print "yes\\n"}\nprint "no\\n"') == 'no')
+check('bc while loop',    bc('i=0;while(i<5){i=i+1};i') == '5')
+check('bc for loop',      bc('for(i=1;i<=5;i=i+1){i}').split() == ['1','2','3','4','5'])
+check('bc for countdown', bc('for(i=3;i>=1;i=i-1){i}').split() == ['3','2','1'])
+check('bc break',         bc('for(i=1;i<=10;i=i+1){if(i==3){break}};i') == '3')
+check('bc obase hex',     bc('obase=16\n255') == 'FF')
+check('bc obase octal',   bc('obase=8\n8') == '10')
+out, _, rc = run('bc', '-l', stdin_text='scale=10\ns(1)\n')
+check('bc -l sin(1)',     out.strip().startswith('0.841'))
+_, _, rc = run('bc', '--invalid')
+check('bc invalid option exits 1', rc == 1)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed
