@@ -48,11 +48,11 @@
 ---
 
 ## 📚 Documentation
-- [x] Project Charter & Overview  
-- [ ] Add “Winix Design Spec”  
-- [ ] Add “Coding Standards” (naming, style, return codes)  
-- [ ] Add Developer Onboarding Guide  
-- [ ] Add “Testing Guide” for utilities  
+- [x] Project Charter & Overview
+- [x] Add “Winix Design Spec”
+- [x] Add “Coding Standards” (naming, style, return codes)
+- [x] Add Developer Onboarding Guide
+- [x] Add “Testing Guide” for utilities
 
 ---
 
