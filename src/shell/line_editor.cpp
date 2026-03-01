@@ -51,10 +51,9 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
 
     // If stdin is not a real console (e.g. redirected pipe), fall back to
     // simple line input so winix can be driven by piped scripts/tests.
+    // Suppress the prompt in non-interactive mode (stdin not a terminal).
     DWORD orig_mode = 0;
     if (!GetConsoleMode(hIn, &orig_mode)) {
-        std::cout << prompt_str;
-        std::cout.flush();
         std::string line;
         if (!std::getline(std::cin, line)) return std::nullopt;
         return line;

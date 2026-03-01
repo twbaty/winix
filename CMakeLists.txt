@@ -17,6 +17,7 @@ include_directories(src/include src/common src/shell)
 add_library(winixcommon STATIC
     src/common/argparser.c
     src/common/fileops.c
+    src/common/nowildcard.c
 )
 
 # ------------------------------------------------------------
@@ -29,6 +30,8 @@ add_executable(winix
     src/shell/line_editor.cpp
 )
 target_link_libraries(winix winixcommon)
+target_link_options(winix PRIVATE -static-libgcc -static-libstdc++
+    -Wl,-Bstatic -lpthread -Wl,-Bdynamic)
 
 # ------------------------------------------------------------
 # Coreutils (your existing config preserved)

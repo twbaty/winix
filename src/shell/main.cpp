@@ -49,6 +49,74 @@ static std::string unquote(const std::string& s) {
     return is_quoted(s) ? s.substr(1, s.size()-2) : s;
 }
 
+// --------------------------------------------------
+// Glob expansion
+// --------------------------------------------------
+static bool has_glob(const std::string& s) {
+    return s.find('*') != std::string::npos || s.find('?') != std::string::npos;
+}
+
+// Expand a single glob pattern to matching paths (sorted).
+// Returns empty if no matches; caller passes through literally.
+static std::vector<std::string> glob_one(const std::string& pattern) {
+    // Reject globs in non-final path components (too complex for now).
+    size_t sep = std::string::npos;
+    for (size_t i = pattern.size(); i-- > 0; )
+        if (pattern[i] == '/' || pattern[i] == '\\') { sep = i; break; }
+    if (sep != std::string::npos && has_glob(pattern.substr(0, sep)))
+        return {};
+
+    // Keep the directory prefix to prepend to each result.
+    std::string prefix = (sep == std::string::npos) ? "" : pattern.substr(0, sep + 1);
+
+    // FindFirstFile wants backslashes.
+    std::string fsearch = pattern;
+    for (char& c : fsearch) if (c == '/') c = '\\';
+
+    WIN32_FIND_DATAA ffd;
+    HANDLE h = FindFirstFileA(fsearch.c_str(), &ffd);
+    if (h == INVALID_HANDLE_VALUE) return {};
+
+    std::vector<std::string> results;
+    do {
+        if (strcmp(ffd.cFileName, ".") == 0 || strcmp(ffd.cFileName, "..") == 0)
+            continue;
+        results.push_back(prefix + ffd.cFileName);
+    } while (FindNextFileA(h, &ffd));
+
+    FindClose(h);
+    std::sort(results.begin(), results.end());
+    return results;
+}
+
+// Expand glob tokens in a token list.
+// Quoted tokens: quotes stripped, no expansion.
+// Unquoted glob tokens: expanded; if no match, left literal.
+static std::vector<std::string> glob_expand(const std::vector<std::string>& tokens) {
+    std::vector<std::string> out;
+    out.reserve(tokens.size());
+    for (const auto& tok : tokens) {
+        if (is_quoted(tok)) { out.push_back(unquote(tok)); continue; }
+        if (!has_glob(tok))  { out.push_back(tok);         continue; }
+        auto matches = glob_one(tok);
+        if (matches.empty()) out.push_back(tok);
+        else for (auto& m : matches) out.push_back(m);
+    }
+    return out;
+}
+
+// Quote an argument for a Windows command line.
+// Must quote: spaces, embedded quotes, and glob chars (* ?) — the latter
+// because MinGW's CRT startup code expands unquoted glob patterns in argv.
+static std::string quote_arg(const std::string& a) {
+    if (!a.empty() && a.find_first_of(" \"*?") == std::string::npos)
+        return a;
+    std::string r = "\"";
+    for (char c : a) { if (c == '"') r += "\\\""; else r += c; }
+    r += '"';
+    return r;
+}
+
 static std::string getenv_win(const std::string& name) {
     DWORD n = GetEnvironmentVariableA(name.c_str(), nullptr, 0);
     if (!n) return {};
@@ -373,7 +441,7 @@ static DWORD spawn_direct(const std::string& exe_path,
                           HANDLE h_err = INVALID_HANDLE_VALUE) {
     // Build command line: "exe_path" arg1 arg2 ...
     std::string cmdline = "\"" + exe_path + "\"";
-    for (auto& a : args) cmdline += " " + a;
+    for (auto& a : args) cmdline += " " + quote_arg(a);
 
     STARTUPINFOA si{}; si.cb = sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
@@ -545,7 +613,7 @@ static DWORD run_segment(const std::string& seg, const Paths& paths) {
     Redirects redir;
     std::string clean = parse_redirects(seg, redir);
 
-    auto t = shell_tokens(clean);
+    auto t = glob_expand(shell_tokens(clean));
     if (t.empty()) return 0;
 
     // Open redirect handles (inheritable, so children can use them)
@@ -656,7 +724,7 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
     std::vector<HANDLE> procs;
 
     for (int i = 0; i < n; ++i) {
-        auto t = shell_tokens(segs[i]);
+        auto t = glob_expand(shell_tokens(segs[i]));
         if (t.empty()) continue;
 
         HANDLE raw_in  = (i == 0)     ? GetStdHandle(STD_INPUT_HANDLE)  : pipes[i-1].read;
@@ -671,7 +739,7 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
 
         if (!exe.empty()) {
             cmdline = "\"" + exe + "\"";
-            for (size_t j = 1; j < t.size(); ++j) cmdline += " " + t[j];
+            for (size_t j = 1; j < t.size(); ++j) cmdline += " " + quote_arg(t[j]);
             app = exe.c_str();
         } else {
             cmdline = "cmd.exe /C " + segs[i];

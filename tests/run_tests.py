@@ -90,6 +90,45 @@ def exe(name):
     return os.path.join(BUILD_DIR, name + '.exe')
 
 
+def run_shell(commands, cwd=None, timeout=15):
+    """Run one or more commands through winix; return (cleaned_stdout, returncode).
+
+    Lines containing the prompt or the startup banner are filtered out so
+    tests can assert on command output directly.
+    """
+    import re
+    if isinstance(commands, list):
+        stdin = '\n'.join(commands) + '\nexit\n'
+    else:
+        stdin = commands + '\nexit\n'
+    try:
+        r = subprocess.run(
+            [exe('winix')],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            cwd=cwd,
+            timeout=timeout,
+        )
+        out = r.stdout.replace('\r\n', '\n')
+        # Strip ANSI escape codes
+        out = re.sub(r'\x1b\[[0-9;]*[mGKHF]', '', out)
+        # Drop prompt / banner lines
+        lines = [
+            ln.rstrip()
+            for ln in out.split('\n')
+            if ln.strip()
+            and 'Winix Shell' not in ln
+            and '[Winix]' not in ln
+        ]
+        return '\n'.join(lines), r.returncode
+    except subprocess.TimeoutExpired:
+        _record(False, 'run_shell timed out', '')
+        return '', -1
+
+
 def run(name, *args, stdin_text=None, cwd=None, timeout=15):
     """Run a Winix binary; return (stdout, stderr, returncode)."""
     cmd = [exe(name)] + [str(a) for a in args]
@@ -633,6 +672,44 @@ with TempDir() as d:
     expect_contains('tee passes stdout', p.stdout.replace('\r\n', '\n'), 'tee test')
     with open(out_file) as fh:
         expect_contains('tee writes to file', fh.read(), 'tee test')
+
+
+# ── Shell glob expansion ──────────────────────────────────────────────────────
+
+section('glob')
+
+with TempDir() as d:
+    # Create test files
+    for name in ('alpha.txt', 'beta.txt', 'gamma.log'):
+        open(os.path.join(d, name), 'w').close()
+
+    # *.txt should expand to alpha.txt and beta.txt (sorted)
+    out, _ = run_shell(f'cd {d}\necho *.txt', cwd=d)
+    check('glob *.txt expands alpha', 'alpha.txt' in out, out)
+    check('glob *.txt expands beta',  'beta.txt'  in out, out)
+    check('glob *.txt excludes .log', 'gamma.log' not in out, out)
+
+    # *.log should expand to gamma.log only
+    out, _ = run_shell(f'cd {d}\necho *.log', cwd=d)
+    check('glob *.log expands gamma', 'gamma.log' in out, out)
+    check('glob *.log excludes .txt', 'alpha.txt' not in out, out)
+
+    # Quoted glob must NOT expand
+    out, _ = run_shell(f'cd {d}\necho "*.txt"', cwd=d)
+    check('glob quoted not expanded', '*.txt' in out, out)
+
+    # No-match glob passes through literally
+    out, _ = run_shell(f'cd {d}\necho *.xyz', cwd=d)
+    check('glob no-match is literal', '*.xyz' in out, out)
+
+    # Glob with directory prefix: src/*.txt
+    sub = os.path.join(d, 'sub')
+    os.makedirs(sub)
+    open(os.path.join(sub, 'one.txt'), 'w').close()
+    open(os.path.join(sub, 'two.txt'), 'w').close()
+    out, _ = run_shell(f'cd {d}\necho sub/*.txt', cwd=d)
+    check('glob dir prefix one', 'one.txt' in out, out)
+    check('glob dir prefix two', 'two.txt' in out, out)
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
