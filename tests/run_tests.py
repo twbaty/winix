@@ -911,6 +911,102 @@ with TempDir() as d:
     expect_exit('diff missing file exits 2', code, 2)
 
 
+# ── seq / test / yes / hostname / paste / comm / base64 / shuf ───────────────
+
+section('seq')
+out, _, _ = run('seq', '5')
+check('seq 5', out.strip().splitlines() == ['1','2','3','4','5'])
+out, _, _ = run('seq', '2', '5')
+check('seq 2 5', out.strip().splitlines() == ['2','3','4','5'])
+out, _, _ = run('seq', '1', '2', '7')
+check('seq 1 2 7', out.strip().splitlines() == ['1','3','5','7'])
+out, _, _ = run('seq', '-s', ',', '3')
+check('seq -s comma', out.strip() == '1,2,3')
+_, _, code = run('seq', '--version')
+check('seq --version exits 0', code == 0)
+
+section('test')
+_, _, code = run('test', '1', '-eq', '1')
+check('test 1 -eq 1 → 0', code == 0)
+_, _, code = run('test', '1', '-eq', '2')
+check('test 1 -eq 2 → 1', code == 1)
+_, _, code = run('test', '-n', 'hello')
+check('test -n nonempty → 0', code == 0)
+_, _, code = run('test', '-z', '')
+check('test -z empty → 0', code == 0)
+_, _, code = run('test', 'a', '=', 'a')
+check('test string = → 0', code == 0)
+_, _, code = run('test', 'a', '!=', 'b')
+check('test string != → 0', code == 0)
+with tempfile.TemporaryDirectory() as d:
+    f = os.path.join(d, 'f.txt')
+    open(f, 'w').close()
+    _, _, code = run('test', '-f', f)
+    check('test -f file → 0', code == 0)
+    _, _, code = run('test', '-d', d)
+    check('test -d dir → 0', code == 0)
+_, _, code = run('test', '--version')
+check('test --version exits 0', code == 0)
+
+section('yes')
+out, _, code = run('yes', '--version')
+check('yes --version', 'yes' in out and 'Winix' in out)
+out, _, code = run('yes', '--help')
+check('yes --help exits 0', code == 0)
+
+section('hostname')
+out, _, code = run('hostname')
+check('hostname exits 0', code == 0)
+check('hostname prints something', len(out.strip()) > 0)
+out_s, _, _ = run('hostname', '-s')
+check('hostname -s shorter or equal', len(out_s.strip()) <= len(out.strip()))
+out, _, _ = run('hostname', '--version')
+check('hostname --version', 'hostname' in out and 'Winix' in out)
+
+section('paste')
+out, _, _ = run('paste', '-d,', '-s', stdin_text='a\nb\nc\n')
+check('paste -s joins with comma', out.strip() == 'a,b,c')
+out, _, _ = run('paste', '--version')
+check('paste --version', 'paste' in out and 'Winix' in out)
+
+section('comm')
+with tempfile.TemporaryDirectory() as d:
+    f1 = os.path.join(d, 'f1.txt')
+    f2 = os.path.join(d, 'f2.txt')
+    with open(f1,'w') as f: f.write('apple\nbanana\ncherry\n')
+    with open(f2,'w') as f: f.write('banana\ncherry\ndate\n')
+    out, _, _ = run('comm', '-3', f1, f2)
+    check('comm -3 shows unique lines', 'apple' in out and 'date' in out)
+    out, _, _ = run('comm', '-12', f1, f2)
+    check('comm -12 shows common lines', 'banana' in out and 'cherry' in out)
+out, _, _ = run('comm', '--version')
+check('comm --version', 'comm' in out and 'Winix' in out)
+
+section('base64')
+# Use input without newlines to avoid Windows CRLF conversion in text-mode stdin
+out, _, _ = run('base64', stdin_text='hello')
+check('base64 encodes hello', out.strip() == 'aGVsbG8=')
+out2, _, _ = run('base64', '-d', stdin_text='aGVsbG8=')
+check('base64 -d decodes', out2.strip() == 'hello')
+# Roundtrip test
+encoded, _, _ = run('base64', stdin_text='winix')
+decoded, _, _ = run('base64', '-d', stdin_text=encoded.strip())
+check('base64 roundtrip', decoded.strip() == 'winix')
+out, _, _ = run('base64', '--version')
+check('base64 --version', 'base64' in out and 'Winix' in out)
+
+section('shuf')
+out, _, _ = run('shuf', stdin_text='a\nb\nc\nd\ne\n')
+lines = out.strip().splitlines()
+check('shuf output has same lines', sorted(lines) == ['a','b','c','d','e'])
+out, _, _ = run('shuf', '-n', '3', stdin_text='a\nb\nc\nd\ne\n')
+check('shuf -n 3 outputs 3 lines', len(out.strip().splitlines()) == 3)
+out, _, _ = run('shuf', '-i', '1-5')
+check('shuf -i range', sorted(out.strip().splitlines()) == ['1','2','3','4','5'])
+out, _, _ = run('shuf', '--version')
+check('shuf --version', 'shuf' in out and 'Winix' in out)
+
+
 # ── tac / rev / nl / id / timeout / ln ───────────────────────────────────────
 
 section('tac')

@@ -97,10 +97,21 @@ add_executable(nix src/coreutils/nix.c)
 target_link_libraries(nix winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl)
+foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl seq yes hostname paste comm base64 shuf)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
+
+# test — CMake reserves the name "test" as a built-in target, so we name the
+# CMake target "test_cmd" and set the output binary name to "test".
+add_executable(test_cmd src/coreutils/test.c)
+set_target_properties(test_cmd PROPERTIES OUTPUT_NAME "test")
+target_link_libraries(test_cmd winixcommon)
+
+# [ — second binary from the same source; "[.exe" is valid on Windows.
+add_executable(lbracket src/coreutils/test.c)
+set_target_properties(lbracket PROPERTIES OUTPUT_NAME "[")
+target_link_libraries(lbracket winixcommon)
 
 add_executable(id src/coreutils/id.c)
 target_link_libraries(id winixcommon advapi32)
@@ -144,5 +155,8 @@ install(TARGETS
     printf basename dirname which true false
     nix find diff sed xargs
     tac rev nl id timeout ln
+    seq yes hostname
+    paste comm base64 shuf
+    test_cmd lbracket
     DESTINATION bin
 )

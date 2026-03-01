@@ -295,6 +295,25 @@ static std::vector<std::string> shell_tokens(const std::string& s) {
     return out;
 }
 
+// --------------------------------------------------
+// Shell-local variables  (VAR=value assignments)
+// --------------------------------------------------
+static std::map<std::string, std::string> g_shell_vars;
+
+// Run a command string and capture its stdout output.
+static std::string capture_command(const std::string& cmd) {
+    FILE* fp = _popen(cmd.c_str(), "r");
+    if (!fp) return {};
+    std::string result;
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), fp)) result += buf;
+    _pclose(fp);
+    // trim trailing newlines (POSIX $() behaviour)
+    while (!result.empty() && (result.back()=='\n' || result.back()=='\r'))
+        result.pop_back();
+    return result;
+}
+
 static std::string expand_aliases_once(const std::string& line, const Aliases& a) {
     auto toks = shell_tokens(line);
     if (toks.empty()) return line;
@@ -353,7 +372,33 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 i++;
                 continue;
             }
-            // $VAR
+            // $( cmd ) — command substitution
+            if (c == '$' && i+1 < line.size() && line[i+1] == '(') {
+                int depth = 1;
+                size_t j = i + 2;
+                while (j < line.size() && depth > 0) {
+                    if (line[j] == '(') depth++;
+                    else if (line[j] == ')') depth--;
+                    j++;
+                }
+                std::string subcmd = line.substr(i+2, j-1 - (i+2));
+                out += capture_command(subcmd);
+                i = j - 1;
+                continue;
+            }
+            // ${ VAR } — braced variable
+            if (c == '$' && i+1 < line.size() && line[i+1] == '{') {
+                size_t j = i + 2;
+                while (j < line.size() && line[j] != '}') ++j;
+                if (j < line.size()) {
+                    std::string name = line.substr(i+2, j-(i+2));
+                    auto it = g_shell_vars.find(name);
+                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                    i = j;
+                    continue;
+                }
+            }
+            // $VAR — shell var first, then env
             if (c == '$') {
                 size_t j=i+1;
                 while (j<line.size() &&
@@ -361,7 +406,9 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                         line[j]=='_'))
                     ++j;
                 if (j > i+1) {
-                    out += getenv_win(line.substr(i+1, j-(i+1)));
+                    std::string name = line.substr(i+1, j-(i+1));
+                    auto it = g_shell_vars.find(name);
+                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(name);
                     i=j-1;
                     continue;
                 }
@@ -1091,6 +1138,20 @@ static bool handle_builtin(
         return true;
     }
 
+    // vars — list shell-local variables
+    if (match("vars")) {
+        for (auto& kv : g_shell_vars)
+            std::cout << kv.first << "=" << kv.second << "\n";
+        return true;
+    }
+
+    // unset VAR — remove shell variable
+    if (starts("unset ")) {
+        auto name = trim(line.substr(6));
+        g_shell_vars.erase(name);
+        return true;
+    }
+
     // jobs
     if (match("jobs")) {
         if (g_jobs.empty()) { std::cout << "No background jobs.\n"; return true; }
@@ -1303,6 +1364,29 @@ int main() {
 
         auto expanded = expand_vars(
                             expand_aliases_once(original, aliases), last_exit);
+
+        // VAR=value — shell variable assignment (no spaces around =, valid identifier)
+        {
+            size_t eq = expanded.find('=');
+            bool is_assign = false;
+            if (eq != std::string::npos && eq > 0) {
+                std::string name = expanded.substr(0, eq);
+                bool valid = !std::isdigit((unsigned char)name[0]);
+                for (char ch : name)
+                    if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
+                // Only treat as assignment if there's no space before '=' (no command name)
+                if (valid && name.find(' ') == std::string::npos) {
+                    g_shell_vars[name] = expanded.substr(eq + 1);
+                    last_exit = 0;
+                    is_assign = true;
+                }
+            }
+            if (is_assign) {
+                hist.add(original);
+                hist.save(paths.history_file);
+                continue;
+            }
+        }
 
         // Single builtin — handle before chain splitting
         if (handle_builtin(expanded, aliases, paths, hist, cfg)) {
