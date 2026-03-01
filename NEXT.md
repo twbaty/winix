@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 0.4 (in progress)
+**Version:** 0.7
 **Date:** 2026-02-28
 
 ---
@@ -70,7 +70,7 @@
 | **0.4** | Done | History ✅, tab completion ✅, arg parsing ✅, error handling ✅, case toggle ✅ |
 | **0.5** | Planned | Argument parsing, better error handling, extended `help` |
 | **0.6** | Done | Piping ✅, install target ✅ (`install.bat` → `C:\Winix\bin`, system PATH) |
-| **0.7** | Future | Add configuration support (`.winixrc`), environment vars |
+| **0.7** | Done | PS1 prompts ✅, cp -r ✅, chmod ✅, grep -i ✅, help ✅, install.bat ✅, .winixrc ✅ |
 | **1.0** | Stable | Windows-native Unix parity — clean, documented, extensible |
 
 ---
