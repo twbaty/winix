@@ -1312,6 +1312,34 @@ with tempfile.TemporaryDirectory() as d:
     out, _, rc = run('winix', script11, stdin_text='Alice\n')
     check('read VAR captures input', 'Hello Alice' in out)
 
+    # here-doc basic
+    script12 = os.path.join(d, 'test_hd1.sh')
+    with open(script12, 'w') as f:
+        f.write('cat <<EOF\nhello world\nline two\nEOF\n')
+    out, _, rc = run('winix', script12)
+    check('here-doc basic output', 'hello world' in out and 'line two' in out)
+
+    # here-doc with $VAR expansion
+    script13 = os.path.join(d, 'test_hd2.sh')
+    with open(script13, 'w') as f:
+        f.write('NAME=Alice\ncat <<EOF\nHello $NAME\nEOF\n')
+    out, _, rc = run('winix', script13)
+    check('here-doc expands $VAR', 'Hello Alice' in out)
+
+    # here-doc with quoted delimiter (no expansion)
+    script14 = os.path.join(d, 'test_hd3.sh')
+    with open(script14, 'w') as f:
+        f.write("NAME=Alice\ncat <<'EOF'\nNo $NAME here\nEOF\n")
+    out, _, rc = run('winix', script14)
+    check("here-doc quoted delim suppresses expansion", 'No $NAME here' in out)
+
+    # here-doc piped
+    script15 = os.path.join(d, 'test_hd4.sh')
+    with open(script15, 'w') as f:
+        f.write('cat <<EOF | grep hello\nhello world\nbye world\nEOF\n')
+    out, _, rc = run('winix', script15)
+    check('here-doc piped to grep', 'hello world' in out and 'bye world' not in out)
+
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 

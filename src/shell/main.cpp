@@ -931,11 +931,30 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
     std::vector<DWORD>  pids;
 
     for (int i = 0; i < n; ++i) {
-        auto t = glob_expand(shell_tokens(segs[i]));
+        // Strip >, <, 2> redirects from each segment (e.g. first seg may have < file)
+        Redirects redir;
+        std::string clean_seg = parse_redirects(segs[i], redir);
+        auto t = glob_expand(shell_tokens(clean_seg));
         if (t.empty()) continue;
 
         HANDLE raw_in  = (i == 0)     ? GetStdHandle(STD_INPUT_HANDLE)  : pipes[i-1].read;
         HANDLE raw_out = (i == n - 1) ? GetStdHandle(STD_OUTPUT_HANDLE) : pipes[i].write;
+
+        // Apply per-segment file redirects (< overrides pipe stdin, > overrides pipe stdout)
+        HANDLE h_redir_in  = INVALID_HANDLE_VALUE;
+        HANDLE h_redir_out = INVALID_HANDLE_VALUE;
+        HANDLE h_redir_err = INVALID_HANDLE_VALUE;
+        if (!redir.in_file.empty()) {
+            h_redir_in = open_redir(redir.in_file, false, false);
+            if (h_redir_in != INVALID_HANDLE_VALUE) raw_in = h_redir_in;
+        }
+        if (!redir.out_file.empty()) {
+            h_redir_out = open_redir(redir.out_file, true, redir.out_append);
+            if (h_redir_out != INVALID_HANDLE_VALUE) raw_out = h_redir_out;
+        }
+        if (!redir.err_file.empty()) {
+            h_redir_err = open_redir(redir.err_file, true, false);
+        }
 
         HANDLE h_in  = make_inheritable(raw_in);
         HANDLE h_out = make_inheritable(raw_out);
@@ -949,7 +968,7 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
             for (size_t j = 1; j < t.size(); ++j) cmdline += " " + quote_arg(t[j]);
             app = exe.c_str();
         } else {
-            cmdline = "cmd.exe /C " + segs[i];
+            cmdline = "cmd.exe /C " + clean_seg;
             app = nullptr;
         }
 
@@ -969,6 +988,9 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
 
         CloseHandle(h_in);
         CloseHandle(h_out);
+        if (h_redir_in  != INVALID_HANDLE_VALUE) CloseHandle(h_redir_in);
+        if (h_redir_out != INVALID_HANDLE_VALUE) CloseHandle(h_redir_out);
+        if (h_redir_err != INVALID_HANDLE_VALUE) CloseHandle(h_redir_err);
 
         if (!ok) {
             DWORD e = GetLastError();
@@ -1517,6 +1539,51 @@ static bool case_match(const char* w, const char* p) {
     return false;
 }
 
+// --------------------------------------------------
+// Here-doc detection
+// --------------------------------------------------
+// pos     = position of "<<" in the line
+// end_pos = position just past the full "<<DELIM" token (so suffix can be appended)
+// delim   = the delimiter word
+// expand  = whether to expand $VAR in body (false for <<'DELIM')
+struct HereDoc { size_t pos; size_t end_pos; std::string delim; bool expand; };
+
+// Scan a command line for <<WORD or <<'WORD'.
+// Returns HereDoc with pos=npos if none found.
+static HereDoc detect_heredoc(const std::string& line) {
+    bool in_s = false, in_d = false;
+    for (size_t i = 0; i < line.size(); i++) {
+        char c = line[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; continue; }
+        if (in_s || in_d) continue;
+        if (c != '<' || i+1 >= line.size() || line[i+1] != '<') continue;
+        if (i+2 < line.size() && line[i+2] == '<') continue; // skip <<<
+        // Found <<
+        std::string rest = trim(line.substr(i + 2));
+        bool expand = true;
+        std::string delim;
+        size_t delim_start = i + 2; // position in line where delimiter token starts
+        if (!rest.empty() && (rest[0] == '\'' || rest[0] == '"')) {
+            char q = rest[0];
+            size_t end = rest.find(q, 1);
+            if (end != std::string::npos) {
+                delim    = rest.substr(1, end - 1);
+                expand   = (q == '"');
+                // +1 opening quote, +end+1 closing quote
+                delim_start += 1 + end + 1;
+            }
+        } else {
+            size_t sp = rest.find_first_of(" \t");
+            delim  = (sp != std::string::npos) ? rest.substr(0, sp) : rest;
+            expand = true;
+            delim_start += delim.size();
+        }
+        if (!delim.empty()) return {i, delim_start, delim, expand};
+    }
+    return {std::string::npos, 0, "", true};
+}
+
 // Collect lines from lines[start] until block depth returns to 0.
 // Returns index of the closing-keyword line (not added to body).
 static size_t collect_until_closed(const std::vector<std::string>& lines,
@@ -1808,6 +1875,41 @@ static int script_exec_lines(const std::vector<std::string>& lines,
             continue;
         }
 
+        // Here-doc: "cmd <<DELIM ... DELIM"
+        {
+            HereDoc hd = detect_heredoc(l);
+            if (hd.pos != std::string::npos) {
+                // Collect body lines until the delimiter appears alone on a line
+                std::string content;
+                size_t j = i + 1;
+                while (j < lines.size()) {
+                    std::string bl = lines[j];
+                    if (!bl.empty() && bl.back() == '\r') bl.pop_back();
+                    if (trim(bl) == hd.delim) { j++; break; }
+                    content += (hd.expand ? expand_vars(bl, last_exit) : bl) + "\n";
+                    j++;
+                }
+                i = j; // resume after delimiter line (no extra i++ below)
+
+                // Write body to a temp file and redirect stdin from it
+                char tmpdir[MAX_PATH], tmpfile[MAX_PATH];
+                GetTempPathA(MAX_PATH, tmpdir);
+                GetTempFileNameA(tmpdir, "hd", 0, tmpfile);
+                if (FILE* f = fopen(tmpfile, "wb")) {
+                    fwrite(content.c_str(), 1, content.size(), f);
+                    fclose(f);
+                }
+
+                // Replace "<<DELIM" with "< tmpfile", keeping any suffix (e.g. "| grep x")
+                std::string suffix = (hd.end_pos < l.size()) ? l.substr(hd.end_pos) : "";
+                std::string cmd_part = trim(l.substr(0, hd.pos)) + " < " + tmpfile + suffix;
+                std::string ex = expand_vars(expand_aliases_once(cmd_part, aliases), last_exit);
+                last_exit = run_command_line(ex, paths, aliases, hist, cfg, last_exit);
+                DeleteFileA(tmpfile);
+                continue;
+            }
+        }
+
         // Regular command
         std::string expanded = expand_vars(expand_aliases_once(l, aliases), last_exit);
         last_exit = run_command_line(expanded, paths, aliases, hist, cfg, last_exit);
@@ -1993,6 +2095,27 @@ int main(int argc, char* argv[]) {
 
         auto ll = to_lower(original);
         if (ll == "exit" || ll == "quit") break;
+
+        // Here-doc: collect body lines until the delimiter
+        {
+            HereDoc hd = detect_heredoc(original);
+            if (hd.pos != std::string::npos) {
+                std::vector<std::string> hd_lines;
+                hd_lines.push_back(original);
+                for (;;) {
+                    auto cont = editor.read_line("> ");
+                    if (!cont.has_value()) break;
+                    hd_lines.push_back(*cont);
+                    if (trim(*cont) == hd.delim) break;
+                }
+                hist.add(original);
+                hist.save(paths.history_file);
+                ScriptState ss;
+                last_exit = script_exec_lines(hd_lines, paths, aliases,
+                                               &hist, &cfg, last_exit, ss);
+                continue;
+            }
+        }
 
         // Multi-line block: if/for/while/function — buffer until depth reaches 0
         {
