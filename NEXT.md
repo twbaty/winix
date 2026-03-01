@@ -48,9 +48,10 @@
 - [x] `source`/`.` to execute script files
 - [x] Script file execution: `winix script.sh [args]`
 - [x] Positional parameters `$1`–`$9`, `$#`, `$@`
-- [ ] Arithmetic expansion `$(( expr ))`
+- [x] Arithmetic expansion `$(( expr ))`
+- [x] `case/esac` statement
+- [x] `read VAR` — read line from stdin into variable
 - [ ] Here-docs (`<<EOF`)
-- [ ] `case/esac` statement
 
 ---
 
