@@ -75,7 +75,7 @@ struct Config {
     size_t history_max  = 100;
     bool case_sensitive = false;
     // PS1 format string — expanded at each prompt render.
-    // Supports: \u \h \w \W \$ \t \d \n \e \[ \] \\
+    // Supports: \u \h \w \W \$ \t \d \n \e \[ \]
     std::string ps1 = "\\[\\e[32m\\][Winix] \\w >\\[\\e[0m\\] ";
 };
 
