@@ -71,7 +71,9 @@ jobs:
 
       - name: Functional tests
         shell: pwsh
-        run: python tests/run_tests.py --build-dir build
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+          python tests/run_tests.py --build-dir build --verbose
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
