@@ -70,7 +70,7 @@ jobs:
           echo "Smoke tests passed."
 
       - name: Functional tests
-        shell: msys2 {0}
+        shell: pwsh
         run: python tests/run_tests.py --build-dir build
 
       - name: Upload build artifacts
