@@ -3,6 +3,7 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <utime.h>
 #include <dirent.h>
 
 #ifdef _WIN32
@@ -12,12 +13,13 @@
 #define make_dir(p) mkdir(p, 0755)
 #endif
 
-static int verbose = 0, force = 0, recursive = 0;
+static int verbose = 0, force = 0, recursive = 0, preserve = 0;
 
 /* ------------------------------------------------------------------ */
 /* Copy a single regular file src -> dst                               */
+/* st is the result of stat(src) — used for -p timestamp preservation */
 /* ------------------------------------------------------------------ */
-static int copy_file(const char *src, const char *dst) {
+static int copy_file(const char *src, const char *dst, const struct stat *st) {
     if (!force) {
         FILE *chk = fopen(dst, "rb");
         if (chk) {
@@ -53,6 +55,13 @@ static int copy_file(const char *src, const char *dst) {
 
     fclose(in);
     fclose(out);
+
+    if (preserve && st) {
+        struct utimbuf times;
+        times.actime  = st->st_atime;
+        times.modtime = st->st_mtime;
+        utime(dst, &times);
+    }
 
     if (verbose)
         printf("'%s' -> '%s'\n", src, dst);
@@ -115,7 +124,7 @@ static int copy_entry(const char *src, const char *dst) {
         return copy_dir(src, dst);
     }
 
-    return copy_file(src, dst);
+    return copy_file(src, dst, &st);
 }
 
 /* ------------------------------------------------------------------ */
@@ -129,6 +138,7 @@ int main(int argc, char *argv[]) {
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'v')           verbose   = 1;
             else if (*p == 'f')           force     = 1;
+            else if (*p == 'p')           preserve  = 1;
             else if (*p == 'r' || *p == 'R') recursive = 1;
             else {
                 fprintf(stderr, "cp: invalid option -- '%c'\n", *p);
@@ -139,7 +149,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (argc - argi < 2) {
-        fprintf(stderr, "Usage: cp [-rfv] <source>... <destination>\n");
+        fprintf(stderr, "Usage: cp [-rfvp] <source>... <destination>\n");
         return 1;
     }
 

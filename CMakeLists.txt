@@ -82,7 +82,7 @@ add_executable(chmod src/coreutils/chmod.c)
 target_link_libraries(chmod winixcommon)
 
 add_executable(chown src/coreutils/chown.c)
-target_link_libraries(chown winixcommon)
+target_link_libraries(chown winixcommon advapi32)
 
 add_executable(more src/coreutils/more.c)
 target_link_libraries(more winixcommon)

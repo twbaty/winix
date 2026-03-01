@@ -90,7 +90,7 @@
 ## cp
 - [x] Basic copy (works)
 - [x] Add recursive copy (-r)
-- [ ] Preserve timestamps (-p)
+- [x] Preserve timestamps (-p)
 - [x] Error on directory to file copy
 
 ## chmod
@@ -99,8 +99,8 @@
 - [ ] Add sidecar POSIX permission emulation (.meta)
 
 ## chown
-- [ ] Stub for Windows
-- [ ] Map usernames using GetUserNameEx()
-- [ ] Integrate future Windows SID translation
+- [x] Stub for Windows
+- [x] Map usernames using LookupAccountNameA() → SID → SetNamedSecurityInfoA()
+- [ ] Integrate future Windows SID translation (ACL inheritance)
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
