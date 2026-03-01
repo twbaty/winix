@@ -757,6 +757,22 @@ with TempDir() as d:
     check('glob dir prefix two', 'two.txt' in out, out)
 
 
+# ── nix ───────────────────────────────────────────────────────────────────
+
+section('nix')
+
+out, _, code = run('nix', '--version')
+expect_exit('nix --version exits 0', code)
+expect_contains('nix --version shows nix', out, 'nix')
+expect_contains('nix --version shows 1.0', out, '1.0')
+
+out, _, code = run('nix', '--help')
+expect_exit('nix --help exits 0', code)
+expect_contains('nix --help mentions Ctrl+S', out, 'Ctrl+S')
+expect_contains('nix --help mentions Ctrl+Q', out, 'Ctrl+Q')
+expect_contains('nix --help mentions Ctrl+W', out, 'Ctrl+W')
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

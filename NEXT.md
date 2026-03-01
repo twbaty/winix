@@ -88,6 +88,18 @@
 
 # Coreutils Roadmap
 
+## nix (text editor)
+- [x] Nano-style editor: title bar, content area, status bar
+- [x] Full key bindings: Ctrl+S/Q/X/W/K/U/A/E, arrows, PgUp/Dn, Home/End, Tab, Enter, BS, Del
+- [x] File load/save (Unix line endings), new-file support
+- [x] Viewport scrolling (horizontal + vertical)
+- [x] Find (Ctrl+W) with wrap-around search
+- [x] Cut/paste single line (Ctrl+K / Ctrl+U)
+- [x] Unsaved-changes prompt on quit
+- [ ] Multi-line clipboard
+- [ ] Find + replace
+- [ ] Syntax highlighting
+
 ## cp
 - [x] Basic copy (works)
 - [x] Add recursive copy (-r)
