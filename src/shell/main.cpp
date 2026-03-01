@@ -332,6 +332,63 @@ static std::string expand_aliases_once(const std::string& line, const Aliases& a
     return rest.empty() ? *val : (*val + " " + rest);
 }
 
+// --------------------------------------------------
+// Arithmetic evaluator for $(( expr ))
+// --------------------------------------------------
+static long long eval_arith(const std::string& s) {
+    const char* p = s.c_str();
+    std::function<long long()> parse_expr, parse_term, parse_unary, parse_primary;
+
+    auto skip = [&]() { while (*p == ' ' || *p == '\t') ++p; };
+
+    parse_primary = [&]() -> long long {
+        skip();
+        if (*p == '(') {
+            ++p;
+            long long v = parse_expr();
+            skip();
+            if (*p == ')') ++p;
+            return v;
+        }
+        char* end;
+        long long v = strtoll(p, &end, 10);
+        if (end > p) p = end;
+        return v;
+    };
+
+    parse_unary = [&]() -> long long {
+        skip();
+        if (*p == '-') { ++p; return -parse_unary(); }
+        if (*p == '+') { ++p; return  parse_unary(); }
+        return parse_primary();
+    };
+
+    parse_term = [&]() -> long long {
+        long long v = parse_unary();
+        for (;;) {
+            skip();
+            if (*p == '*') { ++p; v *= parse_unary(); }
+            else if (*p == '/') { ++p; long long d = parse_unary(); v = d ? v/d : 0; }
+            else if (*p == '%') { ++p; long long d = parse_unary(); v = d ? v%d : 0; }
+            else break;
+        }
+        return v;
+    };
+
+    parse_expr = [&]() -> long long {
+        long long v = parse_term();
+        for (;;) {
+            skip();
+            if      (*p == '+') { ++p; v += parse_term(); }
+            else if (*p == '-') { ++p; v -= parse_term(); }
+            else break;
+        }
+        return v;
+    };
+
+    return parse_expr();
+}
+
 static std::string expand_vars(const std::string& line, int last_exit = 0) {
     std::string out;
     bool in_s=false, in_d=false;
@@ -395,6 +452,25 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 if (n == 0) out += "winix";
                 else if (n <= (int)g_positional.size()) out += g_positional[n - 1];
                 i++;
+                continue;
+            }
+            // $(( expr )) — arithmetic expansion (must check before $( cmd ))
+            if (c == '$' && i+1 < line.size() && line[i+1] == '(' &&
+                            i+2 < line.size() && line[i+2] == '(') {
+                size_t j = i + 3;
+                int depth = 0;
+                while (j < line.size()) {
+                    if (line[j] == '(') { ++depth; ++j; continue; }
+                    if (line[j] == ')') {
+                        if (depth == 0 && j+1 < line.size() && line[j+1] == ')') break;
+                        --depth;
+                    }
+                    ++j;
+                }
+                std::string expr = line.substr(i + 3, j - (i + 3));
+                std::string expanded_expr = expand_vars(expr, last_exit);
+                out += std::to_string(eval_arith(expanded_expr));
+                i = j + 1; // skip past "))"
                 continue;
             }
             // $( cmd ) — command substitution
@@ -945,8 +1021,8 @@ static int block_depth_change(const std::string& line) {
     auto toks = shell_tokens(t);
     if (toks.empty()) return 0;
     const auto& kw = toks[0];
-    if (kw == "if" || kw == "for" || kw == "while") return 1;
-    if (kw == "fi" || kw == "done")                  return -1;
+    if (kw == "if" || kw == "for" || kw == "while" || kw == "case") return 1;
+    if (kw == "fi" || kw == "done" || kw == "esac")                 return -1;
     if (kw == "{")                                    return 1;
     if (kw == "}")                                    return -1;
     // "name() {" or "function foo {" — line ends with {
@@ -1278,6 +1354,31 @@ static bool handle_builtin(
         return true;
     }
 
+    // read [-p "prompt"] VAR
+    if (starts("read ") || match("read")) {
+        std::string rest = trim(line.size() > 4 ? line.substr(4) : "");
+        std::string prompt_str;
+        if (rest.rfind("-p ", 0) == 0) {
+            rest = trim(rest.substr(3));
+            if (!rest.empty() && (rest[0] == '"' || rest[0] == '\'')) {
+                char q = rest[0];
+                size_t end = rest.find(q, 1);
+                if (end != std::string::npos) {
+                    prompt_str = rest.substr(1, end - 1);
+                    rest = trim(rest.substr(end + 1));
+                }
+            }
+        }
+        std::string var_name = trim(rest);
+        if (!prompt_str.empty()) { std::cout << prompt_str; std::cout.flush(); }
+        std::string val;
+        if (std::getline(std::cin, val)) {
+            if (!val.empty() && val.back() == '\r') val.pop_back();
+        }
+        if (!var_name.empty()) g_shell_vars[var_name] = val;
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -1406,6 +1507,15 @@ static int run_command_line(const std::string& raw, const Paths& paths,
 // --------------------------------------------------
 
 struct Branch { std::string cond; std::vector<std::string> body; };
+
+// Wildcard pattern matching for case/esac (supports * and ?)
+static bool case_match(const char* w, const char* p) {
+    if (*p == '\0') return *w == '\0';
+    if (*p == '*') { do { if (case_match(w, p+1)) return true; } while (*w++ != '\0'); return false; }
+    if (*p == '?' && *w != '\0') return case_match(w+1, p+1);
+    if (*p == *w)  return case_match(w+1, p+1);
+    return false;
+}
 
 // Collect lines from lines[start] until block depth returns to 0.
 // Returns index of the closing-keyword line (not added to body).
@@ -1584,6 +1694,91 @@ static int script_exec_lines(const std::vector<std::string>& lines,
             continue;
         }
 
+        // case WORD in ... esac
+        if (toks[0] == "case") {
+            // Extract WORD (tokens between "case" and "in")
+            std::string word;
+            for (size_t j = 1; j < toks.size(); ++j) {
+                if (toks[j] == "in") break;
+                if (!word.empty()) word += ' ';
+                word += expand_vars(toks[j], last_exit);
+            }
+
+            // Collect lines until matching "esac"
+            size_t j = i + 1;
+            std::vector<std::string> case_lines;
+            int depth = 1;
+            while (j < lines.size()) {
+                auto lt = shell_tokens(trim(lines[j]));
+                if (!lt.empty()) {
+                    if (lt[0] == "case") depth++;
+                    else if (lt[0] == "esac") { --depth; if (depth == 0) break; }
+                }
+                case_lines.push_back(lines[j]);
+                j++;
+            }
+            size_t esac_idx = j;
+
+            // Execute matching arm
+            bool matched = false;
+            size_t k = 0;
+            while (k < case_lines.size()) {
+                std::string cl = trim(case_lines[k]);
+                if (cl.empty() || cl == "in" || cl == ";;") { k++; continue; }
+
+                // A pattern line contains ')' — find its position
+                size_t paren = cl.find(')');
+                if (paren == std::string::npos) { k++; continue; }
+
+                std::string pat_str    = trim(cl.substr(0, paren));
+                std::string inline_body = trim(cl.substr(paren + 1));
+                bool inline_done = false;
+                if (inline_body.size() >= 2 &&
+                    inline_body.substr(inline_body.size() - 2) == ";;") {
+                    inline_body = trim(inline_body.substr(0, inline_body.size() - 2));
+                    inline_done = true;
+                }
+                k++;
+
+                // Check if word matches any "|"-separated pattern
+                bool this_matched = false;
+                if (!matched) {
+                    size_t ps = 0;
+                    while (ps <= pat_str.size()) {
+                        size_t pe = pat_str.find('|', ps);
+                        if (pe == std::string::npos) pe = pat_str.size();
+                        std::string pat = trim(pat_str.substr(ps, pe - ps));
+                        if (case_match(word.c_str(), pat.c_str())) { this_matched = true; break; }
+                        ps = pe + 1;
+                    }
+                }
+
+                // Collect multi-line body until ";;"
+                std::vector<std::string> arm_body;
+                if (!inline_body.empty()) arm_body.push_back(inline_body);
+                if (!inline_done) {
+                    while (k < case_lines.size()) {
+                        std::string bl = trim(case_lines[k]);
+                        if (bl == ";;") { k++; break; }
+                        if (bl.size() >= 2 && bl.substr(bl.size()-2) == ";;") {
+                            std::string before = trim(bl.substr(0, bl.size()-2));
+                            if (!before.empty()) arm_body.push_back(before);
+                            k++; break;
+                        }
+                        arm_body.push_back(case_lines[k]);
+                        k++;
+                    }
+                }
+
+                if (this_matched) {
+                    last_exit = script_exec_lines(arm_body, paths, aliases, hist, cfg, last_exit, ss);
+                    matched = true;
+                }
+            }
+            i = (esac_idx < lines.size()) ? esac_idx + 1 : lines.size();
+            continue;
+        }
+
         // Function definition: "name() {" or "function name {"
         {
             std::string fname;
@@ -1605,9 +1800,10 @@ static int script_exec_lines(const std::vector<std::string>& lines,
             }
         }
 
-        // Skip lone control keywords (then/do/else/fi/done handled above)
-        if (toks[0] == "then" || toks[0] == "do" || toks[0] == "else" ||
-            toks[0] == "fi"   || toks[0] == "done") {
+        // Skip lone control keywords (then/do/else/fi/done/esac handled above)
+        if (toks[0] == "then" || toks[0] == "do"   || toks[0] == "else" ||
+            toks[0] == "fi"   || toks[0] == "done"  || toks[0] == "esac" ||
+            toks[0] == "in"   || toks[0] == ";;") {
             i++;
             continue;
         }

@@ -1280,6 +1280,38 @@ with tempfile.TemporaryDirectory() as d:
     out, _, rc = run('winix', script7)
     check('script VAR=value assignment', 'hello' in out)
 
+    # $(( )) arithmetic expansion
+    script8 = os.path.join(d, 'test_arith.sh')
+    with open(script8, 'w') as f:
+        f.write('echo $((2 + 3))\necho $((10 * 4 - 2))\nx=7\necho $(( $x * 2 ))\necho $(( 17 % 5 ))\n')
+    out, _, rc = run('winix', script8)
+    lines = [l for l in out.strip().splitlines() if l.strip()]
+    check('arith $((2+3)) == 5',        '5'  in lines)
+    check('arith $((10*4-2)) == 38',    '38' in lines)
+    check('arith $(($x*2)) == 14',      '14' in lines)
+    check('arith $((17%5)) == 2',       '2'  in lines)
+
+    # case/esac
+    script9 = os.path.join(d, 'test_case.sh')
+    with open(script9, 'w') as f:
+        f.write('fruit=banana\ncase $fruit in\n  apple) echo got_apple ;;\n  banana | mango) echo got_banana ;;\n  *) echo unknown ;;\nesac\n')
+    out, _, rc = run('winix', script9)
+    check('case matches banana arm', 'got_banana' in out)
+    check('case does not print unknown', 'unknown' not in out)
+
+    script10 = os.path.join(d, 'test_case2.sh')
+    with open(script10, 'w') as f:
+        f.write('val=other\ncase $val in\n  a*) echo starts_a ;;\n  *) echo catch_all ;;\nesac\n')
+    out, _, rc = run('winix', script10)
+    check('case wildcard * matches', 'catch_all' in out)
+
+    # read VAR
+    script11 = os.path.join(d, 'test_read.sh')
+    with open(script11, 'w') as f:
+        f.write('read NAME\necho Hello $NAME\n')
+    out, _, rc = run('winix', script11, stdin_text='Alice\n')
+    check('read VAR captures input', 'Hello Alice' in out)
+
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
