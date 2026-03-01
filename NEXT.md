@@ -28,8 +28,8 @@
 ---
 
 ## 🧠 Shell Features
-- [x] Colored prompt  
-- [x] Directory awareness  
+- [x] Colored prompt
+- [x] Directory awareness
 - [x] Built-in command `history`
 - [x] Tab completion (commands, aliases, filesystem paths and arguments)
 - [x] Customizable prompt strings (PS1-style)
@@ -39,6 +39,18 @@
 - [x] Command chaining (`&&`, `||`, `;`)
 - [x] Tilde expansion in paths (`~/foo`)
 - [x] `$?` last exit code
+- [x] Shell variable assignment (`VAR=value`, `vars`, `unset`)
+- [x] Command substitution `$(cmd)`
+- [x] Background jobs (`cmd &`, `jobs`, `fg`)
+- [x] Shell scripting: `if/elif/else/fi`, `for/done`, `while/done`
+- [x] Function definitions (`name() { ... }`)
+- [x] `break`, `continue`, `return`, `exit`
+- [x] `source`/`.` to execute script files
+- [x] Script file execution: `winix script.sh [args]`
+- [x] Positional parameters `$1`–`$9`, `$#`, `$@`
+- [ ] Arithmetic expansion `$(( expr ))`
+- [ ] Here-docs (`<<EOF`)
+- [ ] `case/esac` statement
 
 ---
 
@@ -82,7 +94,8 @@
 | **0.9** | Done | Coreutil audit ✅, test harness ✅, CI badge ✅, clear/cls ✅, docs complete ✅ |
 | **0.9.1** | Done | Glob expansion ✅, Ctrl+C ✅, case sensitivity wired to coreutils ✅ |
 | **1.0** | Done | Windows-native Unix parity — clean, documented, extensible ✅ |
-| **1.1** | **Current** | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
+| **1.1** | Done | `nix` editor ✅, `cut` ✅, `tr` ✅, `find` ✅, `diff` ✅ — coreutil suite expanded |
+| **1.2** | **Current** | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $VAR ✅ |
 
 ---
 
