@@ -25,18 +25,43 @@ static int make_parents_fn(const char *path) {
     strncpy(buf, path, sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
 
-    for (char *p = buf + 1; *p; p++) {
-        if (*p == '/' || *p == '\\') {
+    /* Normalize separators */
+    for (char *q = buf; *q; q++)
+        if (*q == '/') *q = '\\';
+
+    /* Skip drive prefix ("C:\") and UNC prefix ("\\") so we never
+     * try to mkdir("C:") or mkdir("\\") which fails with EACCES. */
+    char *p = buf;
+    if (p[0] && p[1] == ':') p += 2;   /* skip "C:" */
+    if (*p == '\\') p++;                 /* skip leading "\" */
+
+    for (; *p; p++) {
+        if (*p == '\\') {
             char saved = *p;
             *p = '\0';
-            struct stat st;
-            if (stat(buf, &st) != 0) {
-                if (make_one(buf) != 0) return 1;
+            if (_mkdir(buf) != 0 && errno != EEXIST) {
+                struct stat st;
+                if (stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                    fprintf(stderr, "mkdir: cannot create directory '%s': %s\n",
+                            buf, strerror(errno));
+                    return 1;
+                }
             }
             *p = saved;
         }
     }
-    return make_one(buf);
+
+    /* Final component */
+    if (_mkdir(buf) != 0 && errno != EEXIST) {
+        struct stat st;
+        if (stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)) {
+            fprintf(stderr, "mkdir: cannot create directory '%s': %s\n",
+                    buf, strerror(errno));
+            return 1;
+        }
+    }
+    if (verbose) printf("created directory '%s'\n", buf);
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
