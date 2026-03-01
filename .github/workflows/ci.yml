@@ -28,18 +28,15 @@ jobs:
       - name: Configure (CMake)
         shell: msys2 {0}
         run: |
-          mkdir -p build
-          cd build
-          cmake -G "MinGW Makefiles" \
+          cmake -G "MSYS Makefiles" \
+                -B build \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_PREFIX=/c/Winix \
-                ..
+                .
 
       - name: Build
         shell: msys2 {0}
-        run: |
-          cd build
-          mingw32-make -j$(nproc)
+        run: cmake --build build -j$(nproc)
 
       - name: Smoke test — all binaries present
         shell: msys2 {0}
