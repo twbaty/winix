@@ -1624,6 +1624,39 @@ with tempfile.TemporaryDirectory() as td:
     check('wait waits for all background jobs', rc == 0 and os.path.isfile(flag))
 
 
+# ── watch ─────────────────────────────────────────────────────────────────────
+
+section('watch')
+
+out, _, rc = run('watch', '--version')
+check('watch --version', rc == 0 and 'watch' in out)
+
+out, _, rc = run('watch', '--help')
+check('watch --help exits 0', rc == 0)
+check('watch --help mentions -n', '-n' in out)
+
+_, err, rc = run('watch')
+check('watch with no command exits 1', rc == 1 and 'missing' in err)
+
+# watch loops forever until Ctrl+C — use Popen, kill after a short wait,
+# then verify the command ran at least once.
+proc = subprocess.Popen(
+    [os.path.join(BUILD_DIR, 'watch.exe'), '--no-title', '-n', '0.1', 'echo', 'watchtest'],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+)
+try:
+    stdout, _ = proc.communicate(timeout=2)
+    watch_out = stdout.decode('utf-8', errors='replace')
+except subprocess.TimeoutExpired:
+    proc.kill()
+    stdout, _ = proc.communicate()
+    watch_out = stdout.decode('utf-8', errors='replace')
+check('watch runs command at least once', 'watchtest' in watch_out)
+
+check('watch -n invalid exits 1',
+      run('watch', '-n', '-1', 'echo', 'hi')[2] == 1)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

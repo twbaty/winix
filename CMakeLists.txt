@@ -153,6 +153,7 @@ add_executable(expand   src/coreutils/expand.c)
 add_executable(unexpand src/coreutils/unexpand.c)
 add_executable(column   src/coreutils/column.c)
 add_executable(time     src/coreutils/time.c)
+add_executable(watch    src/coreutils/watch.c)
 
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
@@ -169,6 +170,6 @@ install(TARGETS
     md5sum sha256sum hexdump
     test_cmd lbracket
     mktemp realpath cmp fold expand unexpand
-    column time
+    column time watch
     DESTINATION bin
 )

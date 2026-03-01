@@ -173,7 +173,7 @@
 - [x] `time` — time a command (`time make`, reports real/user/sys)
 - [x] `wait` — wait for background jobs (shell builtin companion to `&`)
 - [ ] `bc` — arbitrary-precision calculator (floats, unlike `$(())`)
-- [ ] `watch` — run command periodically (`watch -n 2 cmd`)
+- [x] `watch` — run command periodically (`watch -n 2 cmd`)
 - [x] `cmp` — byte-level file comparison
 - [x] `fold` — wrap long lines at a given width
 - [x] `expand` / `unexpand` — convert tabs to/from spaces
