@@ -90,20 +90,25 @@ def exe(name):
     return os.path.join(BUILD_DIR, name + '.exe')
 
 
-def run(name, *args, stdin_text=None, cwd=None):
+def run(name, *args, stdin_text=None, cwd=None, timeout=15):
     """Run a Winix binary; return (stdout, stderr, returncode)."""
     cmd = [exe(name)] + [str(a) for a in args]
-    r = subprocess.run(
-        cmd,
-        input=stdin_text,
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace',
-        cwd=cwd,
-    )
-    # Normalize line endings (Windows may produce \r\n)
-    return r.stdout.replace('\r\n', '\n'), r.stderr.replace('\r\n', '\n'), r.returncode
+    try:
+        r = subprocess.run(
+            cmd,
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            cwd=cwd,
+            timeout=timeout,
+        )
+        # Normalize line endings (Windows may produce \r\n)
+        return r.stdout.replace('\r\n', '\n'), r.stderr.replace('\r\n', '\n'), r.returncode
+    except subprocess.TimeoutExpired:
+        _record(False, f'{name} timed out after {timeout}s', '')
+        return '', '', -1
 
 
 # ── Temp directory helper ──────────────────────────────────────────────────────
@@ -543,7 +548,7 @@ section('sleep')
 
 import time
 start = time.time()
-_, _, code = run('sleep', '1')
+_, _, code = run('sleep', '1', timeout=10)
 elapsed = time.time() - start
 expect_exit('sleep exits 0', code)
 check('sleep 1 takes at least 0.9s', elapsed >= 0.9)
