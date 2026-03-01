@@ -29,6 +29,14 @@ static int sort_stream(FILE *f, char **lines, int *count) {
 int main(int argc, char *argv[]) {
     int argi = 1;
 
+    /* Honour the shell's case setting: WINIX_CASE=off → case-insensitive
+     * by default (explicit -f is still accepted and is a no-op in that state). */
+    {
+        const char *wcase = getenv("WINIX_CASE");
+        if (wcase && strcmp(wcase, "off") == 0)
+            ignore_case = true;
+    }
+
     for (; argi < argc && argv[argi][0] == '-'; argi++) {
         for (char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'r') reverse_sort = true;

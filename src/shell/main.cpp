@@ -970,6 +970,8 @@ static bool handle_builtin(
             auto v = to_lower(val);
             if (v == "on" || v == "off") {
                 cfg.case_sensitive = (v == "on");
+                // Propagate to child processes via environment variable.
+                setenv_win("WINIX_CASE", v);
                 std::cout << "case sensitivity: " << v << "\n";
                 save_rc(paths, cfg);
             } else {
@@ -1189,6 +1191,9 @@ int main() {
     Config cfg;
     auto paths = make_paths();
     load_rc(paths, cfg);
+
+    // Export case setting so coreutils inherit the correct default.
+    setenv_win("WINIX_CASE", cfg.case_sensitive ? "on" : "off");
 
     History hist;
     hist.max_entries = cfg.history_max;

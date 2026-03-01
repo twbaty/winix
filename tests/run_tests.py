@@ -674,6 +674,51 @@ with TempDir() as d:
         expect_contains('tee writes to file', fh.read(), 'tee test')
 
 
+# ── Case sensitivity (WINIX_CASE) ─────────────────────────────────────────────
+
+section('case sensitivity')
+
+_saved_case = os.environ.get('WINIX_CASE')
+
+try:
+    # --- grep ---
+    os.environ['WINIX_CASE'] = 'off'
+    out, _, code = run('grep', 'hello', stdin_text='Hello World\nbye world\n')
+    expect_exit('grep WINIX_CASE=off exits 0 on match', code, 0)
+    expect_contains('grep WINIX_CASE=off matches case-insensitively', out, 'Hello')
+
+    os.environ['WINIX_CASE'] = 'on'
+    out, _, code = run('grep', 'hello', stdin_text='Hello World\nbye world\n')
+    expect_exit('grep WINIX_CASE=on exits 1 (no match)', code, 1)
+    check('grep WINIX_CASE=on does not match Hello', 'Hello' not in out, out)
+
+    # explicit -i still works when WINIX_CASE=on
+    out, _, code = run('grep', '-i', 'hello', stdin_text='Hello World\n')
+    expect_exit('grep -i overrides WINIX_CASE=on', code, 0)
+    expect_contains('grep -i matches case-insensitively', out, 'Hello')
+
+    # --- sort ---
+    # 'Banana' sorts after 'apple' case-sensitively (B=66 < a=97 is FALSE:
+    # capital letters have LOWER ASCII codes, so 'Banana' sorts BEFORE 'apple').
+    # Case-insensitively 'apple' < 'Banana' < 'cherry'.
+    os.environ['WINIX_CASE'] = 'off'
+    out, _, _ = run('sort', stdin_text='cherry\nBanana\napple\n')
+    lines = [l for l in out.strip().splitlines() if l]
+    expect_eq('sort WINIX_CASE=off first line is apple', lines[0], 'apple')
+    expect_eq('sort WINIX_CASE=off second line is Banana', lines[1], 'Banana')
+
+    os.environ['WINIX_CASE'] = 'on'
+    out, _, _ = run('sort', stdin_text='cherry\nBanana\napple\n')
+    lines = [l for l in out.strip().splitlines() if l]
+    expect_eq('sort WINIX_CASE=on first line is Banana', lines[0], 'Banana')
+
+finally:
+    if _saved_case is None:
+        os.environ.pop('WINIX_CASE', None)
+    else:
+        os.environ['WINIX_CASE'] = _saved_case
+
+
 # ── Shell glob expansion ──────────────────────────────────────────────────────
 
 section('glob')

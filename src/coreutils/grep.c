@@ -125,6 +125,14 @@ int main(int argc, char *argv[]) {
 
     use_color = _isatty(_fileno(stdout));
 
+    /* Honour the shell's case setting: WINIX_CASE=off → case-insensitive
+     * by default (explicit -i is still accepted and is a no-op in that state). */
+    {
+        const char *wcase = getenv("WINIX_CASE");
+        if (wcase && strcmp(wcase, "off") == 0)
+            case_insensitive = true;
+    }
+
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
         if (strcmp(argv[argi], "--") == 0) { argi++; break; }
         if (strncmp(argv[argi], "--color=", 8) == 0) {

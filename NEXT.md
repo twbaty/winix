@@ -59,7 +59,7 @@
 ## 🌄 Future Vision
 - [x] Add `alias` and environment support
 - [x] Implement tab-completion / command prediction
-- [ ] Optional *case-sensitive mode* for Unix-like fidelity
+- [x] Optional *case-sensitive mode* for Unix-like fidelity
 - [x] Package release as `Winix v0.4-alpha`
 
 ---
