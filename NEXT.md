@@ -28,7 +28,7 @@
 - [x] Directory awareness  
 - [x] Built-in command `history`
 - [x] Tab completion (commands, aliases, filesystem paths and arguments)
-- [ ] Customizable prompt strings (PS1-style)
+- [x] Customizable prompt strings (PS1-style)
 - [x] Extended `help` index with grouped categories
 - [x] Basic piping (`cmd1 | cmd2`)
 

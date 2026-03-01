@@ -72,8 +72,11 @@ static std::string user_home() {
 // Paths + config
 // --------------------------------------------------
 struct Config {
-    size_t history_max   = 100;
-    bool case_sensitive  = false;
+    size_t history_max  = 100;
+    bool case_sensitive = false;
+    // PS1 format string — expanded at each prompt render.
+    // Supports: \u \h \w \W \$ \t \d \n \e \[ \] \\
+    std::string ps1 = "\\[\\e[32m\\][Winix] \\w >\\[\\e[0m\\] ";
 };
 
 struct Paths {
@@ -124,6 +127,8 @@ static void load_rc(const Paths& paths, Config& cfg) {
             } catch (...) {}
         } else if (k == "case") {
             cfg.case_sensitive = (to_lower(v) == "on");
+        } else if (k == "ps1") {
+            cfg.ps1 = v;  // stored as raw format string
         }
     }
 }
@@ -133,6 +138,7 @@ static void save_rc(const Paths& paths, const Config& cfg) {
     if (!out) return;
     out << "history_size=" << cfg.history_max << "\n";
     out << "case=" << (cfg.case_sensitive ? "on" : "off") << "\n";
+    out << "ps1=" << cfg.ps1 << "\n";
 }
 
 // --------------------------------------------------
@@ -573,7 +579,7 @@ static void print_help() {
         {"cd",      "[dir]",           "change directory (no arg = home)"},
         {"alias",   "[name[=value]]",  "set or list aliases"},
         {"unalias", "<name>",          "remove an alias"},
-        {"set",     "<NAME=VALUE>",    "set env var or shell option (case=on/off)"},
+        {"set",     "<NAME=VALUE>",    "set env var or shell option (case, PS1)"},
         {"history", "[-c]",            "show or clear command history"},
         {"exit",    "",                "quit the shell"},
         {"help",    "",                "show this reference card"},
@@ -695,6 +701,13 @@ static bool handle_builtin(
             return true;
         }
 
+        // PS1 prompt string
+        if (name == "PS1" || to_lower(name) == "ps1") {
+            cfg.ps1 = val;
+            save_rc(paths, cfg);
+            return true;
+        }
+
         // Otherwise set as an environment variable
         if (!setenv_win(name, val))
             std::cerr << "set: failed for " << name << "\n";
@@ -759,15 +772,94 @@ static bool handle_builtin(
 }
 
 // --------------------------------------------------
-// Prompt
+// Prompt — PS1 expansion
 // --------------------------------------------------
-static std::string prompt() {
+static std::string ps1_username() {
+    char buf[256] = {};
+    DWORD n = sizeof(buf);
+    GetUserNameA(buf, &n);
+    return std::string(buf);
+}
+
+static std::string ps1_hostname() {
+    char buf[256] = {};
+    DWORD n = sizeof(buf);
+    GetComputerNameA(buf, &n);
+    return std::string(buf);
+}
+
+static std::string ps1_cwd() {
     try {
-        std::string cwd = fs::current_path().string();
-        return "\x1b[32m[Winix] " + cwd + " >\x1b[0m ";
-    } catch (...) {
-        return "\x1b[32m[Winix] >\x1b[0m ";
+        std::string cwd  = fs::current_path().string();
+        std::string home = user_home();
+        // Normalise to forward slashes
+        std::replace(cwd.begin(),  cwd.end(),  '\\', '/');
+        std::replace(home.begin(), home.end(), '\\', '/');
+        if (!home.empty() && cwd.rfind(home, 0) == 0)
+            return "~" + cwd.substr(home.size());
+        return cwd;
+    } catch (...) { return "?"; }
+}
+
+static std::string ps1_cwd_base() {
+    try {
+        auto name = fs::current_path().filename().string();
+        return name.empty() ? "/" : name;
+    } catch (...) { return "?"; }
+}
+
+static std::string ps1_time() {
+    time_t t = time(nullptr);
+    struct tm* tm = localtime(&t);
+    char buf[16];
+    strftime(buf, sizeof(buf), "%H:%M:%S", tm);
+    return std::string(buf);
+}
+
+static std::string ps1_date() {
+    time_t t = time(nullptr);
+    struct tm* tm = localtime(&t);
+    char buf[16];
+    strftime(buf, sizeof(buf), "%a %b %d", tm);
+    return std::string(buf);
+}
+
+// Expand a PS1 format string into the rendered prompt.
+// Supported sequences:
+//   \u  username        \h  hostname
+//   \w  cwd (with ~)    \W  cwd basename
+//   \$  $ (always)      \n  newline         \t  HH:MM:SS
+//   \d  "Mon Jan 01"    \e  ESC             \\ backslash
+//   \[  begin non-printing (stripped)       \]  end non-printing (stripped)
+static std::string expand_ps1(const std::string& ps1) {
+    std::string out;
+    for (size_t i = 0; i < ps1.size(); ++i) {
+        if (ps1[i] != '\\' || i + 1 >= ps1.size()) {
+            out += ps1[i];
+            continue;
+        }
+        ++i;
+        switch (ps1[i]) {
+            case 'u':  out += ps1_username();  break;
+            case 'h':  out += ps1_hostname();  break;
+            case 'w':  out += ps1_cwd();       break;
+            case 'W':  out += ps1_cwd_base();  break;
+            case '$':  out += '$';             break;
+            case 'n':  out += '\n';            break;
+            case 't':  out += ps1_time();      break;
+            case 'd':  out += ps1_date();      break;
+            case 'e':  out += '\x1b';          break;
+            case '[':  /* strip — non-printing start */ break;
+            case ']':  /* strip — non-printing end   */ break;
+            case '\\': out += '\\';            break;
+            default:   out += '\\'; out += ps1[i]; break;
+        }
     }
+    return out;
+}
+
+static std::string prompt(const Config& cfg) {
+    return expand_ps1(cfg.ps1);
 }
 
 // --------------------------------------------------
@@ -811,7 +903,7 @@ int main() {
     );
 
     while (true) {
-        auto in = editor.read_line(prompt());
+        auto in = editor.read_line(prompt(cfg));
         if (!in.has_value()) break;
 
         auto original = trim(*in);
