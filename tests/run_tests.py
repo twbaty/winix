@@ -773,6 +773,144 @@ expect_contains('nix --help mentions Ctrl+Q', out, 'Ctrl+Q')
 expect_contains('nix --help mentions Ctrl+W', out, 'Ctrl+W')
 
 
+# ── cut ───────────────────────────────────────────────────────────────────────
+
+section('cut')
+
+out, _, code = run('cut', '--version')
+expect_exit('cut --version exits 0', code)
+expect_contains('cut --version output', out, 'cut')
+
+with TempDir() as d:
+    f = os.path.join(d, 'cut.txt')
+    with open(f, 'w') as fh:
+        fh.write('one:two:three\nfoo:bar:baz\n')
+
+    out, _, code = run('cut', '-d:', '-f1', f)
+    expect_exit('cut -f1 exits 0', code)
+    expect_eq('cut -f1', out.strip().splitlines(), ['one', 'foo'])
+
+    out, _, _ = run('cut', '-d:', '-f2', f)
+    expect_eq('cut -f2', out.strip().splitlines(), ['two', 'bar'])
+
+    out, _, _ = run('cut', '-d:', '-f1,3', f)
+    expect_contains('cut -f1,3 first field', out, 'one')
+    expect_contains('cut -f1,3 third field', out, 'three')
+
+    out, _, _ = run('cut', '-c1-3', f)
+    expect_eq('cut -c1-3', out.strip().splitlines(), ['one', 'foo'])
+
+    out, _, _ = run('cut', '-d:', '-f2-', f)
+    expect_contains('cut -f2- includes field 2', out, 'two')
+    expect_contains('cut -f2- includes field 3', out, 'three')
+
+
+# ── tr ────────────────────────────────────────────────────────────────────────
+
+section('tr')
+
+out, _, code = run('tr', '--version')
+expect_exit('tr --version exits 0', code)
+expect_contains('tr --version output', out, 'tr')
+
+out, _, code = run('tr', 'a-z', 'A-Z', stdin_text='hello world\n')
+expect_exit('tr a-z A-Z exits 0', code)
+expect_eq('tr lowercase to uppercase', out.strip(), 'HELLO WORLD')
+
+out, _, _ = run('tr', 'A-Z', 'a-z', stdin_text='HELLO WORLD\n')
+expect_eq('tr uppercase to lowercase', out.strip(), 'hello world')
+
+out, _, _ = run('tr', '-d', 'aeiou', stdin_text='hello world\n')
+expect_eq('tr -d vowels', out.strip(), 'hll wrld')
+
+out, _, _ = run('tr', '-s', ' ', stdin_text='too  many   spaces\n')
+expect_eq('tr -s squeeze spaces', out.strip(), 'too many spaces')
+
+out, _, _ = run('tr', '-d', '\n', stdin_text='line1\nline2\n')
+expect_eq('tr -d newlines', out, 'line1line2')
+
+
+# ── find ──────────────────────────────────────────────────────────────────────
+
+section('find')
+
+out, _, code = run('find', '--version')
+expect_exit('find --version exits 0', code)
+expect_contains('find --version output', out, 'find')
+
+with TempDir() as d:
+    os.makedirs(os.path.join(d, 'sub'))
+    open(os.path.join(d, 'a.txt'), 'w').close()
+    open(os.path.join(d, 'b.txt'), 'w').close()
+    open(os.path.join(d, 'sub', 'c.txt'), 'w').close()
+    open(os.path.join(d, 'sub', 'notes.log'), 'w').close()
+
+    out, _, code = run('find', d)
+    expect_exit('find exits 0', code)
+    check('find lists all files', 'a.txt' in out and 'c.txt' in out)
+
+    out, _, _ = run('find', d, '-name', '*.txt')
+    check('find -name *.txt finds a.txt', 'a.txt' in out)
+    check('find -name *.txt finds c.txt', 'c.txt' in out)
+    check('find -name *.txt excludes .log', 'notes.log' not in out)
+
+    out, _, _ = run('find', d, '-type', 'f')
+    check('find -type f includes files', 'a.txt' in out)
+
+    out, _, _ = run('find', d, '-type', 'd')
+    check('find -type d includes dirs', 'sub' in out)
+    check('find -type d excludes files', 'a.txt' not in out)
+
+    out, _, _ = run('find', d, '-maxdepth', '1', '-name', '*.txt')
+    check('find -maxdepth 1 finds top-level', 'a.txt' in out)
+    check('find -maxdepth 1 excludes subdir', 'c.txt' not in out)
+
+
+# ── diff ──────────────────────────────────────────────────────────────────────
+
+section('diff')
+
+out, _, code = run('diff', '--version')
+expect_exit('diff --version exits 0', code)
+expect_contains('diff --version output', out, 'diff')
+
+with TempDir() as d:
+    f1 = os.path.join(d, 'f1.txt')
+    f2 = os.path.join(d, 'f2.txt')
+
+    with open(f1, 'w') as fh:
+        fh.write('line1\nline2\nline3\n')
+    with open(f2, 'w') as fh:
+        fh.write('line1\nline2\nline3\n')
+
+    _, _, code = run('diff', f1, f2)
+    expect_exit('diff identical files exits 0', code, 0)
+
+    with open(f2, 'w') as fh:
+        fh.write('line1\nchanged\nline3\n')
+
+    _, _, code = run('diff', f1, f2)
+    expect_exit('diff different files exits 1', code, 1)
+
+    out, _, code = run('diff', f1, f2)
+    expect_contains('diff shows changed line', out, 'changed')
+    expect_contains('diff shows < marker', out, '<')
+    expect_contains('diff shows > marker', out, '>')
+
+    out, _, code = run('diff', '-u', f1, f2)
+    expect_exit('diff -u exits 1', code, 1)
+    expect_contains('diff -u shows --- header', out, '---')
+    expect_contains('diff -u shows +++ header', out, '+++')
+    expect_contains('diff -u shows @@ header', out, '@@')
+
+    out, _, code = run('diff', '-q', f1, f2)
+    expect_exit('diff -q exits 1 on diff', code, 1)
+    check('diff -q produces output', len(out.strip()) > 0)
+
+    _, _, code = run('diff', f1, os.path.join(d, 'nonexistent.txt'))
+    expect_exit('diff missing file exits 2', code, 2)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

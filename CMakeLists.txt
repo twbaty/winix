@@ -97,7 +97,7 @@ add_executable(nix src/coreutils/nix.c)
 target_link_libraries(nix winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver)
+foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
@@ -113,14 +113,20 @@ add_executable(true src/coreutils/true.c)
 add_executable(false src/coreutils/false.c)
 add_executable(clear src/coreutils/clear.c)
 
+add_executable(find src/coreutils/find.c)
+target_link_libraries(find winixcommon)
+
+add_executable(diff src/coreutils/diff.c)
+target_link_libraries(diff winixcommon)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
     echo pwd ls cat mv rm mkdir rmdir touch head tail
     date whoami sleep cp chmod chown more less clear
     stat wc du df sort uniq grep tee alias export history
-    ps kill uname uptime env ver
+    ps kill uname uptime env ver cut tr
     printf basename dirname which true false
-    nix
+    nix find diff
     DESTINATION bin
 )
