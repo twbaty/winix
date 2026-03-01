@@ -12,6 +12,7 @@
  *   Ctrl+X  24  Save + quit
  *   Ctrl+W  23  Find (prompts for pattern)
  *   Ctrl+N  14  Find next (repeats last pattern)
+ *   Ctrl+R  18  Find + replace
  *   Ctrl+Z  26  Undo
  *   Ctrl+K  11  Cut line
  *   Ctrl+U  21  Paste line above
@@ -54,6 +55,7 @@ typedef enum {
     UT_TAB,            /* Tab inserted 4 spaces at (cx,cy) */
     UT_CUT,            /* Ctrl+K cut line (aux=1 deleted, 0 cleared) */
     UT_PASTE,          /* Ctrl+U inserted line at cy */
+    UT_REPLACE,        /* Ctrl+R replaced match: text=original, textlen=patlen, aux=replen */
 } UndoType;
 
 typedef struct {
@@ -358,6 +360,17 @@ static void editor_apply_undo(Editor *e) {
         if (r.cy > e->nlines - 1) /* clamp in case it was the last line */
             ; /* cursor restore below handles it */
         break;
+
+    case UT_REPLACE: {
+        /* Undo replace: delete the replacement (aux chars), re-insert original (text) */
+        Line *ln = &e->lines[r.cy];
+        for (int i = 0; i < r.aux; i++)
+            line_delete_char(ln, r.cx);
+        for (int i = 0; i < r.textlen; i++)
+            line_insert_char(ln, r.cx + i, r.text[i]);
+        free(r.text);
+        break;
+    }
     }
 
     /* Restore cursor to where it was before the operation */
@@ -439,9 +452,9 @@ static void scroll_view(Editor *e) {
 
 /*
  * Show 'prompt' in the status bar and accept a single-line response.
- * ESC cancels (buf[0] = '\0').  Enter confirms.
+ * Returns 1 on Enter (confirmed), 0 on ESC (cancelled, buf[0] set to '\0').
  */
-static void prompt_in_status(const char *prompt, char *buf, int bufsz) {
+static int prompt_in_status(const char *prompt, char *buf, int bufsz) {
     int rows = term_rows();
     int cols = term_cols();
     int pos  = 0;
@@ -460,8 +473,8 @@ static void prompt_in_status(const char *prompt, char *buf, int bufsz) {
         fflush(stdout);
 
         int c = _getch();
-        if (c == 13) break;                             /* Enter */
-        if (c == 27) { buf[0] = '\0'; break; }         /* ESC — cancel */
+        if (c == 13) return 1;                          /* Enter — confirm */
+        if (c == 27) { buf[0] = '\0'; return 0; }      /* ESC — cancel */
         if (c == 8 && pos > 0) { buf[--pos] = '\0'; }  /* Backspace */
         else if (c >= 32 && c < 127 && pos < bufsz - 1) {
             buf[pos++] = (char)c;
@@ -516,7 +529,7 @@ static void draw(Editor *e) {
         e->msg[0] = '\0';
     } else {
         const char *hints =
-            "  ^S:Save  ^Q:Quit  ^W:Find  ^N:Next  ^Z:Undo  ^K:Cut  ^U:Paste";
+            "  ^S:Save  ^Q:Quit  ^W:Find  ^N:Next  ^R:Repl  ^Z:Undo  ^K:Cut  ^U:Paste";
         char right[64];
         snprintf(right, sizeof(right), "Ln:%d Col:%d  ",
                  e->cy + 1, e->cx + 1);
@@ -570,6 +583,89 @@ static void editor_find(Editor *e) {
 /* Ctrl+N: repeat last search without prompting. */
 static void editor_find_next(Editor *e) {
     editor_do_search(e);
+}
+
+/* Ctrl+R: interactive find + replace. */
+static void editor_replace(Editor *e) {
+    /* ── Step 1: pattern ── */
+    char pat[256];
+    if (!prompt_in_status("Replace: ", pat, sizeof(pat))) return; /* ESC */
+    if (pat[0])
+        strncpy(e->last_search, pat, sizeof(e->last_search) - 1);
+    if (!e->last_search[0]) return;
+
+    int patlen = (int)strlen(e->last_search);
+
+    /* ── Step 2: replacement ── */
+    char rep[256];
+    if (!prompt_in_status("With: ", rep, sizeof(rep))) return; /* ESC */
+    int replen = (int)strlen(rep);
+
+    /* ── Step 3: interactive loop — search from current position, no wrap ── */
+    int count   = 0;
+    int rep_all = 0;
+    int cy      = e->cy;
+    int cx      = e->cx;
+
+    for (;;) {
+        /* Find next occurrence from (cy, cx) forward */
+        int found_cy = -1, found_cx = -1;
+        for (int row = cy; row < e->nlines; row++) {
+            int sc  = (row == cy) ? cx : 0;
+            char *hit = strstr(e->lines[row].d + sc, e->last_search);
+            if (hit) {
+                found_cy = row;
+                found_cx = (int)(hit - e->lines[row].d);
+                break;
+            }
+        }
+        if (found_cy == -1) break; /* no more matches */
+
+        e->cy = found_cy;
+        e->cx = found_cx;
+
+        if (!rep_all) {
+            scroll_view(e);
+            draw(e);
+            char resp[4];
+            int confirmed = prompt_in_status(
+                "Replace? (y/n/a/ESC): ", resp, sizeof(resp));
+            if (!confirmed) break;                      /* ESC — stop */
+            if (resp[0] == 'n' || resp[0] == 'N') {    /* skip */
+                cx = found_cx + patlen;
+                cy = found_cy;
+                if (cx > e->lines[cy].len) { cy++; cx = 0; }
+                if (cy >= e->nlines) break;
+                continue;
+            }
+            if (resp[0] == 'a' || resp[0] == 'A')
+                rep_all = 1; /* fall through to replace */
+        }
+
+        /* ── Perform replacement ── */
+        char *saved = (char *)malloc(patlen + 1);
+        if (saved) memcpy(saved, e->last_search, patlen + 1);
+        undo_push(e, (UndoRecord){
+            UT_REPLACE, found_cx, found_cy, 0, replen, saved, patlen
+        });
+
+        Line *ln = &e->lines[found_cy];
+        for (int i = 0; i < patlen; i++)
+            line_delete_char(ln, found_cx);
+        for (int i = 0; i < replen; i++)
+            line_insert_char(ln, found_cx + i, rep[i]);
+
+        e->cx       = found_cx + replen;
+        e->modified = true;
+        count++;
+
+        /* Advance past the replacement */
+        cx = found_cx + replen;
+        cy = found_cy;
+    }
+
+    snprintf(e->msg, sizeof(e->msg), "%d replacement%s",
+             count, count == 1 ? "" : "s");
 }
 
 /* ── Key handler ────────────────────────────────────────────────────────── */
@@ -685,6 +781,10 @@ static int handle_key(Editor *e, int ch) {
 
     case 14: /* Ctrl+N — find next */
         editor_find_next(e);
+        break;
+
+    case 18: /* Ctrl+R — find + replace */
+        editor_replace(e);
         break;
 
     case 26: /* Ctrl+Z — undo */
@@ -820,6 +920,7 @@ int main(int argc, char *argv[]) {
                "  Ctrl+X        Save and quit\n"
                "  Ctrl+W        Find text (prompt)\n"
                "  Ctrl+N        Find next (repeat last search)\n"
+               "  Ctrl+R        Find and replace\n"
                "  Ctrl+Z        Undo last edit\n"
                "  Ctrl+K        Cut current line to clipboard\n"
                "  Ctrl+U        Paste clipboard line above cursor\n"

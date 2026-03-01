@@ -99,7 +99,7 @@
 - [x] Cut/paste single line (Ctrl+K / Ctrl+U)
 - [x] Unsaved-changes prompt on quit
 - [ ] Multi-line clipboard
-- [ ] Find + replace (Ctrl+R)
+- [x] Find + replace (Ctrl+R) — y/n/a/ESC interactive, undo per replacement
 - [ ] Syntax highlighting
 
 ## cp
