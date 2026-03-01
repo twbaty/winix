@@ -1340,6 +1340,74 @@ with tempfile.TemporaryDirectory() as d:
     out, _, rc = run('winix', script15)
     check('here-doc piped to grep', 'hello world' in out and 'bye world' not in out)
 
+    # ${VAR:-default} — use default when unset
+    script16 = os.path.join(d, 'test_param1.sh')
+    with open(script16, 'w') as f:
+        f.write('echo ${UNSET_VAR:-fallback}\n'
+                'X=hello\necho ${X:-nope}\n')
+    out, _, rc = run('winix', script16)
+    lines = out.strip().splitlines()
+    check('${VAR:-default} unset uses default', 'fallback' in lines)
+    check('${VAR:-default} set uses value',     'hello'    in lines)
+
+    # ${VAR:=val} — assign and use default when unset
+    script17 = os.path.join(d, 'test_param2.sh')
+    with open(script17, 'w') as f:
+        f.write('echo ${NEWVAR:=assigned}\necho $NEWVAR\n')
+    out, _, rc = run('winix', script17)
+    lines = out.strip().splitlines()
+    check('${VAR:=val} expands to val',      'assigned' in lines)
+    check('${VAR:=val} assigns to var',      lines.count('assigned') >= 2)
+
+    # ${#VAR} — string length
+    script18 = os.path.join(d, 'test_param3.sh')
+    with open(script18, 'w') as f:
+        f.write('WORD=hello\necho ${#WORD}\n')
+    out, _, rc = run('winix', script18)
+    check('${#VAR} gives string length', '5' in out.strip().splitlines())
+
+    # ${VAR:+val} — use val only when set
+    script19 = os.path.join(d, 'test_param4.sh')
+    with open(script19, 'w') as f:
+        f.write('echo ${UNSET_VAR2:+present}\n'
+                'Y=yes\necho ${Y:+present}\n')
+    out, _, rc = run('winix', script19)
+    lines = [l for l in out.strip().splitlines() if l]
+    check('${VAR:+val} unset gives empty',   len(lines) >= 1 and lines[-1] == 'present')
+    check('${VAR:+val} set gives alt value',  'present' in lines)
+
+    # local VAR — function-scoped variables
+    script20 = os.path.join(d, 'test_local.sh')
+    with open(script20, 'w') as f:
+        f.write(
+            'X=global\n'
+            'myfunc() {\n'
+            '  local X=local_val\n'
+            '  echo $X\n'
+            '}\n'
+            'myfunc\n'
+            'echo $X\n'
+        )
+    out, _, rc = run('winix', script20)
+    lines = out.strip().splitlines()
+    check('local VAR: inside func sees local value',  'local_val' in lines)
+    check('local VAR: after func global is restored', 'global'    in lines)
+
+    # local VAR does not leak to caller
+    script21 = os.path.join(d, 'test_local2.sh')
+    with open(script21, 'w') as f:
+        f.write(
+            'inner() {\n'
+            '  local SECRET=hidden\n'
+            '  echo inside:$SECRET\n'
+            '}\n'
+            'inner\n'
+            'echo outside:${SECRET:-gone}\n'
+        )
+    out, _, rc = run('winix', script21)
+    check('local VAR does not leak outside function',
+          'inside:hidden' in out and 'outside:gone' in out)
+
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 

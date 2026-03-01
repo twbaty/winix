@@ -302,6 +302,13 @@ static std::map<std::string, std::string> g_shell_vars;
 static std::vector<std::string> g_positional; // $1...$N positional params (0-indexed)
 static std::map<std::string, std::vector<std::string>> g_functions; // user-defined functions
 
+// local VAR scope stack — one frame per active function call.
+// Each frame maps variable name -> saved outer value (nullopt = didn't exist).
+struct LocalFrame {
+    std::map<std::string, std::optional<std::string>> saved;
+};
+static std::vector<LocalFrame> g_local_stack;
+
 // Run a command string and capture its stdout output.
 static std::string capture_command(const std::string& cmd) {
     FILE* fp = _popen(cmd.c_str(), "r");
@@ -487,15 +494,53 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 i = j - 1;
                 continue;
             }
-            // ${ VAR } — braced variable
+            // ${ ... } — braced variable with optional operators
             if (c == '$' && i+1 < line.size() && line[i+1] == '{') {
                 size_t j = i + 2;
                 while (j < line.size() && line[j] != '}') ++j;
                 if (j < line.size()) {
-                    std::string name = line.substr(i+2, j-(i+2));
-                    auto it = g_shell_vars.find(name);
-                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(name);
-                    i = j;
+                    std::string inner = line.substr(i+2, j-(i+2));
+                    i = j; // advance past '}'
+
+                    // ${#VAR} — string length
+                    if (!inner.empty() && inner[0] == '#') {
+                        std::string name = inner.substr(1);
+                        auto it = g_shell_vars.find(name);
+                        std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                        out += std::to_string(val.size());
+                        continue;
+                    }
+
+                    // ${VAR:-def}, ${VAR:=val}, ${VAR:+val}, ${VAR:?msg}
+                    size_t op_pos = inner.find(':');
+                    if (op_pos != std::string::npos && op_pos + 1 < inner.size()) {
+                        char op = inner[op_pos + 1];
+                        std::string name = inner.substr(0, op_pos);
+                        std::string arg  = expand_vars(inner.substr(op_pos + 2), last_exit);
+                        auto it = g_shell_vars.find(name);
+                        std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                        bool is_set = !val.empty();
+                        if (op == '-') {
+                            out += is_set ? val : arg;
+                        } else if (op == '=') {
+                            if (!is_set) { g_shell_vars[name] = arg; val = arg; }
+                            out += val;
+                        } else if (op == '+') {
+                            out += is_set ? arg : "";
+                        } else if (op == '?') {
+                            if (!is_set)
+                                std::cerr << "winix: " << name << ": "
+                                          << (arg.empty() ? "parameter null or not set" : arg) << "\n";
+                            out += val;
+                        } else {
+                            out += val; // unknown op — treat as plain
+                        }
+                        continue;
+                    }
+
+                    // Plain ${VAR}
+                    auto it = g_shell_vars.find(inner);
+                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(inner);
                     continue;
                 }
             }
@@ -1401,6 +1446,27 @@ static bool handle_builtin(
         return true;
     }
 
+    // local VAR  /  local VAR=value  (only meaningful inside a function)
+    if (starts("local ") || match("local")) {
+        if (g_local_stack.empty()) return true; // no-op outside functions
+        std::string rest = trim(line.size() > 5 ? line.substr(5) : "");
+        auto& frame = g_local_stack.back();
+        size_t eq = rest.find('=');
+        std::string name = trim(eq != std::string::npos ? rest.substr(0, eq) : rest);
+        if (name.empty()) return true;
+        // Save the outer value once per variable per frame
+        if (frame.saved.find(name) == frame.saved.end()) {
+            auto it = g_shell_vars.find(name);
+            frame.saved[name] = (it != g_shell_vars.end())
+                ? std::optional<std::string>(it->second)
+                : std::nullopt;
+        }
+        // Assign value if provided; otherwise leave current value (making it local)
+        if (eq != std::string::npos)
+            g_shell_vars[name] = expand_vars(rest.substr(eq + 1), 0);
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -1474,10 +1540,17 @@ static int run_command_line(const std::string& raw, const Paths& paths,
         if (!toks.empty() && g_functions.count(toks[0])) {
             auto old_pos = g_positional;
             g_positional.assign(toks.begin() + 1, toks.end());
+            g_local_stack.push_back({});   // push new local-variable frame
             ScriptState ss;
             int rc = script_exec_lines(g_functions[toks[0]], paths, aliases,
                                         hist, cfg, last_exit, ss);
             if (ss.do_return) rc = ss.return_val;
+            // Restore all variables that were declared local in this frame
+            for (auto& [name, saved] : g_local_stack.back().saved) {
+                if (saved.has_value()) g_shell_vars[name] = *saved;
+                else                   g_shell_vars.erase(name);
+            }
+            g_local_stack.pop_back();
             g_positional = old_pos;
             return rc;
         }
