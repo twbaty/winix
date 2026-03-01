@@ -91,10 +91,13 @@ add_executable(less src/coreutils/less.c)
 target_link_libraries(less PRIVATE winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history ps kill uname uptime env ver)
+foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
+
+add_executable(ps src/coreutils/ps.c)
+target_link_libraries(ps winixcommon psapi)
 
 add_executable(printf src/coreutils/printf.c)
 add_executable(basename src/coreutils/basename.c)
