@@ -183,6 +183,34 @@ int main(int argc, char *argv[]) {
 
     /* argi now points to COMMAND */
 #ifdef _WIN32
+    /* Resolve the command to an absolute path:
+     * 1. If it already contains a path separator or drive letter, use as-is.
+     * 2. SearchPath with .exe extension.
+     * 3. Look beside timeout.exe itself (where Winix coreutils live). */
+    char found_exe[MAX_PATH] = "";
+    const char *cmd_name = argv[argi];
+    int has_path = (strchr(cmd_name, '\\') || strchr(cmd_name, '/') ||
+                    (cmd_name[0] && cmd_name[1] == ':'));
+
+    if (!has_path) {
+        /* Try SearchPath first */
+        char with_ext[512];
+        snprintf(with_ext, sizeof(with_ext), "%s.exe", cmd_name);
+        if (SearchPathA(NULL, with_ext, NULL, MAX_PATH, found_exe, NULL) == 0) {
+            /* Try beside our own exe */
+            char selfdir[MAX_PATH];
+            if (GetModuleFileNameA(NULL, selfdir, MAX_PATH) > 0) {
+                char *sep = strrchr(selfdir, '\\');
+                if (sep) {
+                    *(sep + 1) = '\0';
+                    snprintf(found_exe, MAX_PATH, "%s%s.exe", selfdir, cmd_name);
+                    if (GetFileAttributesA(found_exe) == INVALID_FILE_ATTRIBUTES)
+                        found_exe[0] = '\0';
+                }
+            }
+        }
+    }
+
     /* Build the command-line string for CreateProcess */
     char *cmdline = build_cmdline(argc, argv, argi);
     if (!cmdline) {
@@ -196,8 +224,10 @@ int main(int argc, char *argv[]) {
     si.cb = sizeof(si);
     memset(&pi, 0, sizeof(pi));
 
+    const char *app = (found_exe[0]) ? found_exe : (has_path ? cmd_name : NULL);
+
     if (!CreateProcessA(
-            NULL,       /* lpApplicationName  — let Windows find it */
+            app,        /* lpApplicationName — resolved path or NULL */
             cmdline,    /* lpCommandLine */
             NULL,       /* process security attrs */
             NULL,       /* thread security attrs */
