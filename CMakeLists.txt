@@ -97,7 +97,7 @@ add_executable(nix src/coreutils/nix.c)
 target_link_libraries(nix winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl seq yes hostname paste comm base64 shuf)
+foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl seq yes hostname paste comm base64 shuf md5sum sha256sum hexdump)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
@@ -157,6 +157,7 @@ install(TARGETS
     tac rev nl id timeout ln
     seq yes hostname
     paste comm base64 shuf
+    md5sum sha256sum hexdump
     test_cmd lbracket
     DESTINATION bin
 )

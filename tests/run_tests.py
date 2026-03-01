@@ -1140,6 +1140,147 @@ with tempfile.TemporaryDirectory() as d:
     check('xargs --help', 'Usage' in out)
 
 
+# ── md5sum ────────────────────────────────────────────────────────────────────
+
+section('md5sum')
+
+out, _, rc = run('md5sum', '--version')
+check('md5sum --version', 'md5sum' in out and 'Winix' in out)
+
+out, _, rc = run('md5sum', '--help')
+check('md5sum --help', 'Usage' in out)
+
+with tempfile.TemporaryDirectory() as d:
+    p = os.path.join(d, 'a.txt')
+    with open(p, 'wb') as f:
+        f.write(b'hello\n')
+    out, _, rc = run('md5sum', p)
+    expect_exit('md5sum file exits 0', rc, 0)
+    # MD5("hello\n") = b1946ac92492d2347c6235b4d2611184
+    check('md5sum correct digest', 'b1946ac92492d2347c6235b4d2611184' in out)
+
+    # stdin
+    out, _, rc = run('md5sum', stdin_text='hello\n')
+    check('md5sum stdin', 'b1946ac92492d2347c6235b4d2611184' in out)
+
+    # -c check mode
+    ck = os.path.join(d, 'sums.md5')
+    with open(ck, 'wb') as f:
+        f.write(f'b1946ac92492d2347c6235b4d2611184  {p}\n'.encode())
+    out, _, rc = run('md5sum', '-c', ck)
+    expect_exit('md5sum -c exits 0', rc, 0)
+    check('md5sum -c OK output', 'OK' in out)
+
+
+# ── sha256sum ──────────────────────────────────────────────────────────────────
+
+section('sha256sum')
+
+out, _, rc = run('sha256sum', '--version')
+check('sha256sum --version', 'sha256sum' in out and 'Winix' in out)
+
+out, _, rc = run('sha256sum', '--help')
+check('sha256sum --help', 'Usage' in out)
+
+with tempfile.TemporaryDirectory() as d:
+    # SHA256("hello\n") = 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+    out, _, rc = run('sha256sum', stdin_text='hello\n')
+    expect_exit('sha256sum stdin exits 0', rc, 0)
+    check('sha256sum correct digest', '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03' in out)
+
+    p = os.path.join(d, 'a.txt')
+    with open(p, 'wb') as f:
+        f.write(b'hello\n')
+    ck = os.path.join(d, 'sums.sha256')
+    with open(ck, 'w') as f:
+        f.write(f'5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03  {p}\n')
+    out, _, rc = run('sha256sum', '-c', ck)
+    expect_exit('sha256sum -c exits 0', rc, 0)
+    check('sha256sum -c OK output', 'OK' in out)
+
+
+# ── hexdump ────────────────────────────────────────────────────────────────────
+
+section('hexdump')
+
+out, _, rc = run('hexdump', '--version')
+check('hexdump --version', 'hexdump' in out and 'Winix' in out)
+
+out, _, rc = run('hexdump', '--help')
+check('hexdump --help', 'Usage' in out)
+
+with tempfile.TemporaryDirectory() as d:
+    p = os.path.join(d, 'hi.bin')
+    with open(p, 'wb') as f:
+        f.write(b'Hello')
+    out, _, rc = run('hexdump', '-C', p)
+    expect_exit('hexdump -C exits 0', rc, 0)
+    check('hexdump -C contains hex', '48 65 6c 6c 6f' in out)
+    check('hexdump -C shows ASCII', 'Hello' in out)
+
+    out, _, rc = run('hexdump', '-C', stdin_text='Hi')
+    check('hexdump -C stdin', '48 69' in out)
+
+    out, _, rc = run('hexdump', '-n', '2', p)
+    expect_exit('hexdump -n 2 exits 0', rc, 0)
+
+
+# ── shell scripting ────────────────────────────────────────────────────────────
+
+section('shell scripting')
+
+with tempfile.TemporaryDirectory() as d:
+    # if/then/fi via script file
+    script = os.path.join(d, 'test_if.sh')
+    with open(script, 'w') as f:
+        f.write('if echo ok; then\n  echo pass\nfi\n')
+    out, _, rc = run('winix', script)
+    check('script if/then/fi executes', 'pass' in out)
+
+    # for loop
+    script2 = os.path.join(d, 'test_for.sh')
+    with open(script2, 'w') as f:
+        f.write('for x in a b c; do\n  echo $x\ndone\n')
+    out, _, rc = run('winix', script2)
+    lines = [l for l in out.strip().splitlines() if l.strip()]
+    check('script for loop iterates', 'a' in lines and 'b' in lines and 'c' in lines)
+
+    # while loop — run once then set i to a value that fails the condition
+    script3 = os.path.join(d, 'test_while.sh')
+    with open(script3, 'w') as f:
+        f.write('i=yes\nwhile test $i = yes; do\n  echo looped\n  i=no\ndone\n')
+    out, _, rc = run('winix', script3)
+    check('script while loop', 'looped' in out)
+
+    # function definition and call
+    script4 = os.path.join(d, 'test_func.sh')
+    with open(script4, 'w') as f:
+        f.write('greet() {\n  echo hello $1\n}\ngreet world\n')
+    out, _, rc = run('winix', script4)
+    check('script function call', 'hello world' in out)
+
+    # positional params
+    script5 = os.path.join(d, 'test_pos.sh')
+    with open(script5, 'w') as f:
+        f.write('echo $1 $2\n')
+    out, _, rc = run('winix', script5, 'foo', 'bar')
+    check('script positional params $1 $2', 'foo bar' in out)
+
+    # shebang skipped
+    script6 = os.path.join(d, 'test_shebang.sh')
+    with open(script6, 'w') as f:
+        f.write('#!/usr/bin/env winix\necho shebang_ok\n')
+    out, _, rc = run('winix', script6)
+    check('script shebang line skipped', 'shebang_ok' in out)
+
+    # VAR=value in script
+    script7 = os.path.join(d, 'test_var.sh')
+    with open(script7, 'w') as f:
+        f.write('MSG=hello\necho $MSG\n')
+    out, _, rc = run('winix', script7)
+    check('script VAR=value assignment', 'hello' in out)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

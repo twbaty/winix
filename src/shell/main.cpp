@@ -299,6 +299,8 @@ static std::vector<std::string> shell_tokens(const std::string& s) {
 // Shell-local variables  (VAR=value assignments)
 // --------------------------------------------------
 static std::map<std::string, std::string> g_shell_vars;
+static std::vector<std::string> g_positional; // $1...$N positional params (0-indexed)
+static std::map<std::string, std::vector<std::string>> g_functions; // user-defined functions
 
 // Run a command string and capture its stdout output.
 static std::string capture_command(const std::string& cmd) {
@@ -369,6 +371,29 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
             // $? — last exit code
             if (c == '$' && i+1 < line.size() && line[i+1] == '?') {
                 out += std::to_string(last_exit);
+                i++;
+                continue;
+            }
+            // $# — count of positional params
+            if (c == '$' && i+1 < line.size() && line[i+1] == '#') {
+                out += std::to_string(g_positional.size());
+                i++;
+                continue;
+            }
+            // $@ — all positional params space-separated
+            if (c == '$' && i+1 < line.size() && line[i+1] == '@') {
+                for (size_t k = 0; k < g_positional.size(); ++k) {
+                    if (k) out += ' ';
+                    out += g_positional[k];
+                }
+                i++;
+                continue;
+            }
+            // $0-$9 — positional params ($0 = "winix")
+            if (c == '$' && i+1 < line.size() && std::isdigit((unsigned char)line[i+1])) {
+                int n = line[i+1] - '0';
+                if (n == 0) out += "winix";
+                else if (n <= (int)g_positional.size()) out += g_positional[n - 1];
                 i++;
                 continue;
             }
@@ -904,6 +929,54 @@ static DWORD run_pipeline(const std::vector<std::string>& segs, const Paths& pat
 }
 
 // --------------------------------------------------
+// Scripting support — data structures + block helpers
+// --------------------------------------------------
+struct ScriptState {
+    bool do_break    = false;
+    bool do_continue = false;
+    bool do_return   = false;
+    int  return_val  = 0;
+};
+
+// Returns net block-depth change for one line (for multi-line REPL buffering).
+static int block_depth_change(const std::string& line) {
+    std::string t = trim(line);
+    if (t.empty() || t[0] == '#') return 0;
+    auto toks = shell_tokens(t);
+    if (toks.empty()) return 0;
+    const auto& kw = toks[0];
+    if (kw == "if" || kw == "for" || kw == "while") return 1;
+    if (kw == "fi" || kw == "done")                  return -1;
+    if (kw == "{")                                    return 1;
+    if (kw == "}")                                    return -1;
+    // "name() {" or "function foo {" — line ends with {
+    if (t.back() == '{') return 1;
+    return 0;
+}
+
+// Returns true if line is a function definition header; sets fname.
+static bool is_func_def(const std::string& line, std::string& fname) {
+    std::string t = trim(line);
+    auto toks = shell_tokens(t);
+    if (toks.empty()) return false;
+    // "function name" or "function name {"
+    if (toks[0] == "function" && toks.size() >= 2) { fname = toks[1]; return true; }
+    // "name()" or "name() {"
+    const std::string& f = toks[0];
+    if (f.size() >= 2 && f.substr(f.size() - 2) == "()") {
+        fname = f.substr(0, f.size() - 2);
+        return true;
+    }
+    return false;
+}
+
+// Forward declarations (implementations follow handle_builtin)
+static bool handle_builtin(const std::string&, Aliases&, const Paths&, History&, Config&);
+static int  run_command_line(const std::string&, const Paths&, Aliases&, History*, Config*, int);
+static int  script_exec_lines(const std::vector<std::string>&, const Paths&, Aliases&,
+                               History*, Config*, int, ScriptState&);
+
+// --------------------------------------------------
 // Help
 // --------------------------------------------------
 static void print_help() {
@@ -1185,6 +1258,26 @@ static bool handle_builtin(
         return true;
     }
 
+    // source / . — execute a shell script file
+    if (starts("source ") || (line.size() >= 2 && line[0] == '.' && line[1] == ' ')) {
+        std::string arg = trim(line.substr(starts("source ") ? 7 : 2));
+        arg = unquote(arg);
+        std::ifstream fin(arg);
+        if (!fin) {
+            std::cerr << "source: " << arg << ": No such file or directory\n";
+            return true;
+        }
+        std::vector<std::string> slines;
+        std::string sl;
+        while (std::getline(fin, sl)) {
+            if (!sl.empty() && sl.back() == '\r') sl.pop_back();
+            slines.push_back(sl);
+        }
+        ScriptState ss;
+        script_exec_lines(slines, paths, aliases, &hist, &cfg, 0, ss);
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -1208,6 +1301,323 @@ static bool handle_builtin(
     }
 
     return false;
+}
+
+// --------------------------------------------------
+// run_command_line — execute one (already-expanded) command line
+// --------------------------------------------------
+static int run_command_line(const std::string& raw, const Paths& paths,
+                             Aliases& aliases, History* hist, Config* cfg,
+                             int last_exit) {
+    std::string line = trim(raw);
+    if (line.empty()) return last_exit;
+
+    // VAR=value assignment
+    {
+        size_t eq = line.find('=');
+        if (eq != std::string::npos && eq > 0) {
+            std::string name = line.substr(0, eq);
+            bool valid = !std::isdigit((unsigned char)name[0]);
+            for (char ch : name)
+                if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
+            if (valid && name.find(' ') == std::string::npos) {
+                g_shell_vars[name] = line.substr(eq + 1);
+                return 0;
+            }
+        }
+    }
+
+    // source / .
+    {
+        auto toks = shell_tokens(line);
+        if (!toks.empty() && (toks[0] == "source" || toks[0] == ".") && toks.size() >= 2) {
+            std::string path_arg = unquote(toks[1]);
+            std::ifstream fin(path_arg);
+            if (!fin) {
+                std::cerr << "source: " << path_arg << ": No such file or directory\n";
+                return 1;
+            }
+            std::vector<std::string> slines;
+            std::string sl;
+            while (std::getline(fin, sl)) {
+                if (!sl.empty() && sl.back() == '\r') sl.pop_back();
+                slines.push_back(sl);
+            }
+            ScriptState ss;
+            return script_exec_lines(slines, paths, aliases, hist, cfg, last_exit, ss);
+        }
+
+        // User-defined function call
+        if (!toks.empty() && g_functions.count(toks[0])) {
+            auto old_pos = g_positional;
+            g_positional.assign(toks.begin() + 1, toks.end());
+            ScriptState ss;
+            int rc = script_exec_lines(g_functions[toks[0]], paths, aliases,
+                                        hist, cfg, last_exit, ss);
+            if (ss.do_return) rc = ss.return_val;
+            g_positional = old_pos;
+            return rc;
+        }
+    }
+
+    // Builtins
+    static History  s_dummy_hist;
+    static Config   s_dummy_cfg;
+    History& href = hist ? *hist : s_dummy_hist;
+    Config&  cref = cfg  ? *cfg  : s_dummy_cfg;
+    if (handle_builtin(line, aliases, paths, href, cref))
+        return 0;
+
+    // Chain splitting (;, &&, ||) then exec
+    auto chain = split_chain(line);
+    int rc = last_exit;
+    for (auto& cc : chain) {
+        bool run = false;
+        switch (cc.op) {
+            case ChainOp::FIRST:
+            case ChainOp::ALWAYS: run = true;       break;
+            case ChainOp::AND:    run = (rc == 0);  break;
+            case ChainOp::OR:     run = (rc != 0);  break;
+        }
+        if (!run) continue;
+
+        std::string cmd_str = trim(cc.cmd);
+        bool bg = false;
+        if (!cmd_str.empty() && cmd_str.back() == '&') {
+            bg = true;
+            cmd_str = trim(cmd_str.substr(0, cmd_str.size() - 1));
+        }
+
+        HANDLE bg_hproc = INVALID_HANDLE_VALUE;
+        DWORD  bg_pid   = 0;
+        auto segs = split_pipe(cmd_str);
+        if (segs.size() > 1)
+            rc = (int)run_pipeline(segs, paths, bg, &bg_hproc, &bg_pid);
+        else
+            rc = (int)run_segment(cmd_str, paths, bg, &bg_hproc, &bg_pid);
+        if (bg && bg_hproc != INVALID_HANDLE_VALUE)
+            job_add(bg_hproc, bg_pid, cmd_str);
+    }
+    return rc;
+}
+
+// --------------------------------------------------
+// script_exec_lines — interpret a vector of script lines
+// --------------------------------------------------
+
+struct Branch { std::string cond; std::vector<std::string> body; };
+
+// Collect lines from lines[start] until block depth returns to 0.
+// Returns index of the closing-keyword line (not added to body).
+static size_t collect_until_closed(const std::vector<std::string>& lines,
+                                    size_t start, std::vector<std::string>& body) {
+    int depth = 1;
+    size_t i = start;
+    while (i < lines.size()) {
+        int delta = block_depth_change(lines[i]);
+        depth += delta;
+        if (depth <= 0) return i;
+        body.push_back(lines[i]);
+        i++;
+    }
+    return i;
+}
+
+// Parse an if block starting at lines[start] (first line AFTER the "if" line).
+// init_cond = condition extracted from the if line.
+// Returns index of the "fi" line.
+static size_t parse_if_block(const std::vector<std::string>& lines, size_t start,
+                               const std::string& init_cond,
+                               std::vector<Branch>& branches) {
+    branches.push_back({init_cond, {}});
+    int depth = 1;
+    size_t i = start;
+    while (i < lines.size()) {
+        std::string l = trim(lines[i]);
+        auto toks = shell_tokens(l);
+        if (depth == 1 && !toks.empty()) {
+            if (toks[0] == "fi")   return i;
+            if (toks[0] == "then") { i++; continue; }  // lone "then" line
+            if (toks[0] == "else") {
+                branches.push_back({"", {}});
+                i++;
+                continue;
+            }
+            if (toks[0] == "elif") {
+                std::string cond = trim(l.substr(4));
+                size_t tp = cond.rfind(" then");
+                if (tp != std::string::npos) cond = trim(cond.substr(0, tp));
+                size_t sc = cond.rfind(';');
+                if (sc != std::string::npos) cond = trim(cond.substr(0, sc));
+                branches.push_back({cond, {}});
+                i++;
+                continue;
+            }
+        }
+        int delta = block_depth_change(lines[i]);
+        depth += delta;
+        branches.back().body.push_back(lines[i]);
+        i++;
+    }
+    return i;
+}
+
+static int script_exec_lines(const std::vector<std::string>& lines,
+                               const Paths& paths, Aliases& aliases,
+                               History* hist, Config* cfg,
+                               int last_exit, ScriptState& ss) {
+    size_t i = 0;
+    while (i < lines.size()) {
+        if (ss.do_break || ss.do_continue || ss.do_return) break;
+
+        std::string l = trim(lines[i]);
+        if (l.empty() || l[0] == '#') { i++; continue; }
+
+        auto toks = shell_tokens(l);
+        if (toks.empty()) { i++; continue; }
+
+        // Flow-control keywords
+        if (toks[0] == "break")    { ss.do_break = true;  return last_exit; }
+        if (toks[0] == "continue") { ss.do_continue = true; return last_exit; }
+        if (toks[0] == "return") {
+            ss.do_return  = true;
+            ss.return_val = (toks.size() > 1) ? std::stoi(toks[1]) : last_exit;
+            return ss.return_val;
+        }
+        if (toks[0] == "exit") {
+            int code = (toks.size() > 1) ? std::stoi(toks[1]) : 0;
+            std::exit(code);
+        }
+
+        // if block
+        if (toks[0] == "if") {
+            // Extract condition from "if COND; then" or "if COND"
+            std::string cond = trim(l.substr(2));
+            size_t tp = cond.rfind(" then");
+            if (tp != std::string::npos) cond = trim(cond.substr(0, tp));
+            size_t sc = cond.rfind(';');
+            if (sc != std::string::npos) cond = trim(cond.substr(0, sc));
+
+            size_t body_start = i + 1;
+            if (body_start < lines.size() && trim(lines[body_start]) == "then")
+                body_start++;
+
+            std::vector<Branch> branches;
+            size_t fi_idx = parse_if_block(lines, body_start, cond, branches);
+
+            bool executed = false;
+            for (auto& br : branches) {
+                if (executed) break;
+                if (br.cond.empty()) {
+                    last_exit = script_exec_lines(br.body, paths, aliases,
+                                                   hist, cfg, last_exit, ss);
+                    executed = true;
+                } else {
+                    std::string ec = expand_vars(expand_aliases_once(br.cond, aliases),
+                                                  last_exit);
+                    int rc = run_command_line(ec, paths, aliases, hist, cfg, last_exit);
+                    if (rc == 0) {
+                        last_exit = script_exec_lines(br.body, paths, aliases,
+                                                       hist, cfg, last_exit, ss);
+                        executed = true;
+                    }
+                }
+            }
+            i = (fi_idx < lines.size()) ? fi_idx + 1 : lines.size();
+            continue;
+        }
+
+        // for loop: "for VAR in items...; do"
+        if (toks[0] == "for") {
+            std::string var = (toks.size() >= 2) ? toks[1] : "";
+            std::vector<std::string> items;
+            bool in_list = false;
+            for (size_t j = 2; j < toks.size(); ++j) {
+                if (toks[j] == "in")             { in_list = true; continue; }
+                if (toks[j] == "do" || toks[j] == ";") continue;
+                if (in_list) items.push_back(expand_vars(toks[j], last_exit));
+            }
+
+            size_t body_start = i + 1;
+            if (body_start < lines.size() && trim(lines[body_start]) == "do")
+                body_start++;
+
+            std::vector<std::string> body;
+            size_t done_idx = collect_until_closed(lines, body_start, body);
+
+            for (auto& item : items) {
+                g_shell_vars[var] = item;
+                ScriptState inner;
+                last_exit = script_exec_lines(body, paths, aliases, hist, cfg, last_exit, inner);
+                if (inner.do_break) break;
+                if (inner.do_return) { ss = inner; break; }
+            }
+            i = (done_idx < lines.size()) ? done_idx + 1 : lines.size();
+            continue;
+        }
+
+        // while loop: "while COND; do"
+        if (toks[0] == "while") {
+            std::string cond = trim(l.substr(5));
+            size_t sc = cond.rfind(';');
+            if (sc != std::string::npos) cond = trim(cond.substr(0, sc));
+            if (cond.size() >= 3 && cond.substr(cond.size() - 3) == " do")
+                cond = trim(cond.substr(0, cond.size() - 3));
+
+            size_t body_start = i + 1;
+            if (body_start < lines.size() && trim(lines[body_start]) == "do")
+                body_start++;
+
+            std::vector<std::string> body;
+            size_t done_idx = collect_until_closed(lines, body_start, body);
+
+            for (;;) {
+                std::string ec = expand_vars(expand_aliases_once(cond, aliases), last_exit);
+                int rc = run_command_line(ec, paths, aliases, hist, cfg, last_exit);
+                if (rc != 0) break;
+                ScriptState inner;
+                last_exit = script_exec_lines(body, paths, aliases, hist, cfg, last_exit, inner);
+                if (inner.do_break) break;
+                if (inner.do_return) { ss = inner; break; }
+            }
+            i = (done_idx < lines.size()) ? done_idx + 1 : lines.size();
+            continue;
+        }
+
+        // Function definition: "name() {" or "function name {"
+        {
+            std::string fname;
+            if (is_func_def(l, fname)) {
+                size_t body_start = i + 1;
+                // Skip standalone "{" line if function header doesn't end with "{"
+                if (l.back() != '{') {
+                    if (body_start < lines.size() && trim(lines[body_start]) == "{")
+                        body_start++;
+                }
+                // Collect body lines until matching "}"
+                std::vector<std::string> fbody;
+                size_t end_idx = body_start;
+                while (end_idx < lines.size() && trim(lines[end_idx]) != "}")
+                    fbody.push_back(lines[end_idx++]);
+                g_functions[fname] = fbody;
+                i = (end_idx < lines.size()) ? end_idx + 1 : lines.size();
+                continue;
+            }
+        }
+
+        // Skip lone control keywords (then/do/else/fi/done handled above)
+        if (toks[0] == "then" || toks[0] == "do" || toks[0] == "else" ||
+            toks[0] == "fi"   || toks[0] == "done") {
+            i++;
+            continue;
+        }
+
+        // Regular command
+        std::string expanded = expand_vars(expand_aliases_once(l, aliases), last_exit);
+        last_exit = run_command_line(expanded, paths, aliases, hist, cfg, last_exit);
+        i++;
+    }
+    return last_exit;
 }
 
 // --------------------------------------------------
@@ -1304,7 +1714,7 @@ static std::string prompt(const Config& cfg) {
 // --------------------------------------------------
 // Main
 // --------------------------------------------------
-int main() {
+int main(int argc, char* argv[]) {
 #ifdef _WIN32
 {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -1322,6 +1732,32 @@ int main() {
 
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
+
+    // Script file execution: winix script.sh [arg1 arg2 ...]
+    if (argc >= 2) {
+        std::ifstream fin(argv[1]);
+        if (!fin) {
+            std::cerr << "winix: " << argv[1] << ": No such file or directory\n";
+            return 1;
+        }
+        for (int k = 2; k < argc; ++k)
+            g_positional.push_back(argv[k]);
+        std::vector<std::string> slines;
+        std::string sl;
+        while (std::getline(fin, sl)) {
+            if (!sl.empty() && sl.back() == '\r') sl.pop_back();
+            if (slines.empty() && sl.rfind("#!", 0) == 0) continue; // skip shebang
+            slines.push_back(sl);
+        }
+        Config cfg2;
+        auto paths2 = make_paths();
+        load_rc(paths2, cfg2);
+        setenv_win("WINIX_CASE", cfg2.case_sensitive ? "on" : "off");
+        Aliases aliases2;
+        aliases2.load(paths2.aliases_file);
+        ScriptState ss;
+        return script_exec_lines(slines, paths2, aliases2, nullptr, &cfg2, 0, ss);
+    }
 
     // Intercept Ctrl+C / Ctrl+Break: kill the foreground child (which is in
     // the same console group and receives the event automatically), but keep
@@ -1361,6 +1797,27 @@ int main() {
 
         auto ll = to_lower(original);
         if (ll == "exit" || ll == "quit") break;
+
+        // Multi-line block: if/for/while/function — buffer until depth reaches 0
+        {
+            int depth = block_depth_change(original);
+            if (depth > 0) {
+                std::vector<std::string> block_lines;
+                block_lines.push_back(original);
+                while (depth > 0) {
+                    auto cont = editor.read_line("> ");
+                    if (!cont.has_value()) break;
+                    block_lines.push_back(*cont);
+                    depth += block_depth_change(*cont);
+                }
+                hist.add(original);
+                hist.save(paths.history_file);
+                ScriptState ss;
+                last_exit = script_exec_lines(block_lines, paths, aliases,
+                                               &hist, &cfg, last_exit, ss);
+                continue;
+            }
+        }
 
         auto expanded = expand_vars(
                             expand_aliases_once(original, aliases), last_exit);
