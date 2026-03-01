@@ -387,6 +387,24 @@ static std::vector<std::string> split_pipe(const std::string& s) {
 }
 
 // --------------------------------------------------
+// Ctrl+C handling
+// --------------------------------------------------
+// Console control handler — runs in a dedicated Windows thread.
+// Returning TRUE suppresses the default behaviour (which would exit the shell).
+// Children in the same console group receive the event automatically and exit
+// via their own default handlers; we just need to keep the shell alive.
+static BOOL WINAPI console_ctrl_handler(DWORD event) {
+    if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT) {
+        // Ensure the next prompt starts on a fresh line after any partial output.
+        HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD  w    = 0;
+        WriteConsoleA(hout, "\n", 1, &w, nullptr);
+        return TRUE;   // shell stays alive
+    }
+    return FALSE;      // let other events (CTRL_CLOSE, etc.) use the default
+}
+
+// --------------------------------------------------
 // Process spawning
 // --------------------------------------------------
 // Spawn a process via cmd.exe /C (used for system PATH fallback).
@@ -406,7 +424,7 @@ static DWORD spawn_cmd(const std::string& command, bool wait,
     BOOL ok = CreateProcessA(
         NULL, (LPSTR)full.c_str(),
         NULL, NULL, TRUE,
-        CREATE_NEW_PROCESS_GROUP,
+        0,          // same console group — Ctrl+C reaches the child
         NULL, NULL, &si, &pi
     );
 
@@ -1160,6 +1178,11 @@ int main() {
 
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
+
+    // Intercept Ctrl+C / Ctrl+Break: kill the foreground child (which is in
+    // the same console group and receives the event automatically), but keep
+    // the shell itself alive.
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
 
     std::cout << "Winix Shell — Stable Edition\n";
 
