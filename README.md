@@ -25,7 +25,8 @@ Winix aims to:
   - `/usr/lib` – shared libraries
   - `/etc` – configuration
   - `/var` – logs, runtime data
-The end goal: a self-contained, first-class CLI ecosystem that feels like Unix but runs purely on Windows.
+
+> The end goal: a self-contained, first-class CLI ecosystem that feels like Unix but runs purely on Windows.
 ________________________________________
 Guiding Principles
 1.	Native First: All binaries are compiled for Windows — no MSYS, no WSL.
