@@ -1,12 +1,14 @@
 # Winix
 
-![Version](https://img.shields.io/badge/version-1.0-blue)
+![Version](https://img.shields.io/badge/version-1.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D4)
 ![Language](https://img.shields.io/badge/language-C%2FC%2B%2B-orange)
 [![CI](https://github.com/twbaty/winix/actions/workflows/ci.yml/badge.svg)](https://github.com/twbaty/winix/actions/workflows/ci.yml)
 
 > The Unix Windows should have had.
+
+> On Linux and missing Windows commands? Check out the companion project: [Doshell](https://github.com/twbaty/doshell) — DOS-style aliases for Linux.
 
 ---
 
