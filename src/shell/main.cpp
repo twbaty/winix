@@ -2132,14 +2132,24 @@ int main(int argc, char* argv[]) {
     SetConsoleOutputCP(CP_UTF8);
     std::ios::sync_with_stdio(false);
 
-    // Script file execution: winix script.sh [arg1 arg2 ...]
-    if (argc >= 2) {
-        std::ifstream fin(argv[1]);
-        if (!fin) {
-            std::cerr << "winix: " << argv[1] << ": No such file or directory\n";
+    // -C <dir>: start shell in specified directory (used by "Open Winix here")
+    int argi = 1;
+    if (argc >= 3 && std::string(argv[1]) == "-C") {
+        if (!SetCurrentDirectoryA(argv[2])) {
+            std::cerr << "winix: -C: " << argv[2] << ": no such directory\n";
             return 1;
         }
-        for (int k = 2; k < argc; ++k)
+        argi = 3;
+    }
+
+    // Script file execution: winix [-C dir] script.sh [arg1 arg2 ...]
+    if (argi < argc) {
+        std::ifstream fin(argv[argi]);
+        if (!fin) {
+            std::cerr << "winix: " << argv[argi] << ": No such file or directory\n";
+            return 1;
+        }
+        for (int k = argi + 1; k < argc; ++k)
             g_positional.push_back(argv[k]);
         std::vector<std::string> slines;
         std::string sl;
