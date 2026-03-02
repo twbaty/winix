@@ -36,9 +36,17 @@ reg delete "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere" /f >
 echo [CONTEXT] Done.
 
 :: ==========================================================
-:: 2. Remove Start Menu shortcut
+:: 2. Remove .sh file association
 :: ==========================================================
-echo [2/4] Removing Start Menu shortcut...
+echo [2/5] Removing .sh file association...
+reg delete "HKLM\SOFTWARE\Classes\.sh"         /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Classes\WinixScript" /f >nul 2>&1
+echo [SH] Done.
+
+:: ==========================================================
+:: 3. Remove Start Menu shortcut
+:: ==========================================================
+echo [3/5] Removing Start Menu shortcut...
 set SM_DIR=%ProgramData%\Microsoft\Windows\Start Menu\Programs\Winix
 if exist "!SM_DIR!" (
     rmdir /s /q "!SM_DIR!"
@@ -50,7 +58,7 @@ if exist "!SM_DIR!" (
 :: ==========================================================
 :: 3. Remove C:\Winix\bin from system PATH
 :: ==========================================================
-echo [3/4] Removing %INSTALL_PREFIX%\bin from system PATH...
+echo [4/5] Removing %INSTALL_PREFIX%\bin from system PATH...
 powershell -NoProfile -Command ^
     "$p = [Environment]::GetEnvironmentVariable('Path','Machine');" ^
     "$parts = $p -split ';' | Where-Object { $_ -ne '%INSTALL_PREFIX%\bin' -and $_ -ne '' };" ^
@@ -65,7 +73,7 @@ powershell -NoProfile -Command ^
 :: ==========================================================
 :: 4. Delete C:\Winix directory
 :: ==========================================================
-echo [4/4] Removing %INSTALL_PREFIX%...
+echo [5/5] Removing %INSTALL_PREFIX%...
 if exist "%INSTALL_PREFIX%" (
     rmdir /s /q "%INSTALL_PREFIX%"
     echo [FILES] %INSTALL_PREFIX% removed.

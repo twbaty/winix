@@ -88,9 +88,20 @@ echo [CONTEXT] Done.
 echo.
 
 :: ==========================================================
-:: 5. Windows Terminal profile (optional — skipped if WT not installed)
+:: 5. .sh file association — double-click runs with winix.exe
 :: ==========================================================
-echo [5/5] Adding Windows Terminal profile...
+echo [5/6] Registering .sh file association...
+reg add "HKLM\SOFTWARE\Classes\.sh"                               /ve /d "WinixScript"                                          /f >nul
+reg add "HKLM\SOFTWARE\Classes\WinixScript"                       /ve /d "Winix Shell Script"                                   /f >nul
+reg add "HKLM\SOFTWARE\Classes\WinixScript\DefaultIcon"           /ve /d "%INSTALL_PREFIX%\bin\winix.exe,0"                     /f >nul
+reg add "HKLM\SOFTWARE\Classes\WinixScript\shell\open\command"    /ve /d "\"%INSTALL_PREFIX%\bin\winix.exe\" \"%%1\""           /f >nul
+echo [SH] Done. Double-clicking .sh files will now run them with Winix.
+echo.
+
+:: ==========================================================
+:: 6. Windows Terminal profile (optional — skipped if WT not installed)
+:: ==========================================================
+echo [6/6] Adding Windows Terminal profile...
 powershell -NoProfile -Command ^
     "$wtPaths = @(" ^
     "  \"$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json\"," ^
@@ -127,6 +138,7 @@ echo  * Binaries : %INSTALL_PREFIX%\bin
 echo  * To launch : type  winix  in any terminal
 echo  * Start Menu: Search "Winix" — right-click to Pin to Taskbar
 echo  * Explorer  : Right-click any folder → "Open Winix here"
+echo  * .sh files : double-click to execute with Winix
 echo  * To remove : run uninstall.bat as Administrator
 echo =========================================================
 echo.

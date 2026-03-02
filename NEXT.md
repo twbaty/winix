@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 1.3
+**Version:** 1.5
 **Date:** 2026-03-01
 
 ---
@@ -63,7 +63,7 @@
 - [x] Add `install` target to copy executables to `C:\Winix\bin`
 - [x] Add `.vscode/` config for IntelliSense
 - [x] Add `docs/build_instructions.md`
-- [ ] Register `.sh` file association in Windows (run with `winix.exe`) — installer step
+- [x] Register `.sh` file association in Windows (run with `winix.exe`) — installer step
 
 ---
 
@@ -102,6 +102,7 @@
 | **1.2** | Done | Shell scripting ✅, md5sum/sha256sum ✅, hexdump ✅, sed ✅, xargs ✅, tac/rev/nl/id/timeout/ln ✅, seq/test/yes/hostname ✅, paste/comm/base64/shuf ✅, bg jobs ✅, $(()) ✅, case/esac ✅, read ✅ |
 | **1.3** | Done | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion ✅, `local VAR` ✅, `.sh` file association |
 | **1.4** | Done | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅, `awk` ✅ |
+| **1.5** | Done | Start Menu shortcut ✅, Pin to Taskbar ✅, Windows Terminal profile ✅, "Open Winix here" context menu ✅, `.sh` file association ✅, `uninstall.bat` ✅ |
 
 ---
 
