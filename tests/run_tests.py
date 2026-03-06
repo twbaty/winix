@@ -1795,7 +1795,7 @@ def _wlint_tree():
 
 # version / help
 out, err, rc = run('wlint', '--version')
-check('wlint --version', 'wlint' in out and '1.0' in out)
+check('wlint --version', 'wlint' in out and '1.3' in out)
 
 out, err, rc = run('wlint', '--help')
 check('wlint --help exit 0', rc == 0)
@@ -1822,7 +1822,7 @@ d1 = _wlint_tree()
 try:
     out, err, rc = run('wlint', d1)
     check('wlint dups exit 1', rc == 1)
-    check('wlint dups shows DUPLICATE SET', 'DUPLICATE SET' in out)
+    check('wlint dups shows DUPLICATE GROUP', 'DUPLICATE GROUP' in out)
     check('wlint dups shows KEEP', 'KEEP' in out)
     check('wlint dups shows DUP', 'DUP' in out)
     check('wlint dups shows reclaimable', 'reclaimable' in out.lower())
@@ -1850,10 +1850,12 @@ try:
         data = _json.load(f)
     check('wlint json has wlint_version',  'wlint_version' in data)
     check('wlint json has summary',        'summary' in data)
-    check('wlint json has duplicate_sets', 'duplicate_sets' in data)
-    check('wlint json has empty_files',    'empty_files' in data)
-    check('wlint json duplicate_sets count == 1', len(data['duplicate_sets']) == 1)
-    ds = data['duplicate_sets'][0]
+    check('wlint json has schema_version',   'schema_version' in data)
+    check('wlint json has duplicate_groups', 'duplicate_groups' in data)
+    check('wlint json has empty_files',      'empty_files' in data)
+    check('wlint json has warnings in summary', 'warnings' in data['summary'])
+    check('wlint json duplicate_groups count == 1', len(data['duplicate_groups']) == 1)
+    ds = data['duplicate_groups'][0]
     check('wlint json set has 3 files', len(ds['files']) == 3)
     check('wlint json set has sha256',  len(ds['sha256']) == 64)
     kept = [f for f in ds['files'] if f['keep']]
@@ -1883,12 +1885,12 @@ try:
     if os.path.exists(jfile):
         with open(jfile) as f:
             data = _json.load(f)
-        if data['duplicate_sets']:
-            ds = data['duplicate_sets'][0]
+        if data['duplicate_groups']:
+            ds = data['duplicate_groups'][0]
             kept_path = next((f['path'] for f in ds['files'] if f['keep']), '')
             check('wlint keep newest keeps newer file', 'new.txt' in kept_path)
         else:
-            check('wlint keep newest has dup set', False, 'no duplicate sets found')
+            check('wlint keep newest has dup set', False, 'no duplicate groups found')
     else:
         check('wlint keep newest json created', False, 'json file not created')
 finally:
@@ -1907,8 +1909,8 @@ try:
     if os.path.exists(jfile):
         with open(jfile) as f:
             data = _json.load(f)
-        if data['duplicate_sets']:
-            ds = data['duplicate_sets'][0]
+        if data['duplicate_groups']:
+            ds = data['duplicate_groups'][0]
             kept_path = next((f['path'] for f in ds['files'] if f['keep']), '')
             check('wlint keep oldest keeps older file', 'old.txt' in kept_path)
         else:
@@ -1945,6 +1947,530 @@ try:
     check('wlint csv has data rows', len(data_rows) >= 3)
 finally:
     shutil.rmtree(d7, ignore_errors=True)
+
+# --dry-run: files stay in place, output mentions DRY RUN
+d8 = _wlint_tree()
+qdir8 = tempfile.mkdtemp()
+try:
+    out, err, rc = run('wlint', '--quarantine', qdir8, '--dry-run', d8)
+    check('wlint --dry-run exit 1', rc == 1)
+    check('wlint --dry-run output has DRY RUN', 'DRY RUN' in out)
+    # original files must still be present (nothing moved)
+    orig_files = [f for f in os.listdir(d8) if not f.endswith('.json')]
+    check('wlint --dry-run files not moved', len(orig_files) >= 3)
+    # quarantine dir has no moved files
+    q_files = [f for f in os.listdir(qdir8) if not f.endswith('.json')]
+    check('wlint --dry-run no files in qdir', len(q_files) == 0)
+finally:
+    shutil.rmtree(d8, ignore_errors=True)
+    shutil.rmtree(qdir8, ignore_errors=True)
+
+# --undo: quarantine then restore
+d9 = _wlint_tree()
+qdir9 = tempfile.mkdtemp()
+try:
+    # remember original files before quarantine
+    orig_names = set(os.listdir(d9))
+    out, err, rc = run('wlint', '--quarantine', qdir9, d9)
+    check('wlint undo setup quarantine ok', rc == 1)
+    manifest = os.path.join(qdir9, 'wlint_moves.json')
+    check('wlint undo manifest exists', os.path.exists(manifest))
+    # now undo
+    out2, err2, rc2 = run('wlint', '--undo', manifest)
+    check('wlint --undo exit 0', rc2 == 0)
+    check('wlint --undo output has RESTORED', 'RESTORED' in out2)
+    # files back in original dir
+    restored_names = set(os.listdir(d9))
+    check('wlint --undo files restored', orig_names == restored_names)
+finally:
+    shutil.rmtree(d9, ignore_errors=True)
+    shutil.rmtree(qdir9, ignore_errors=True)
+
+# --undo hash mismatch: corrupt quarantined file before undo
+d10 = _wlint_tree()
+qdir10 = tempfile.mkdtemp()
+try:
+    run('wlint', '--quarantine', qdir10, d10)
+    manifest10 = os.path.join(qdir10, 'wlint_moves.json')
+    if os.path.exists(manifest10):
+        # corrupt a moved file
+        q_files10 = [f for f in os.listdir(qdir10) if f != 'wlint_moves.json']
+        if q_files10:
+            bad = os.path.join(qdir10, q_files10[0])
+            with open(bad, 'w') as f: f.write('corrupted content xyz\n')
+            out3, err3, rc3 = run('wlint', '--undo', manifest10)
+            check('wlint undo hash mismatch reports failure', rc3 != 0 or 'mismatch' in err3 or 'failed' in out3)
+        else:
+            check('wlint undo hash mismatch setup', False, 'no quarantined files found')
+    else:
+        check('wlint undo hash mismatch manifest', False, 'manifest not created')
+finally:
+    shutil.rmtree(d10, ignore_errors=True)
+    shutil.rmtree(qdir10, ignore_errors=True)
+
+# --undo occupied path: restore target already exists
+d11 = _wlint_tree()
+qdir11 = tempfile.mkdtemp()
+try:
+    run('wlint', '--quarantine', qdir11, d11)
+    manifest11 = os.path.join(qdir11, 'wlint_moves.json')
+    if os.path.exists(manifest11):
+        with open(manifest11) as f:
+            mdata = _json.load(f)
+        if mdata.get('moves'):
+            # recreate the original_path so it's occupied
+            orig_path = mdata['moves'][0]['original_path']
+            with open(orig_path, 'w') as f: f.write('occupier\n')
+            out4, err4, rc4 = run('wlint', '--undo', manifest11)
+            check('wlint undo occupied path reports failure', rc4 != 0 or 'already exists' in err4 or 'failed' in out4)
+        else:
+            check('wlint undo occupied setup', False, 'no moves in manifest')
+    else:
+        check('wlint undo occupied manifest', False, 'manifest not created')
+finally:
+    shutil.rmtree(d11, ignore_errors=True)
+    shutil.rmtree(qdir11, ignore_errors=True)
+
+# subtree refusal: --quarantine inside scan root exits 2
+d12 = _wlint_tree()
+try:
+    qsub = os.path.join(d12, 'quarantine_sub')
+    os.makedirs(qsub, exist_ok=True)
+    out5, err5, rc5 = run('wlint', '--quarantine', qsub, d12)
+    check('wlint subtree refusal exits 2', rc5 == 2)
+    check('wlint subtree refusal mentions scan root', 'scan root' in err5 or 'inside' in err5)
+finally:
+    shutil.rmtree(d12, ignore_errors=True)
+
+
+# --include: only .txt files appear in duplicate groups
+d_inc = tempfile.mkdtemp()
+try:
+    for name in ('a.txt', 'b.txt', 'c.txt'):
+        with open(os.path.join(d_inc, name), 'w') as f: f.write('txtcontent\n')
+    for name in ('x.log', 'y.log'):
+        with open(os.path.join(d_inc, name), 'w') as f: f.write('logcontent\n')
+    jfile_inc = os.path.join(d_inc, 'inc.json')
+    run('wlint', '--include', '*.txt', '--json', jfile_inc, d_inc)
+    if os.path.exists(jfile_inc):
+        with open(jfile_inc) as f:
+            data_inc = _json.load(f)
+        all_paths = [fi['path'] for ds in data_inc['duplicate_groups'] for fi in ds['files']]
+        check('wlint --include *.txt: .txt in groups', any('.txt' in p for p in all_paths))
+        check('wlint --include *.txt: no .log in groups', not any('.log' in p for p in all_paths))
+    else:
+        check('wlint --include json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d_inc, ignore_errors=True)
+
+# --exclude: .log files do not appear in duplicate groups
+d_exc = tempfile.mkdtemp()
+try:
+    for name in ('a.txt', 'b.txt'):
+        with open(os.path.join(d_exc, name), 'w') as f: f.write('txtcontent\n')
+    for name in ('x.log', 'y.log'):
+        with open(os.path.join(d_exc, name), 'w') as f: f.write('logcontent\n')
+    jfile_exc = os.path.join(d_exc, 'exc.json')
+    run('wlint', '--exclude', '*.log', '--json', jfile_exc, d_exc)
+    if os.path.exists(jfile_exc):
+        with open(jfile_exc) as f:
+            data_exc = _json.load(f)
+        all_paths = [fi['path'] for ds in data_exc['duplicate_groups'] for fi in ds['files']]
+        check('wlint --exclude *.log: no .log in groups', not any('.log' in p for p in all_paths))
+    else:
+        check('wlint --exclude json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d_exc, ignore_errors=True)
+
+# --max-size: only small dups are found, large dups excluded
+d_max = tempfile.mkdtemp()
+try:
+    for name in ('s1.bin', 's2.bin'):
+        with open(os.path.join(d_max, name), 'wb') as f: f.write(b'ab')
+    for name in ('l1.bin', 'l2.bin'):
+        with open(os.path.join(d_max, name), 'wb') as f: f.write(b'x' * 10000)
+    jfile_max = os.path.join(d_max, 'max.json')
+    run('wlint', '--max-size', '100', '--json', jfile_max, d_max)
+    if os.path.exists(jfile_max):
+        with open(jfile_max) as f:
+            data_max = _json.load(f)
+        all_sizes = [ds['size'] for ds in data_max['duplicate_groups']]
+        check('wlint --max-size 100: found small group', len(all_sizes) >= 1)
+        check('wlint --max-size 100: all group sizes <= 100', all(s <= 100 for s in all_sizes))
+        check('wlint --max-size 100: no large group', not any(s > 100 for s in all_sizes))
+    else:
+        check('wlint --max-size json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d_max, ignore_errors=True)
+
+# --ext: only .jpg files appear in duplicate groups
+d_ext = tempfile.mkdtemp()
+try:
+    for name in ('a.jpg', 'b.jpg'):
+        with open(os.path.join(d_ext, name), 'wb') as f: f.write(b'jpgdata')
+    for name in ('a.txt', 'b.txt'):
+        with open(os.path.join(d_ext, name), 'w') as f: f.write('txtdata\n')
+    jfile_ext = os.path.join(d_ext, 'ext.json')
+    run('wlint', '--ext', '.jpg', '--json', jfile_ext, d_ext)
+    if os.path.exists(jfile_ext):
+        with open(jfile_ext) as f:
+            data_ext = _json.load(f)
+        all_paths = [fi['path'] for ds in data_ext['duplicate_groups'] for fi in ds['files']]
+        check('wlint --ext .jpg: .jpg in groups', any('.jpg' in p for p in all_paths))
+        check('wlint --ext .jpg: no .txt in groups', not any('.txt' in p for p in all_paths))
+    else:
+        check('wlint --ext json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d_ext, ignore_errors=True)
+
+# --stats pretty: [STATS] block visible in stdout
+d_stats = _wlint_tree()
+try:
+    out_st, _, rc_st = run('wlint', '--stats', d_stats)
+    check('wlint --stats shows stats block', '[STATS]' in out_st or 'Elapsed' in out_st)
+finally:
+    shutil.rmtree(d_stats, ignore_errors=True)
+
+# --stats JSON: stats key always present with elapsed_ms
+d_stj = _wlint_tree()
+try:
+    jfile_stj = os.path.join(d_stj, 'stats.json')
+    run('wlint', '--stats', '--json', jfile_stj, d_stj)
+    if os.path.exists(jfile_stj):
+        with open(jfile_stj) as f:
+            data_stj = _json.load(f)
+        check('wlint --stats json has stats key', 'stats' in data_stj)
+        check('wlint --stats json has elapsed_ms', 'elapsed_ms' in data_stj.get('stats', {}))
+    else:
+        check('wlint --stats json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d_stj, ignore_errors=True)
+
+# deterministic ordering: two runs on same dir produce identical file order
+d_det = tempfile.mkdtemp()
+try:
+    for name in ('alpha.dat', 'beta.dat', 'gamma.dat'):
+        with open(os.path.join(d_det, name), 'wb') as f: f.write(b'detcontent')
+    jfile_det1 = os.path.join(d_det, 'det1.json')
+    jfile_det2 = os.path.join(d_det, 'det2.json')
+    run('wlint', '--json', jfile_det1, d_det)
+    run('wlint', '--json', jfile_det2, d_det)
+    if os.path.exists(jfile_det1) and os.path.exists(jfile_det2):
+        with open(jfile_det1) as f: data_det1 = _json.load(f)
+        with open(jfile_det2) as f: data_det2 = _json.load(f)
+        if data_det1['duplicate_groups'] and data_det2['duplicate_groups']:
+            paths1 = [fi['path'] for fi in data_det1['duplicate_groups'][0]['files']]
+            paths2 = [fi['path'] for fi in data_det2['duplicate_groups'][0]['files']]
+            check('wlint deterministic: file order same across runs', paths1 == paths2)
+        else:
+            check('wlint deterministic: groups found', False, 'no duplicate groups')
+    else:
+        check('wlint deterministic: json created', False, 'json files not created')
+finally:
+    shutil.rmtree(d_det, ignore_errors=True)
+
+
+# ── apropos ───────────────────────────────────────────────────────────────────
+
+section('apropos')
+
+out, err, rc = run('apropos', '--version')
+check('apropos --version exit 0', rc == 0)
+check('apropos --version shows apropos', 'apropos' in out)
+
+out, err, rc = run('apropos', '--help')
+check('apropos --help exit 0', rc == 0)
+check('apropos --help mentions --exact', '--exact' in err or '-e' in err)
+
+_, _, rc = run('apropos')
+check('apropos no args exits 2', rc == 2)
+
+out, _, rc = run('apropos', 'file')
+check('apropos file exit 0', rc == 0)
+check('apropos file finds cat', 'cat' in out)
+check('apropos file finds find', 'find' in out)
+check('apropos file finds stat', 'stat' in out)
+
+out, _, rc = run('apropos', 'sort')
+check('apropos sort finds sort', 'sort' in out)
+check('apropos sort finds comm', 'comm' in out)    # comm desc: "two sorted files"
+
+out, _, rc = run('apropos', 'duplicate')
+check('apropos duplicate finds wlint', 'wlint' in out)
+
+out, _, rc = run('apropos', 'xyzzy_nonexistent_zzz')
+check('apropos unknown keyword exits 1', rc == 1)
+check('apropos unknown keyword empty output', out.strip() == '')
+
+out, _, rc = run('apropos', 'cat', 'sort')
+check('apropos multi-keyword finds cat', 'cat' in out)
+check('apropos multi-keyword finds sort', 'sort' in out)
+
+out_e, _, rc_e = run('apropos', '--exact', 'sort')
+check('apropos --exact sort finds sort', 'sort' in out_e)
+check('apropos --exact sort does not find sha256sum',
+      'sha256sum' not in out_e)
+
+# ── wsim ──────────────────────────────────────────────────────────────────────
+
+section('wsim')
+
+import json as _jsm   # local alias for wsim tests (avoids conflict with _json)
+
+def _wsim_scan(path, files_list):
+    """Write a minimal wlint-compatible scan JSON for wsim tests."""
+    data = {
+        "schema_version": "1.0",
+        "wlint_version": "1.3",
+        "generated": "2026-01-01T00:00:00Z",
+        "scan_paths": ["C:\\test"],
+        "filters": {"min_size": 1, "max_size": 0, "include_pats": [], "exclude_pats": []},
+        "file_count": len(files_list),
+        "files": files_list,
+    }
+    with open(path, 'w', encoding='utf-8') as f:
+        _jsm.dump(data, f)
+
+# Test 1: --version
+out_v, err_v, rc_v = run('wsim', '--version')
+check('wsim --version exit 0', rc_v == 0)
+check('wsim --version shows wsim', 'wsim' in out_v)
+check('wsim --version shows 0.1', '0.1' in out_v)
+
+# Test 2: --help
+out_h, err_h, rc_h = run('wsim', '--help')
+check('wsim --help exit 0', rc_h == 0)
+check('wsim --help mentions --min-score', '--min-score' in err_h)
+check('wsim --help mentions --out', '--out' in err_h)
+
+# Test 3: no args → exit 2
+_, _, rc_na = run('wsim')
+check('wsim no args exits 2', rc_na == 2)
+
+# Test 4: nonexistent scan file → exit 2
+_, _, rc_nf = run('wsim', 'nonexistent_scan_12345.json')
+check('wsim missing scan file exits 2', rc_nf == 2)
+
+# Test 5: obvious duplicates detected (same name after normalization)
+_wsim_d1 = tempfile.mkdtemp()
+try:
+    scan5 = os.path.join(_wsim_d1, 'scan.json')
+    _wsim_scan(scan5, [
+        {"path": "C:\\data\\report.pdf", "basename": "report.pdf",
+         "ext": ".pdf", "size": 1000, "mtime": "2026-01-01T10:00:00"},
+        {"path": "C:\\data\\report - copy.pdf", "basename": "report - copy.pdf",
+         "ext": ".pdf", "size": 1000, "mtime": "2026-01-02T10:00:00"},
+    ])
+    out5, _, rc5 = run('wsim', scan5)
+    check('wsim duplicates exit 1', rc5 == 1)
+    if out5.strip():
+        d5 = _jsm.loads(out5)
+        check('wsim duplicates has candidate_groups', len(d5.get('candidate_groups', [])) >= 1)
+    else:
+        check('wsim duplicates has candidate_groups', False, 'no stdout')
+finally:
+    shutil.rmtree(_wsim_d1, ignore_errors=True)
+
+# Test 6: output schema fields
+_wsim_d6 = tempfile.mkdtemp()
+try:
+    scan6 = os.path.join(_wsim_d6, 'scan.json')
+    _wsim_scan(scan6, [
+        {"path": "C:\\data\\photo.jpg", "basename": "photo.jpg",
+         "ext": ".jpg", "size": 5000, "mtime": "2026-01-01T00:00:00"},
+        {"path": "C:\\data\\photo (1).jpg", "basename": "photo (1).jpg",
+         "ext": ".jpg", "size": 5000, "mtime": "2026-01-03T00:00:00"},
+    ])
+    out6, _, _ = run('wsim', scan6)
+    d6 = _jsm.loads(out6) if out6.strip() else {}
+    check('wsim output has schema_version',   'schema_version'   in d6)
+    check('wsim output has wsim_version',     'wsim_version'     in d6)
+    check('wsim output has source_scan',      'source_scan'      in d6)
+    check('wsim output has candidate_groups', 'candidate_groups' in d6)
+finally:
+    shutil.rmtree(_wsim_d6, ignore_errors=True)
+
+# Test 7: per-group fields (score, reasoning, files)
+_wsim_d7 = tempfile.mkdtemp()
+try:
+    scan7 = os.path.join(_wsim_d7, 'scan.json')
+    _wsim_scan(scan7, [
+        {"path": "C:\\data\\notes.txt", "basename": "notes.txt",
+         "ext": ".txt", "size": 200, "mtime": "2026-01-01T00:00:00"},
+        {"path": "C:\\data\\notes copy.txt", "basename": "notes copy.txt",
+         "ext": ".txt", "size": 200, "mtime": "2026-01-02T00:00:00"},
+    ])
+    out7, _, _ = run('wsim', scan7)
+    d7 = _jsm.loads(out7) if out7.strip() else {}
+    groups7 = d7.get('candidate_groups', [])
+    check('wsim group has score',     groups7 and 'score' in groups7[0])
+    check('wsim group has reasoning', groups7 and 'reasoning' in groups7[0])
+    check('wsim group has files',     groups7 and 'files' in groups7[0])
+    if groups7:
+        r7 = groups7[0].get('reasoning', {})
+        check('wsim reasoning has basename_similarity', 'basename_similarity' in r7)
+        check('wsim reasoning has ext_match',           'ext_match'           in r7)
+        check('wsim reasoning has size_similarity',     'size_similarity'     in r7)
+        check('wsim reasoning has mtime_proximity_days','mtime_proximity_days' in r7)
+        f7 = groups7[0].get('files', [])
+        check('wsim group files non-empty', len(f7) >= 2)
+        if f7:
+            check('wsim file entry has path',     all('path'     in e for e in f7))
+            check('wsim file entry has size',     all('size'     in e for e in f7))
+            check('wsim file entry has mtime',    all('mtime'    in e for e in f7))
+            check('wsim file entry has ext',      all('ext'      in e for e in f7))
+            check('wsim file entry has basename', all('basename' in e for e in f7))
+finally:
+    shutil.rmtree(_wsim_d7, ignore_errors=True)
+
+# Test 8: --min-score filters out low-scoring pairs
+_wsim_d8 = tempfile.mkdtemp()
+try:
+    scan8 = os.path.join(_wsim_d8, 'scan.json')
+    # vacation_photo_edit.jpg vs vacation_photo.jpg — same token ("vacation"),
+    # same ext/size, but different norm names → score ~0.83, below 0.90
+    _wsim_scan(scan8, [
+        {"path": "C:\\data\\vacation_photo.jpg", "basename": "vacation_photo.jpg",
+         "ext": ".jpg", "size": 5000, "mtime": "2026-01-01T00:00:00"},
+        {"path": "C:\\data\\vacation_photo_edit.jpg", "basename": "vacation_photo_edit.jpg",
+         "ext": ".jpg", "size": 5000, "mtime": "2026-01-02T00:00:00"},
+    ])
+    # Default min-score (0.40) — should find the pair
+    out8a, _, rc8a = run('wsim', scan8)
+    d8a = _jsm.loads(out8a) if out8a.strip() else {}
+    check('wsim default min-score finds pair', len(d8a.get('candidate_groups', [])) >= 1)
+    # High min-score (0.90) — should not find the pair
+    out8b, _, rc8b = run('wsim', '--min-score', '0.90', scan8)
+    d8b = _jsm.loads(out8b) if out8b.strip() else {}
+    check('wsim --min-score 0.90 filters pair', len(d8b.get('candidate_groups', [])) == 0)
+    check('wsim --min-score 0.90 no candidates exits 0', rc8b == 0)
+finally:
+    shutil.rmtree(_wsim_d8, ignore_errors=True)
+
+# Test 9: different extensions → no groups (blocked)
+_wsim_d9 = tempfile.mkdtemp()
+try:
+    scan9 = os.path.join(_wsim_d9, 'scan.json')
+    _wsim_scan(scan9, [
+        {"path": "C:\\data\\photo.jpg", "basename": "photo.jpg",
+         "ext": ".jpg", "size": 1000, "mtime": "2026-01-01T00:00:00"},
+        {"path": "C:\\data\\photo.png", "basename": "photo.png",
+         "ext": ".png", "size": 1000, "mtime": "2026-01-01T00:00:00"},
+    ])
+    out9, _, rc9 = run('wsim', scan9)
+    d9 = _jsm.loads(out9) if out9.strip() else {}
+    check('wsim diff ext no groups', len(d9.get('candidate_groups', [])) == 0)
+    check('wsim diff ext exits 0', rc9 == 0)
+finally:
+    shutil.rmtree(_wsim_d9, ignore_errors=True)
+
+# Test 10: empty scan (0 files) → 0 groups, exit 0
+_wsim_d10 = tempfile.mkdtemp()
+try:
+    scan10 = os.path.join(_wsim_d10, 'scan.json')
+    _wsim_scan(scan10, [])
+    out10, _, rc10 = run('wsim', scan10)
+    d10 = _jsm.loads(out10) if out10.strip() else {}
+    check('wsim empty scan candidate_groups is empty list',
+          d10.get('candidate_groups') == [])
+    check('wsim empty scan exits 0', rc10 == 0)
+finally:
+    shutil.rmtree(_wsim_d10, ignore_errors=True)
+
+# Test 11: --out FILE writes to file (not stdout)
+_wsim_d11 = tempfile.mkdtemp()
+try:
+    scan11  = os.path.join(_wsim_d11, 'scan.json')
+    out11f  = os.path.join(_wsim_d11, 'results.json')
+    _wsim_scan(scan11, [
+        {"path": "C:\\data\\doc.pdf", "basename": "doc.pdf",
+         "ext": ".pdf", "size": 800, "mtime": "2026-01-01T00:00:00"},
+        {"path": "C:\\data\\doc (1).pdf", "basename": "doc (1).pdf",
+         "ext": ".pdf", "size": 800, "mtime": "2026-01-02T00:00:00"},
+    ])
+    stdout11, _, _ = run('wsim', '--out', out11f, scan11)
+    check('wsim --out file created', os.path.exists(out11f))
+    check('wsim --out stdout is empty', stdout11.strip() == '')
+    if os.path.exists(out11f):
+        with open(out11f) as f:
+            d11 = _jsm.load(f)
+        check('wsim --out file valid JSON with groups',
+              len(d11.get('candidate_groups', [])) >= 1)
+finally:
+    shutil.rmtree(_wsim_d11, ignore_errors=True)
+
+
+# ── wlint --scan-json ─────────────────────────────────────────────────────────
+
+# Test 1: file created + valid JSON
+d_sj1 = _wlint_tree()
+sj_file1 = os.path.join(d_sj1, 'scan.json')
+try:
+    run('wlint', '--scan-json', sj_file1, d_sj1)
+    check('wlint --scan-json file created', os.path.exists(sj_file1))
+    if os.path.exists(sj_file1):
+        with open(sj_file1) as f:
+            data_sj1 = _json.load(f)
+        check('wlint --scan-json valid JSON', isinstance(data_sj1, dict))
+    else:
+        check('wlint --scan-json valid JSON', False, 'file not created')
+finally:
+    shutil.rmtree(d_sj1, ignore_errors=True)
+
+# Test 2: schema fields present
+d_sj2 = _wlint_tree()
+sj_file2 = os.path.join(d_sj2, 'scan.json')
+try:
+    run('wlint', '--scan-json', sj_file2, d_sj2)
+    if os.path.exists(sj_file2):
+        with open(sj_file2) as f:
+            data_sj2 = _json.load(f)
+        check('wlint --scan-json has schema_version', 'schema_version' in data_sj2)
+        check('wlint --scan-json has wlint_version',  'wlint_version'  in data_sj2)
+        check('wlint --scan-json has file_count',     'file_count'     in data_sj2)
+        check('wlint --scan-json has files',          'files'          in data_sj2)
+        check('wlint --scan-json has filters',        'filters'        in data_sj2)
+    else:
+        for lbl in ('schema_version', 'wlint_version', 'file_count', 'files', 'filters'):
+            check(f'wlint --scan-json has {lbl}', False, 'file not created')
+finally:
+    shutil.rmtree(d_sj2, ignore_errors=True)
+
+# Test 3: per-file fields
+d_sj3 = _wlint_tree()
+sj_file3 = os.path.join(d_sj3, 'scan.json')
+try:
+    run('wlint', '--scan-json', sj_file3, d_sj3)
+    if os.path.exists(sj_file3):
+        with open(sj_file3) as f:
+            data_sj3 = _json.load(f)
+        files_sj3 = data_sj3.get('files', [])
+        check('wlint --scan-json files list non-empty', len(files_sj3) > 0)
+        if files_sj3:
+            required = ('path', 'size', 'mtime', 'ext', 'basename')
+            for req in required:
+                check(f'wlint --scan-json every file has {req}',
+                      all(req in entry for entry in files_sj3))
+    else:
+        check('wlint --scan-json per-file fields', False, 'file not created')
+finally:
+    shutil.rmtree(d_sj3, ignore_errors=True)
+
+# Test 4: filter interaction -- --include *.txt --scan-json; all entries .txt
+d_sj4 = _wlint_tree()
+sj_file4 = os.path.join(d_sj4, 'scan_filtered.json')
+try:
+    run('wlint', '--include', '*.txt', '--scan-json', sj_file4, d_sj4)
+    if os.path.exists(sj_file4):
+        with open(sj_file4) as f:
+            data_sj4 = _json.load(f)
+        files_sj4 = data_sj4.get('files', [])
+        check('wlint --scan-json filter: all entries .txt',
+              all(e.get('ext', '').lower() == '.txt' for e in files_sj4))
+    else:
+        check('wlint --scan-json filter: file created', False, 'file not created')
+finally:
+    shutil.rmtree(d_sj4, ignore_errors=True)
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────

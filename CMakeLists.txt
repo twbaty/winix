@@ -163,6 +163,11 @@ target_link_libraries(awk m)
 add_executable(wlint    src/coreutils/wlint.c)
 target_link_libraries(wlint winixcommon bcrypt)
 
+add_executable(wsim     src/coreutils/wsim.c)
+target_link_libraries(wsim winixcommon)
+
+add_executable(apropos  src/coreutils/apropos.c)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -178,6 +183,6 @@ install(TARGETS
     md5sum sha256sum hexdump
     test_cmd lbracket
     mktemp realpath cmp fold expand unexpand
-    column time watch bc awk wlint
+    column time watch bc awk wlint wsim apropos
     DESTINATION bin
 )

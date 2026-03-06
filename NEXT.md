@@ -104,6 +104,10 @@
 | **1.4** | Done | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅, `awk` ✅ |
 | **1.5** | Done | Start Menu shortcut ✅, Pin to Taskbar ✅, Windows Terminal profile ✅, "Open Winix here" context menu ✅, `.sh` file association ✅, `uninstall.bat` ✅ |
 | **1.6** | Done | `wlint` ✅ — filesystem lint detector (duplicates, empty files/dirs, SHA-256 via BCrypt, JSON/CSV output, quarantine mode) |
+| **1.7** | Done | `wlint` v1.2 ✅ — glob filtering (`--include`/`--exclude`/`--ext`), `--max-size`, `--stats` block, deterministic within-group ordering, stats in JSON |
+| **1.8** | Done | `wlint` v1.3 ✅ — `--scan-json FILE` raw file inventory for wsim (path, size, mtime, ext, basename) |
+| **1.9** | Done | `wsim` v0.1 ✅ — similarity scorer (basename/ext/size/mtime scoring, blocking, union-find grouping, JSON output) |
+| **2.0** | Done | `apropos` ✅ — search command descriptions by keyword; substring + whole-word modes |
 
 ---
 
@@ -180,7 +184,21 @@
 - [x] `fold` — wrap long lines at a given width
 - [x] `expand` / `unexpand` — convert tabs to/from spaces
 
-## wlint (v1.6)
+## wsim (v0.1)
+- [x] Read wlint `--scan-json` inventory
+- [x] Name normalization: lowercase, strip ext, underscore/hyphen → spaces, copy markers, version markers, collapse whitespace
+- [x] Candidate blocking: same ext + size ±20% + shared first token
+- [x] Scoring: basename similarity (50%), ext match (15%), size similarity (25%), mtime proximity (10%)
+- [x] Union-find clustering of similar pairs
+- [x] JSON output (stdout or `--out FILE`), sorted by score descending
+- [x] `--min-score N` threshold, `--verbose`, `--version`, `--help`
+- [x] Exit codes: 0=no candidates, 1=candidates found, 2=error
+- [ ] `--pretty` human-readable output
+- [ ] `--min-score` default tuning after real-world testing
+- [ ] `--recommend-keep newest|oldest|path-shortest`
+- [ ] `--csv` output
+
+## wlint (v1.6 → v1.7)
 - [x] Three-phase duplicate detection: size grouping → SHA-256 (Windows CNG BCrypt) → optional byte-verify (`--verify`)
 - [x] Empty file and empty directory detection (`--empty`)
 - [x] Keep policies: `newest` (default), `oldest`, `first`
@@ -189,7 +207,13 @@
 - [x] Unicode path support (wchar_t internally, UTF-8 output)
 - [x] Junction point loop prevention
 - [x] Exit codes: 0=clean, 1=lint found, 2=error
-- [ ] Ignore patterns (`--ignore .git node_modules`)
+- [x] Glob filtering: `--include PAT`, `--exclude PAT` (repeatable, case-insensitive)
+- [x] Extension shortcut: `--ext .jpg,.pdf` (compiles to include patterns)
+- [x] `--max-size BYTES` — skip files larger than limit
+- [x] `--stats` — elapsed time, bytes in pool, SHA-256 ops, verify ops
+- [x] Stats always present in JSON output (`stats` key)
+- [x] Deterministic within-group ordering (non-kept files sorted lex by path)
+- [x] `--scan-json FILE` — raw file inventory JSON for wsim (path, size, mtime, ext, basename)
 - [ ] Temp file detection (common temp extensions)
 - [ ] Syntax highlighting in `nix` editor
 

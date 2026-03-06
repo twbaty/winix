@@ -1,5 +1,5 @@
 /*
- * wlint — Winix filesystem lint detector  v1.0
+ * wlint — Winix filesystem lint detector  v1.3
  *
  * Finds duplicate files, empty files, and empty directories.
  * Never deletes automatically. Outputs findings as human-readable
@@ -10,7 +10,7 @@
  *   1. Walk paths recursively; collect (path, size, mtime)
  *   2. Group files by exact size          (O(n log n) sort)
  *   3. SHA-256 via Windows CNG only for same-size candidates
- *   4. Group by hash -> duplicate sets
+ *   4. Group by hash -> duplicate groups
  *   5. Optional byte-for-byte verification pass
  *   6. Apply keep policy; output results
  *
@@ -22,11 +22,23 @@
  *       --min-size BYTES  skip files smaller than BYTES (default: 1)
  *       --json FILE       write JSON report to FILE
  *       --csv  FILE       write CSV  report to FILE
+ *       --scan-json FILE  write full file inventory JSON for wsim
  *       --quarantine DIR  move non-kept duplicates to DIR
+ *       --dry-run         show quarantine plan without moving files
+ *       --undo MANIFEST   restore quarantined files from move manifest
  *   -v  --verbose         progress output
  *       --no-color        disable ANSI colors
  *       --version
  *       --help
+ *
+ * Behavior contract:
+ *   newest  Highest FILETIME kept; mtime ties -> lex-first path kept
+ *   oldest  Lowest FILETIME kept; same tie-break
+ *   first   Lex-first path by byte order (case-sensitive strcmp)
+ *   Hidden/system files  Included
+ *   Reparse points       Skipped, never followed, never reported
+ *   Access denied/locked Warning to stderr; file skipped; counted in summary
+ *   Output order         Duplicate groups: reclaimable bytes descending
  *
  * Exit codes:  0 = clean (no lint found)
  *              1 = lint found
@@ -41,8 +53,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <io.h>
+#include <ctype.h>
 
-#define WLINT_VERSION  "1.0"
+#define WLINT_VERSION  "1.3"
+#define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
 #define READ_BUF_SZ    65536
@@ -100,7 +114,14 @@ typedef struct {
     char       *json_out;
     char       *csv_out;
     char       *quarantine;
+    int         dry_run;         /* --dry-run: show quarantine plan, no moves */
+    char       *undo_manifest;   /* --undo <path>: restore from manifest      */
     int         verbose;
+    char      **include_pats;   int ninclude;   int include_cap;
+    char      **exclude_pats;   int nexclude;   int exclude_cap;
+    int64_t     max_size;       /* 0 = no limit */
+    int         do_stats;
+    char       *scan_json_out;  /* --scan-json FILE */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -117,6 +138,14 @@ static Opts      g_opts;
 static size_t g_dirs_scanned  = 0;
 static size_t g_files_scanned = 0;
 static size_t g_hashed        = 0;
+static size_t g_warnings      = 0;
+
+static ULONGLONG g_start_ms         = 0;
+static ULONGLONG g_elapsed_ms       = 0;
+static int64_t   g_bytes_in_pool    = 0;
+static size_t    g_same_size_groups = 0;
+static size_t    g_sha256_ops       = 0;
+static size_t    g_verify_ops       = 0;
 
 /* ── Utility ─────────────────────────────────────────────────── */
 
@@ -134,7 +163,7 @@ static wchar_t *wide_from_utf8(const char *s) {
     return w;
 }
 
-/* Normalize wide path: forward slashes → backslashes, strip trailing sep */
+/* Normalize wide path: forward slashes -> backslashes, strip trailing sep */
 static void normalize_wpath(wchar_t *p) {
     for (wchar_t *c = p; *c; c++)
         if (*c == L'/') *c = L'\\';
@@ -171,6 +200,175 @@ static void json_esc(const char *src, char *dst, size_t dsz) {
         else if (c >= 0x20)        { dst[j++] = *p; }
     }
     dst[j] = '\0';
+}
+
+static const char *path_basename(const char *p) {
+    const char *s = p;
+    for (const char *c = p; *c; c++)
+        if (*c == '\\' || *c == '/') s = c + 1;
+    return s;
+}
+
+static const char *path_ext(const char *basename) {
+    const char *dot = NULL;
+    for (const char *c = basename; *c; c++)
+        if (*c == '.') dot = c;
+    return dot ? dot : "";
+}
+
+/* ── Glob matcher ────────────────────────────────────────────── */
+
+/* Case-insensitive glob: '*' matches any chars (including '\'), '?' matches one char */
+static int glob_match_ci(const char *pat, const char *str) {
+    while (*pat) {
+        if (*pat == '*') {
+            while (*pat == '*') pat++;          /* collapse ** */
+            if (!*pat) return 1;                /* trailing star */
+            while (*str)
+                if (glob_match_ci(pat, str++)) return 1;
+            return 0;
+        } else if (*pat == '?') {
+            if (!*str) return 0;
+            pat++; str++;
+        } else {
+            if (tolower((unsigned char)*pat) != tolower((unsigned char)*str)) return 0;
+            pat++; str++;
+        }
+    }
+    return *str == '\0';
+}
+
+static int file_accepted(const char *path) {
+    if (g_opts.ninclude > 0) {
+        int ok = 0;
+        for (int i = 0; i < g_opts.ninclude && !ok; i++)
+            ok = glob_match_ci(g_opts.include_pats[i], path);
+        if (!ok) return 0;
+    }
+    for (int i = 0; i < g_opts.nexclude; i++)
+        if (glob_match_ci(g_opts.exclude_pats[i], path)) return 0;
+    return 1;
+}
+
+static void push_include(const char *pat) {
+    if (g_opts.ninclude == g_opts.include_cap) {
+        g_opts.include_cap = g_opts.include_cap ? g_opts.include_cap * 2 : 8;
+        g_opts.include_pats = (char **)realloc(g_opts.include_pats,
+                                               g_opts.include_cap * sizeof(char *));
+    }
+    char *p = _strdup(pat);
+    for (char *c = p; *c; c++) if (*c == '/') *c = '\\';
+    g_opts.include_pats[g_opts.ninclude++] = p;
+}
+
+static void push_exclude(const char *pat) {
+    if (g_opts.nexclude == g_opts.exclude_cap) {
+        g_opts.exclude_cap = g_opts.exclude_cap ? g_opts.exclude_cap * 2 : 8;
+        g_opts.exclude_pats = (char **)realloc(g_opts.exclude_pats,
+                                               g_opts.exclude_cap * sizeof(char *));
+    }
+    char *p = _strdup(pat);
+    for (char *c = p; *c; c++) if (*c == '/') *c = '\\';
+    g_opts.exclude_pats[g_opts.nexclude++] = p;
+}
+
+static void parse_ext(const char *list) {
+    char buf[1024]; strncpy(buf, list, sizeof(buf)-1); buf[sizeof(buf)-1]='\0';
+    char *tok = strtok(buf, ",");
+    while (tok) {
+        while (*tok == ' ') tok++;
+        char pat[128];
+        snprintf(pat, sizeof(pat), tok[0]=='.' ? "*%s" : "*.%s", tok);
+        push_include(pat);
+        tok = strtok(NULL, ",");
+    }
+}
+
+/* ── JSON parsing helpers ────────────────────────────────────── */
+
+/* Extract a string value for "key": "value" from a JSON buffer.
+ * Handles \" and \\ escape sequences. Returns 1 on success. */
+static int json_str_val(const char *buf, const char *key,
+                        char *out, size_t outsz) {
+    char search[256];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    const char *p = strstr(buf, search);
+    if (!p) return 0;
+    p += strlen(search);
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != ':') return 0;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != '"') return 0;
+    p++;
+    size_t j = 0;
+    while (*p && j + 1 < outsz) {
+        if (*p == '\\') {
+            p++;
+            if      (*p == '"')  { out[j++] = '"';  p++; }
+            else if (*p == '\\') { out[j++] = '\\'; p++; }
+            else                 { out[j++] = *p++;      }
+        } else if (*p == '"') {
+            break;
+        } else {
+            out[j++] = *p++;
+        }
+    }
+    out[j] = '\0';
+    return 1;
+}
+
+/* Extract an integer value for "key": number from a JSON buffer.
+ * Returns 1 on success. */
+static int json_int64_val(const char *buf, const char *key, int64_t *out) {
+    char search[256];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    const char *p = strstr(buf, search);
+    if (!p) return 0;
+    p += strlen(search);
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != ':') return 0;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != '-' && (*p < '0' || *p > '9')) return 0;
+    *out = (int64_t)_strtoi64(p, NULL, 10);
+    return 1;
+}
+
+/* Iterate {...} objects in buf[0..buflen).
+ * *pos starts at 0; each call fills block[0..blocksz) with the next object
+ * and advances *pos past it. Returns 1 while objects remain, 0 when done.
+ * Correctly tracks string context so braces inside strings are ignored. */
+static int next_json_obj(const char *buf, size_t buflen, size_t *pos,
+                         char *block, size_t blocksz) {
+    /* find opening brace */
+    while (*pos < buflen && buf[*pos] != '{') (*pos)++;
+    if (*pos >= buflen) return 0;
+
+    size_t start = *pos;
+    int depth = 0;
+    int in_str = 0;
+    size_t i = start;
+
+    while (i < buflen) {
+        char c = buf[i];
+        if (in_str) {
+            if (c == '\\') { i += 2; continue; }
+            if (c == '"')  { in_str = 0; }
+        } else {
+            if      (c == '"') { in_str = 1; }
+            else if (c == '{') { depth++; }
+            else if (c == '}') { depth--; if (depth == 0) { i++; break; } }
+        }
+        i++;
+    }
+
+    size_t len = i - start;
+    if (len == 0 || len >= blocksz) { *pos = i; return 0; }
+    memcpy(block, buf + start, len);
+    block[len] = '\0';
+    *pos = i;
+    return 1;
 }
 
 /* ── SHA-256 via Windows CNG ─────────────────────────────────── */
@@ -316,6 +514,7 @@ static void scan_path(const wchar_t *dir, int depth) {
         char *du = utf8_from_wide(dir);
         fprintf(stderr, "wlint: cannot open: %s\n", du ? du : "?");
         free(du);
+        g_warnings++;
         return;
     }
 
@@ -341,8 +540,12 @@ static void scan_path(const wchar_t *dir, int depth) {
                 if (g_opts.do_empty && pu)
                     fvec_push(&g_empty_files,
                               file_new(pu, 0, fd.ftLastWriteTime));
-            } else if (size >= g_opts.min_size && pu) {
-                fvec_push(&g_files, file_new(pu, size, fd.ftLastWriteTime));
+            } else if (size >= g_opts.min_size &&
+                       (g_opts.max_size == 0 || size <= g_opts.max_size) && pu) {
+                if (file_accepted(pu)) {
+                    fvec_push(&g_files, file_new(pu, size, fd.ftLastWriteTime));
+                    g_bytes_in_pool += size;
+                }
             }
             free(pu);
         }
@@ -364,7 +567,7 @@ static void scan_path(const wchar_t *dir, int depth) {
                 g_dirs_scanned, g_files_scanned);
 }
 
-/* ── Analysis: size → hash → duplicate sets ─────────────────── */
+/* ── Analysis: size -> hash -> duplicate groups ─────────────── */
 
 static int cmp_size(const void *a, const void *b) {
     const File *fa = *(const File **)a;
@@ -385,7 +588,7 @@ static int cmp_mtime_desc(const void *a, const void *b) {
         return (fa->mtime.dwHighDateTime > fb->mtime.dwHighDateTime) ? -1 : 1;
     if (fa->mtime.dwLowDateTime  != fb->mtime.dwLowDateTime)
         return (fa->mtime.dwLowDateTime  > fb->mtime.dwLowDateTime)  ? -1 : 1;
-    return 0;
+    return strcmp(fa->path, fb->path);  /* tie-break: lex-first path -> index 0 -> KEEP */
 }
 
 static int cmp_mtime_asc(const void *a, const void *b) {
@@ -427,20 +630,23 @@ static void find_duplicates(void) {
 
         size_t run = j - i;
         if (run > 1) {
+            g_same_size_groups++;
             /* hash every file in this same-size group */
             for (size_t k = i; k < j; k++) {
                 File *f = g_files.items[k];
+                g_sha256_ops++;
                 if (sha256_file(f->path, f->hash) != 0) {
                     /* unreadable file: assign unique sentinel so it won't match */
                     snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
                     fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
+                    g_warnings++;
                 }
                 g_hashed++;
                 if (g_opts.verbose)
                     fprintf(stderr, "\r  Hashing... %zu files   \r", g_hashed);
             }
 
-            /* phase 3: sort subrange by hash → find matching runs */
+            /* phase 3: sort subrange by hash -> find matching runs */
             qsort(g_files.items + i, run, sizeof(File *), cmp_hash);
 
             size_t m = i;
@@ -462,11 +668,15 @@ static void find_duplicates(void) {
                         ds.files[k] = g_files.items[m + k];
 
                     /* optional byte-for-byte verification */
-                    if (g_opts.do_verify && ds.count >= 2)
+                    if (g_opts.do_verify && ds.count >= 2) {
+                        g_verify_ops++;
                         ds.verified = files_identical(ds.files[0]->path,
                                                       ds.files[1]->path);
+                    }
 
                     apply_keep_policy(&ds);
+                    /* sort non-kept files by path for stable output */
+                    qsort(ds.files + 1, ds.count - 1, sizeof(File *), cmp_path);
                     dvec_push(&g_dupsets, ds);
                 }
                 m = n;
@@ -476,6 +686,23 @@ static void find_duplicates(void) {
     }
 
     if (g_opts.verbose) fprintf(stderr, "\n");
+}
+
+/* ── Sort dupsets by reclaimable bytes descending ────────────── */
+
+static int cmp_reclaimable_desc(const void *a, const void *b) {
+    const DupSet *da = (const DupSet *)a;
+    const DupSet *db = (const DupSet *)b;
+    int64_t ra = (int64_t)(da->count - 1) * da->size;
+    int64_t rb = (int64_t)(db->count - 1) * db->size;
+    if (ra > rb) return -1;
+    if (ra < rb) return  1;
+    return 0;
+}
+
+static void sort_dupsets(void) {
+    if (g_dupsets.count > 1)
+        qsort(g_dupsets.items, g_dupsets.count, sizeof(DupSet), cmp_reclaimable_desc);
 }
 
 /* ── Output: human-readable ──────────────────────────────────── */
@@ -491,10 +718,10 @@ static void output_pretty(void) {
         total_reclaimable += reclaimable;
         total_dup_files   += ds->count;
 
-        fmt_size(ds->size,   sz,  sizeof(sz));
+        fmt_size(ds->size,    sz,  sizeof(sz));
         fmt_size(reclaimable, rec, sizeof(rec));
 
-        printf("%s[DUPLICATE SET]%s  %zu files | %s each | %s reclaimable%s\n",
+        printf("%s[DUPLICATE GROUP]%s  %zu files | %s each | %s reclaimable%s\n",
                cc(C_BOLD), cr(),
                ds->count, sz, rec,
                ds->verified ? "  (byte-verified)" : "");
@@ -534,13 +761,26 @@ static void output_pretty(void) {
 
     fmt_size(total_reclaimable, sz, sizeof(sz));
     printf("%s[SUMMARY]%s\n", cc(C_BOLD), cr());
-    printf("  Files scanned:   %zu\n",  g_files_scanned);
-    printf("  Duplicate sets:  %zu\n",  g_dupsets.count);
-    printf("  Duplicate files: %zu\n",  total_dup_files);
-    printf("  Reclaimable:     %s\n",   sz);
+    printf("  Files scanned:    %zu\n",  g_files_scanned);
+    printf("  Duplicate groups: %zu\n",  g_dupsets.count);
+    printf("  Duplicate files:  %zu\n",  total_dup_files);
+    printf("  Reclaimable:      %s\n",   sz);
     if (g_opts.do_empty) {
-        printf("  Empty files:     %zu\n", g_empty_files.count);
-        printf("  Empty dirs:      %zu\n", g_empty_dirs.count);
+        printf("  Empty files:      %zu\n", g_empty_files.count);
+        printf("  Empty dirs:       %zu\n", g_empty_dirs.count);
+    }
+    if (g_warnings > 0)
+        printf("  Warnings:         %zu (unreadable files, see stderr)\n", g_warnings);
+
+    if (g_opts.do_stats) {
+        char pool_sz[64];
+        fmt_size(g_bytes_in_pool, pool_sz, sizeof(pool_sz));
+        printf("%s[STATS]%s\n", cc(C_BOLD), cr());
+        printf("  Elapsed:           %llu ms\n",  (unsigned long long)g_elapsed_ms);
+        printf("  Bytes in pool:     %s\n",        pool_sz);
+        printf("  Same-size groups:  %zu\n",       g_same_size_groups);
+        printf("  SHA-256 ops:       %zu\n",       g_sha256_ops);
+        printf("  Byte-verify ops:   %zu\n",       g_verify_ops);
     }
 }
 
@@ -564,6 +804,7 @@ static void output_json(FILE *fp) {
              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
     fprintf(fp, "{\n");
+    fprintf(fp, "  \"schema_version\": \"%s\",\n", SCHEMA_VERSION);
     fprintf(fp, "  \"wlint_version\": \"%s\",\n", WLINT_VERSION);
     fprintf(fp, "  \"generated\": \"%s\",\n", generated);
 
@@ -575,15 +816,24 @@ static void output_json(FILE *fp) {
     fprintf(fp, "],\n");
 
     fprintf(fp, "  \"summary\": {\n");
-    fprintf(fp, "    \"files_scanned\": %zu,\n",    g_files_scanned);
-    fprintf(fp, "    \"duplicate_sets\": %zu,\n",   g_dupsets.count);
-    fprintf(fp, "    \"duplicate_files\": %zu,\n",  total_dups);
+    fprintf(fp, "    \"files_scanned\": %zu,\n",      g_files_scanned);
+    fprintf(fp, "    \"duplicate_groups\": %zu,\n",   g_dupsets.count);
+    fprintf(fp, "    \"duplicate_files\": %zu,\n",    total_dups);
     fprintf(fp, "    \"reclaimable_bytes\": %lld,\n", (long long)total_rec);
-    fprintf(fp, "    \"empty_files\": %zu,\n",       g_empty_files.count);
-    fprintf(fp, "    \"empty_dirs\": %zu\n",          g_empty_dirs.count);
+    fprintf(fp, "    \"empty_files\": %zu,\n",        g_empty_files.count);
+    fprintf(fp, "    \"empty_dirs\": %zu,\n",         g_empty_dirs.count);
+    fprintf(fp, "    \"warnings\": %zu\n",             g_warnings);
     fprintf(fp, "  },\n");
 
-    fprintf(fp, "  \"duplicate_sets\": [\n");
+    fprintf(fp, "  \"stats\": {\n");
+    fprintf(fp, "    \"elapsed_ms\": %llu,\n",      (unsigned long long)g_elapsed_ms);
+    fprintf(fp, "    \"bytes_in_pool\": %lld,\n",   (long long)g_bytes_in_pool);
+    fprintf(fp, "    \"same_size_groups\": %zu,\n", g_same_size_groups);
+    fprintf(fp, "    \"sha256_ops\": %zu,\n",       g_sha256_ops);
+    fprintf(fp, "    \"verify_ops\": %zu\n",        g_verify_ops);
+    fprintf(fp, "  },\n");
+
+    fprintf(fp, "  \"duplicate_groups\": [\n");
     for (size_t i = 0; i < g_dupsets.count; i++) {
         DupSet *ds = &g_dupsets.items[i];
         fprintf(fp, "    {\n");
@@ -614,7 +864,7 @@ static void output_json(FILE *fp) {
     }
     fprintf(fp, "],\n");
 
-    fprintf(fp, "  \"empty_dirs\": [");
+    fprintf(fp, "  \"empty_directories\": [");
     for (size_t i = 0; i < g_empty_dirs.count; i++) {
         json_esc(g_empty_dirs.items[i]->path, esc, sizeof(esc));
         fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
@@ -648,12 +898,135 @@ static void output_csv(FILE *fp) {
     }
 
     for (size_t i = 0; i < g_empty_dirs.count; i++)
-        fprintf(fp, "empty_dir,,0,,\"%s\",\n", g_empty_dirs.items[i]->path);
+        fprintf(fp, "empty_directory,,0,,\"%s\",\n", g_empty_dirs.items[i]->path);
+}
+
+/* ── Output: Scan JSON (wsim candidate inventory) ────────────── */
+
+static void output_scan_json(FILE *fp) {
+    char esc[PATH_BUF * 2];
+    char esc_base[512];
+    char esc_ext[64];
+    char mt[32];
+
+    /* timestamp */
+    SYSTEMTIME now;
+    GetSystemTime(&now);
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             now.wYear, now.wMonth, now.wDay,
+             now.wHour, now.wMinute, now.wSecond);
+
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"schema_version\": \"1.0\",\n");
+    fprintf(fp, "  \"wlint_version\": \"%s\",\n", WLINT_VERSION);
+    fprintf(fp, "  \"generated\": \"%s\",\n", ts);
+
+    /* scan_paths array */
+    fprintf(fp, "  \"scan_paths\": [");
+    for (int i = 0; i < g_opts.nscan; i++) {
+        json_esc(g_opts.scan_paths[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "],\n");
+
+    /* filters */
+    fprintf(fp, "  \"filters\": {\n");
+    fprintf(fp, "    \"min_size\": %lld,\n", (long long)g_opts.min_size);
+    fprintf(fp, "    \"max_size\": %lld,\n", (long long)g_opts.max_size);
+    fprintf(fp, "    \"include_pats\": [");
+    for (int i = 0; i < g_opts.ninclude; i++) {
+        json_esc(g_opts.include_pats[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "],\n");
+    fprintf(fp, "    \"exclude_pats\": [");
+    for (int i = 0; i < g_opts.nexclude; i++) {
+        json_esc(g_opts.exclude_pats[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "]\n");
+    fprintf(fp, "  },\n");
+
+    fprintf(fp, "  \"file_count\": %zu,\n", g_files.count);
+    fprintf(fp, "  \"files\": [\n");
+
+    for (size_t i = 0; i < g_files.count; i++) {
+        File *f = g_files.items[i];
+        json_esc(f->path, esc, sizeof(esc));
+        fmt_mtime(f->mtime, mt, sizeof(mt));
+        const char *base = path_basename(f->path);
+        const char *ext  = path_ext(base);
+        json_esc(base, esc_base, sizeof(esc_base));
+        json_esc(ext,  esc_ext,  sizeof(esc_ext));
+        fprintf(fp, "    {\"path\": \"%s\", \"size\": %lld, \"mtime\": \"%s\","
+                    " \"ext\": \"%s\", \"basename\": \"%s\"}%s\n",
+                esc, (long long)f->size, mt, esc_ext, esc_base,
+                i + 1 < g_files.count ? "," : "");
+    }
+
+    fprintf(fp, "  ]\n");
+    fprintf(fp, "}\n");
+}
+
+/* ── Subtree guard ───────────────────────────────────────────── */
+
+/* Return 1 if qdir is inside or equal to any scan root (case-insensitive). */
+static int qdir_inside_scan(const char *qdir) {
+    wchar_t *wq_tmp = wide_from_utf8(qdir);
+    if (!wq_tmp) return 0;
+    wchar_t wq_buf[PATH_BUF];
+    DWORD n = GetFullPathNameW(wq_tmp, PATH_BUF, wq_buf, NULL);
+    free(wq_tmp);
+    if (n == 0 || n >= PATH_BUF) return 0;
+    normalize_wpath(wq_buf);
+
+    for (int i = 0; i < g_opts.nscan; i++) {
+        wchar_t *ws = wide_from_utf8(g_opts.scan_paths[i]);
+        if (!ws) continue;
+        wchar_t ws_buf[PATH_BUF];
+        DWORD m = GetFullPathNameW(ws, PATH_BUF, ws_buf, NULL);
+        free(ws);
+        if (m == 0 || m >= PATH_BUF) continue;
+        normalize_wpath(ws_buf);
+
+        size_t slen = wcslen(ws_buf);
+        size_t qlen = wcslen(wq_buf);
+        /* qdir starts with scan_root\ or equals scan_root */
+        if (qlen >= slen && _wcsnicmp(wq_buf, ws_buf, slen) == 0) {
+            if (qlen == slen || wq_buf[slen] == L'\\')
+                return 1;
+        }
+    }
+    return 0;
 }
 
 /* ── Quarantine: move non-kept duplicates ────────────────────── */
 
 static int do_quarantine(const char *qdir) {
+    /* ── dry-run: just print what would happen ── */
+    if (g_opts.dry_run) {
+        int count = 0;
+        printf("[DRY RUN]  Quarantine plan (no files will be moved):\n");
+        for (size_t i = 0; i < g_dupsets.count; i++) {
+            DupSet *ds = &g_dupsets.items[i];
+            for (size_t k = 0; k < ds->count; k++) {
+                if (k == ds->kept_idx) continue;
+                File       *f     = ds->files[k];
+                const char *fname = strrchr(f->path, '\\');
+                if (!fname) fname = strrchr(f->path, '/');
+                fname = fname ? fname + 1 : f->path;
+                char dst[PATH_BUF];
+                snprintf(dst, sizeof(dst), "%s\\%.8s_%s", qdir, ds->hash, fname);
+                printf("  WOULD MOVE  %s\n             -> %s\n", f->path, dst);
+                count++;
+            }
+        }
+        printf("Dry run: %d file(s) would be moved.\n", count);
+        return 0;
+    }
+
+    /* ── live path ── */
     wchar_t *wq = wide_from_utf8(qdir);
     if (wq) { CreateDirectoryW(wq, NULL); free(wq); }
 
@@ -665,8 +1038,24 @@ static int do_quarantine(const char *qdir) {
     if (log) {
         SYSTEMTIME st;
         GetSystemTime(&st);
-        fprintf(log, "{\n  \"quarantine_date\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\",\n",
-                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        char ts[32];
+        snprintf(ts, sizeof(ts), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                 st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+        char esc[PATH_BUF * 2];
+        fprintf(log, "{\n");
+        fprintf(log, "  \"schema_version\": \"%s\",\n", SCHEMA_VERSION);
+        fprintf(log, "  \"wlint_version\": \"%s\",\n",  WLINT_VERSION);
+        fprintf(log, "  \"quarantine_date\": \"%s\",\n", ts);
+        fprintf(log, "  \"scan_paths\": [");
+        for (int i = 0; i < g_opts.nscan; i++) {
+            json_esc(g_opts.scan_paths[i], esc, sizeof(esc));
+            fprintf(log, "%s\"%s\"", i ? ", " : "", esc);
+        }
+        fprintf(log, "],\n");
+        json_esc(qdir, esc, sizeof(esc));
+        fprintf(log, "  \"quarantine_dir\": \"%s\",\n", esc);
+        fprintf(log, "  \"dry_run\": false,\n");
         fprintf(log, "  \"moves\": [\n");
     }
 
@@ -685,11 +1074,15 @@ static int do_quarantine(const char *qdir) {
             int  tries = 0;
             do {
                 if (tries == 0)
-                    snprintf(dst, sizeof(dst), "%s\\%.8s_%s",     qdir, ds->hash, fname);
+                    snprintf(dst, sizeof(dst), "%s\\%.8s_%s",    qdir, ds->hash, fname);
                 else
-                    snprintf(dst, sizeof(dst), "%s\\%.8s_%s_%d",  qdir, ds->hash, fname, tries);
+                    snprintf(dst, sizeof(dst), "%s\\%.8s_%s_%d", qdir, ds->hash, fname, tries);
                 tries++;
-            } while (GetFileAttributesA(dst) != INVALID_FILE_ATTRIBUTES && tries < 1000);
+                wchar_t *wdst = wide_from_utf8(dst);
+                int occupied  = wdst && (GetFileAttributesW(wdst) != INVALID_FILE_ATTRIBUTES);
+                free(wdst);
+                if (!occupied) break;
+            } while (tries < 1000);
 
             wchar_t *wsrc = wide_from_utf8(f->path);
             wchar_t *wdst = wide_from_utf8(dst);
@@ -698,10 +1091,26 @@ static int do_quarantine(const char *qdir) {
                 moved++;
                 if (log) {
                     char esrc[PATH_BUF * 2], edst[PATH_BUF * 2];
+                    char mt[32];
                     json_esc(f->path, esrc, sizeof(esrc));
                     json_esc(dst,     edst, sizeof(edst));
-                    fprintf(log, "%s    {\"from\": \"%s\", \"to\": \"%s\"}",
-                            first ? "" : ",\n", esrc, edst);
+                    fmt_mtime(f->mtime, mt, sizeof(mt));
+                    /* moved_at timestamp */
+                    SYSTEMTIME now;
+                    GetSystemTime(&now);
+                    char moved_at[32];
+                    snprintf(moved_at, sizeof(moved_at),
+                             "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                             now.wYear, now.wMonth, now.wDay,
+                             now.wHour, now.wMinute, now.wSecond);
+                    fprintf(log, "%s    {\n", first ? "" : ",\n");
+                    fprintf(log, "      \"original_path\":   \"%s\",\n", esrc);
+                    fprintf(log, "      \"quarantine_path\": \"%s\",\n", edst);
+                    fprintf(log, "      \"sha256\": \"%s\",\n",          ds->hash);
+                    fprintf(log, "      \"size\": %lld,\n",              (long long)ds->size);
+                    fprintf(log, "      \"mtime\": \"%s\",\n",           mt);
+                    fprintf(log, "      \"moved_at\": \"%s\"\n",         moved_at);
+                    fprintf(log, "    }");
                     first = 0;
                 }
             } else {
@@ -727,6 +1136,112 @@ static int do_quarantine(const char *qdir) {
     return failed > 0 ? 1 : 0;
 }
 
+/* ── Undo: restore quarantined files from manifest ───────────── */
+
+static int do_undo(const char *manifest_path) {
+    FILE *fp = fopen(manifest_path, "rb");
+    if (!fp) {
+        fprintf(stderr, "wlint: cannot open manifest: %s\n", manifest_path);
+        return 1;
+    }
+
+    /* read entire manifest into heap (refuse > 10 MB) */
+    fseek(fp, 0, SEEK_END);
+    long fsz = ftell(fp);
+    rewind(fp);
+    if (fsz > 10 * 1024 * 1024) {
+        fprintf(stderr, "wlint: manifest too large (>10 MB)\n");
+        fclose(fp); return 1;
+    }
+    char *buf = (char *)malloc((size_t)fsz + 1);
+    if (!buf) { fclose(fp); return 1; }
+    fread(buf, 1, (size_t)fsz, fp);
+    buf[fsz] = '\0';
+    fclose(fp);
+
+    /* display version from manifest */
+    char ver[64] = "(unknown)";
+    json_str_val(buf, "wlint_version", ver, sizeof(ver));
+    printf("Restoring from manifest (created by wlint %s)\n", ver);
+
+    /* locate "moves" array */
+    const char *moves_start = strstr(buf, "\"moves\"");
+    if (!moves_start) {
+        fprintf(stderr, "wlint: manifest has no 'moves' key\n");
+        free(buf); return 1;
+    }
+    /* skip past "moves": [ */
+    moves_start = strchr(moves_start, '[');
+    if (!moves_start) { free(buf); return 1; }
+    moves_start++;  /* past '[' */
+
+    int restored = 0, failed = 0, skipped = 0;
+    size_t pos = (size_t)(moves_start - buf);
+    char block[PATH_BUF * 8];
+
+    while (next_json_obj(buf, (size_t)fsz, &pos, block, sizeof(block))) {
+        char orig[PATH_BUF]     = "";
+        char qpath[PATH_BUF]    = "";
+        char sha256[SHA256_HEX] = "";
+        int64_t size_val        = 0;
+
+        json_str_val(block,   "original_path",   orig,   sizeof(orig));
+        json_str_val(block,   "quarantine_path",  qpath,  sizeof(qpath));
+        json_str_val(block,   "sha256",           sha256, sizeof(sha256));
+        json_int64_val(block, "size",             &size_val);
+
+        if (!orig[0] || !qpath[0]) continue;
+
+        /* a) quarantine file missing */
+        wchar_t *wq = wide_from_utf8(qpath);
+        int q_exists = wq && (GetFileAttributesW(wq) != INVALID_FILE_ATTRIBUTES);
+        free(wq);
+        if (!q_exists) {
+            fprintf(stderr, "wlint: undo: quarantine file missing (skipped): %s\n", qpath);
+            skipped++;
+            continue;
+        }
+
+        /* b) hash mismatch */
+        if (sha256[0]) {
+            char actual[SHA256_HEX] = "";
+            if (sha256_file(qpath, actual) == 0 && strcmp(actual, sha256) != 0) {
+                fprintf(stderr, "wlint: undo: hash mismatch (failed): %s\n", qpath);
+                failed++;
+                continue;
+            }
+        }
+
+        /* c) original path already exists */
+        wchar_t *wo = wide_from_utf8(orig);
+        int o_exists = wo && (GetFileAttributesW(wo) != INVALID_FILE_ATTRIBUTES);
+        if (o_exists) {
+            fprintf(stderr, "wlint: undo: destination already exists (failed): %s\n", orig);
+            free(wo);
+            failed++;
+            continue;
+        }
+
+        /* d) move quarantine -> original */
+        wchar_t *wq2 = wide_from_utf8(qpath);
+        if (wo && wq2 && MoveFileW(wq2, wo)) {
+            printf("  RESTORED  %s\n", orig);
+            restored++;
+        } else {
+            fprintf(stderr, "wlint: undo: cannot restore (error %lu): %s\n",
+                    GetLastError(), orig);
+            failed++;
+        }
+        free(wo);
+        free(wq2);
+    }
+
+    printf("Undo summary: %d restored, %d failed, %d skipped\n",
+           restored, failed, skipped);
+    free(buf);
+    return failed > 0 ? 1 : 0;
+}
+
 /* ── Help / version ──────────────────────────────────────────── */
 
 static void usage(const char *prog) {
@@ -740,7 +1255,15 @@ static void usage(const char *prog) {
         "      --min-size BYTES  skip files smaller than BYTES (default: 1)\n"
         "      --json FILE       write JSON report to FILE\n"
         "      --csv  FILE       write CSV  report to FILE\n"
+        "      --scan-json FILE  write full file inventory JSON for wsim\n"
         "      --quarantine DIR  move non-kept duplicates to DIR\n"
+        "      --dry-run         show quarantine plan without moving files\n"
+        "      --undo MANIFEST   restore quarantined files from move manifest\n"
+        "      --include PAT     include only files matching glob (repeatable)\n"
+        "      --exclude PAT     exclude files matching glob (repeatable)\n"
+        "      --max-size BYTES  skip files larger than BYTES\n"
+        "      --ext .EXT,...    include only these extensions (e.g. .jpg,.pdf)\n"
+        "      --stats           show performance statistics\n"
         "  -v  --verbose         show progress\n"
         "      --no-color        disable ANSI colors\n"
         "      --version         show version\n"
@@ -754,6 +1277,7 @@ static void usage(const char *prog) {
 int main(int argc, char *argv[]) {
     int ret = 0;
 
+    g_start_ms = GetTickCount64();
     memset(&g_opts, 0, sizeof(g_opts));
     g_opts.keep     = KEEP_NEWEST;
     g_opts.min_size = 1;
@@ -775,6 +1299,8 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(a, "-V") || !strcmp(a, "--verify"))  { g_opts.do_verify = 1; }
         else if (!strcmp(a, "-v") || !strcmp(a, "--verbose")) { g_opts.verbose   = 1; }
         else if (!strcmp(a, "--no-color"))                    { g_color           = 0; }
+        else if (!strcmp(a, "--dry-run"))                     { g_opts.dry_run    = 1; }
+        else if (!strcmp(a, "--undo") && i + 1 < argc)        { g_opts.undo_manifest = argv[++i]; }
         else if ((!strcmp(a, "-k") || !strcmp(a, "--keep")) && i + 1 < argc) {
             char *pol = argv[++i];
             if      (!strcmp(pol, "newest")) g_opts.keep = KEEP_NEWEST;
@@ -789,9 +1315,15 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(a, "--min-size") && i + 1 < argc) {
             g_opts.min_size = (int64_t)atoll(argv[++i]);
         }
-        else if (!strcmp(a, "--json") && i + 1 < argc)      { g_opts.json_out  = argv[++i]; }
-        else if (!strcmp(a, "--csv")  && i + 1 < argc)      { g_opts.csv_out   = argv[++i]; }
-        else if (!strcmp(a, "--quarantine") && i + 1 < argc) { g_opts.quarantine = argv[++i]; }
+        else if (!strcmp(a, "--json") && i + 1 < argc)       { g_opts.json_out   = argv[++i]; }
+        else if (!strcmp(a, "--csv")  && i + 1 < argc)       { g_opts.csv_out    = argv[++i]; }
+        else if (!strcmp(a, "--scan-json") && i + 1 < argc) { g_opts.scan_json_out = argv[++i]; }
+        else if (!strcmp(a, "--quarantine") && i + 1 < argc)  { g_opts.quarantine = argv[++i]; }
+        else if (!strcmp(a, "--include") && i + 1 < argc)     { push_include(argv[++i]); }
+        else if (!strcmp(a, "--exclude") && i + 1 < argc)     { push_exclude(argv[++i]); }
+        else if (!strcmp(a, "--max-size") && i + 1 < argc)    { g_opts.max_size = (int64_t)atoll(argv[++i]); }
+        else if (!strcmp(a, "--ext") && i + 1 < argc)         { parse_ext(argv[++i]); }
+        else if (!strcmp(a, "--stats"))                        { g_opts.do_stats = 1; }
         else if (a[0] == '-') {
             fprintf(stderr, "wlint: unknown option: %s\n", a);
             usage(argv[0]); free(paths); return 2;
@@ -801,6 +1333,18 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    /* undo mode: no scan paths required */
+    if (g_opts.undo_manifest) {
+        if (bcrypt_init() != 0) {
+            fprintf(stderr, "wlint: failed to initialize SHA-256 (BCrypt)\n");
+            free(paths); return 2;
+        }
+        ret = do_undo(g_opts.undo_manifest);
+        bcrypt_fini();
+        free(paths);
+        return ret;
+    }
+
     if (npaths == 0) {
         fprintf(stderr, "wlint: no paths specified\n");
         usage(argv[0]); free(paths); return 2;
@@ -808,6 +1352,15 @@ int main(int argc, char *argv[]) {
 
     g_opts.scan_paths = paths;
     g_opts.nscan      = npaths;
+
+    /* subtree guard: refuse quarantine inside scan tree */
+    if (g_opts.quarantine && qdir_inside_scan(g_opts.quarantine)) {
+        fprintf(stderr,
+                "wlint: error: quarantine dir '%s' is inside a scan root\n"
+                "  This would corrupt the next run. Use a path outside the scan tree.\n",
+                g_opts.quarantine);
+        free(paths); return 2;
+    }
 
     if (bcrypt_init() != 0) {
         fprintf(stderr, "wlint: failed to initialize SHA-256 (BCrypt)\n");
@@ -849,7 +1402,22 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Scanned: %zu files in %zu dirs.\n",
                 g_files_scanned, g_dirs_scanned);
 
+    if (g_opts.scan_json_out) {
+        FILE *fp = fopen(g_opts.scan_json_out, "w");
+        if (!fp) {
+            fprintf(stderr, "wlint: cannot write: %s\n", g_opts.scan_json_out);
+            ret = 2;
+        } else {
+            output_scan_json(fp);
+            fclose(fp);
+            if (g_opts.verbose)
+                fprintf(stderr, "Scan JSON: %s\n", g_opts.scan_json_out);
+        }
+    }
+
     find_duplicates();
+    sort_dupsets();
+    g_elapsed_ms = GetTickCount64() - g_start_ms;
 
     output_pretty();
 
@@ -896,6 +1464,10 @@ int main(int argc, char *argv[]) {
     fvec_free(&g_empty_dirs);
     for (size_t i = 0; i < g_dupsets.count; i++) free(g_dupsets.items[i].files);
     free(g_dupsets.items);
+    for (int i = 0; i < g_opts.ninclude; i++) free(g_opts.include_pats[i]);
+    free(g_opts.include_pats);
+    for (int i = 0; i < g_opts.nexclude; i++) free(g_opts.exclude_pats[i]);
+    free(g_opts.exclude_pats);
     free(paths);
 
     return ret;
