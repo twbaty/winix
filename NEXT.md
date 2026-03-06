@@ -103,6 +103,7 @@
 | **1.3** | Done | Here-docs ✅, nix multi-line clipboard ✅, `${VAR:-default}` expansion ✅, `local VAR` ✅, `.sh` file association |
 | **1.4** | Done | `mktemp` ✅, `realpath` ✅, `cmp` ✅, `fold` ✅, `expand`/`unexpand` ✅, `column` ✅, `time` ✅, `wait` ✅, `watch` ✅, `bc` ✅, `awk` ✅ |
 | **1.5** | Done | Start Menu shortcut ✅, Pin to Taskbar ✅, Windows Terminal profile ✅, "Open Winix here" context menu ✅, `.sh` file association ✅, `uninstall.bat` ✅ |
+| **1.6** | Done | `wlint` ✅ — filesystem lint detector (duplicates, empty files/dirs, SHA-256 via BCrypt, JSON/CSV output, quarantine mode) |
 
 ---
 
@@ -178,5 +179,18 @@
 - [x] `cmp` — byte-level file comparison
 - [x] `fold` — wrap long lines at a given width
 - [x] `expand` / `unexpand` — convert tabs to/from spaces
+
+## wlint (v1.6)
+- [x] Three-phase duplicate detection: size grouping → SHA-256 (Windows CNG BCrypt) → optional byte-verify (`--verify`)
+- [x] Empty file and empty directory detection (`--empty`)
+- [x] Keep policies: `newest` (default), `oldest`, `first`
+- [x] Output: human-readable (ANSI color), `--json FILE`, `--csv FILE`
+- [x] Quarantine mode: `--quarantine DIR` — moves non-kept duplicates, writes `wlint_moves.json`
+- [x] Unicode path support (wchar_t internally, UTF-8 output)
+- [x] Junction point loop prevention
+- [x] Exit codes: 0=clean, 1=lint found, 2=error
+- [ ] Ignore patterns (`--ignore .git node_modules`)
+- [ ] Temp file detection (common temp extensions)
+- [ ] Syntax highlighting in `nix` editor
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
