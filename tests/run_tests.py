@@ -1772,6 +1772,181 @@ _, _, rc = run('awk')
 check('awk no program exits 1', rc == 1)
 
 
+# ── wlint ─────────────────────────────────────────────────────────────────────
+
+section('wlint')
+
+import json as _json
+
+def _wlint_tree():
+    """Return a temp dir set up with duplicates + empty file; caller must clean up."""
+    d = tempfile.mkdtemp()
+    sub = os.path.join(d, 'sub')
+    os.makedirs(sub)
+    for name in ('a.txt', 'b.txt'):
+        with open(os.path.join(d, name), 'w') as f:
+            f.write('hello world\n')
+    with open(os.path.join(sub, 'c.txt'), 'w') as f:
+        f.write('hello world\n')
+    with open(os.path.join(d, 'unique.txt'), 'w') as f:
+        f.write('unique content\n')
+    open(os.path.join(d, 'empty.txt'), 'w').close()   # zero-byte file
+    return d
+
+# version / help
+out, err, rc = run('wlint', '--version')
+check('wlint --version', 'wlint' in out and '1.0' in out)
+
+out, err, rc = run('wlint', '--help')
+check('wlint --help exit 0', rc == 0)
+check('wlint --help mentions --json', '--json' in err)
+check('wlint --help mentions --quarantine', '--quarantine' in err)
+
+# exit 2 on no paths
+_, err, rc = run('wlint')
+check('wlint no args exits 2', rc == 2)
+
+# exit 0 — clean directory
+d0 = tempfile.mkdtemp()
+try:
+    with open(os.path.join(d0, 'x.txt'), 'w') as f: f.write('one\n')
+    with open(os.path.join(d0, 'y.txt'), 'w') as f: f.write('two\n')
+    out, err, rc = run('wlint', d0)
+    check('wlint clean exit 0', rc == 0)
+    check('wlint clean output', '[CLEAN]' in out)
+finally:
+    shutil.rmtree(d0, ignore_errors=True)
+
+# exit 1 — duplicates found
+d1 = _wlint_tree()
+try:
+    out, err, rc = run('wlint', d1)
+    check('wlint dups exit 1', rc == 1)
+    check('wlint dups shows DUPLICATE SET', 'DUPLICATE SET' in out)
+    check('wlint dups shows KEEP', 'KEEP' in out)
+    check('wlint dups shows DUP', 'DUP' in out)
+    check('wlint dups shows reclaimable', 'reclaimable' in out.lower())
+finally:
+    shutil.rmtree(d1, ignore_errors=True)
+
+# --empty flag reports empty file
+d2 = _wlint_tree()
+try:
+    out, err, rc = run('wlint', '--empty', d2)
+    check('wlint --empty exit 1', rc == 1)
+    check('wlint --empty reports empty file', 'empty.txt' in out)
+    check('wlint --empty shows EMPTY FILES section', 'EMPTY FILES' in out)
+finally:
+    shutil.rmtree(d2, ignore_errors=True)
+
+# --json output
+d3 = _wlint_tree()
+try:
+    jfile = os.path.join(d3, 'report.json')
+    out, err, rc = run('wlint', '--empty', '--json', jfile, d3)
+    check('wlint --json exit 1', rc == 1)
+    check('wlint --json file created', os.path.exists(jfile))
+    with open(jfile) as f:
+        data = _json.load(f)
+    check('wlint json has wlint_version',  'wlint_version' in data)
+    check('wlint json has summary',        'summary' in data)
+    check('wlint json has duplicate_sets', 'duplicate_sets' in data)
+    check('wlint json has empty_files',    'empty_files' in data)
+    check('wlint json duplicate_sets count == 1', len(data['duplicate_sets']) == 1)
+    ds = data['duplicate_sets'][0]
+    check('wlint json set has 3 files', len(ds['files']) == 3)
+    check('wlint json set has sha256',  len(ds['sha256']) == 64)
+    kept = [f for f in ds['files'] if f['keep']]
+    dups  = [f for f in ds['files'] if not f['keep']]
+    check('wlint json exactly 1 kept',  len(kept) == 1)
+    check('wlint json exactly 2 dups',  len(dups) == 2)
+    check('wlint json empty_files has empty.txt',
+          any('empty.txt' in p for p in data['empty_files']))
+    check('wlint json summary files_scanned == 5',
+          data['summary']['files_scanned'] == 5)
+    check('wlint json summary reclaimable_bytes > 0',
+          data['summary']['reclaimable_bytes'] > 0)
+finally:
+    shutil.rmtree(d3, ignore_errors=True)
+
+# keep newest (default) — oldest should be marked DUP
+import time as _time
+d4 = tempfile.mkdtemp()
+try:
+    old = os.path.join(d4, 'old.txt')
+    new = os.path.join(d4, 'new.txt')
+    with open(old, 'w') as f: f.write('same content\n')
+    _time.sleep(0.05)
+    with open(new, 'w') as f: f.write('same content\n')
+    jfile = os.path.join(d4, 'out.json')
+    run('wlint', '--json', jfile, d4)
+    if os.path.exists(jfile):
+        with open(jfile) as f:
+            data = _json.load(f)
+        if data['duplicate_sets']:
+            ds = data['duplicate_sets'][0]
+            kept_path = next((f['path'] for f in ds['files'] if f['keep']), '')
+            check('wlint keep newest keeps newer file', 'new.txt' in kept_path)
+        else:
+            check('wlint keep newest has dup set', False, 'no duplicate sets found')
+    else:
+        check('wlint keep newest json created', False, 'json file not created')
+finally:
+    shutil.rmtree(d4, ignore_errors=True)
+
+# keep oldest
+d5 = tempfile.mkdtemp()
+try:
+    old = os.path.join(d5, 'old.txt')
+    new = os.path.join(d5, 'new.txt')
+    with open(old, 'w') as f: f.write('same content\n')
+    _time.sleep(0.05)
+    with open(new, 'w') as f: f.write('same content\n')
+    jfile = os.path.join(d5, 'out.json')
+    run('wlint', '--keep', 'oldest', '--json', jfile, d5)
+    if os.path.exists(jfile):
+        with open(jfile) as f:
+            data = _json.load(f)
+        if data['duplicate_sets']:
+            ds = data['duplicate_sets'][0]
+            kept_path = next((f['path'] for f in ds['files'] if f['keep']), '')
+            check('wlint keep oldest keeps older file', 'old.txt' in kept_path)
+        else:
+            check('wlint keep oldest has dup set', False)
+    else:
+        check('wlint keep oldest json created', False)
+finally:
+    shutil.rmtree(d5, ignore_errors=True)
+
+# quarantine moves non-kept files
+d6 = _wlint_tree()
+qdir = tempfile.mkdtemp()
+try:
+    out, err, rc = run('wlint', '--quarantine', qdir, d6)
+    check('wlint --quarantine exit 1', rc == 1)
+    moved = os.listdir(qdir)
+    check('wlint quarantine moved 2 files', len(moved) >= 2)
+    log = os.path.join(qdir, 'wlint_moves.json')
+    check('wlint quarantine wrote move log', os.path.exists(log))
+finally:
+    shutil.rmtree(d6, ignore_errors=True)
+    shutil.rmtree(qdir, ignore_errors=True)
+
+# --csv output
+d7 = _wlint_tree()
+try:
+    cfile = os.path.join(d7, 'report.csv')
+    run('wlint', '--csv', cfile, '--empty', d7)
+    check('wlint --csv file created', os.path.exists(cfile))
+    with open(cfile) as f:
+        lines = f.read().splitlines()
+    check('wlint csv has header row', lines and lines[0].startswith('type,'))
+    data_rows = [l for l in lines[1:] if l.strip()]
+    check('wlint csv has data rows', len(data_rows) >= 3)
+finally:
+    shutil.rmtree(d7, ignore_errors=True)
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed
