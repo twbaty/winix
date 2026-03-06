@@ -1795,7 +1795,7 @@ def _wlint_tree():
 
 # version / help
 out, err, rc = run('wlint', '--version')
-check('wlint --version', 'wlint' in out and '1.3' in out)
+check('wlint --version', 'wlint' in out and '1.4' in out)
 
 out, err, rc = run('wlint', '--help')
 check('wlint --help exit 0', rc == 0)
@@ -2221,7 +2221,7 @@ def _wsim_scan(path, files_list):
     """Write a minimal wlint-compatible scan JSON for wsim tests."""
     data = {
         "schema_version": "1.0",
-        "wlint_version": "1.3",
+        "wlint_version": "1.4",
         "generated": "2026-01-01T00:00:00Z",
         "scan_paths": ["C:\\test"],
         "filters": {"min_size": 1, "max_size": 0, "include_pats": [], "exclude_pats": []},
@@ -2235,7 +2235,7 @@ def _wsim_scan(path, files_list):
 out_v, err_v, rc_v = run('wsim', '--version')
 check('wsim --version exit 0', rc_v == 0)
 check('wsim --version shows wsim', 'wsim' in out_v)
-check('wsim --version shows 0.1', '0.1' in out_v)
+check('wsim --version shows 0.2', '0.2' in out_v)
 
 # Test 2: --help
 out_h, err_h, rc_h = run('wsim', '--help')
@@ -2471,6 +2471,175 @@ try:
         check('wlint --scan-json filter: file created', False, 'file not created')
 finally:
     shutil.rmtree(d_sj4, ignore_errors=True)
+
+
+# ── wlint --log ───────────────────────────────────────────────────────────────
+
+# Test 1: --log creates a valid JSON file
+d_log1 = _wlint_tree()
+log_file1 = os.path.join(d_log1, 'run.json')
+try:
+    run('wlint', '--log', log_file1, d_log1)
+    check('wlint --log file created', os.path.exists(log_file1))
+    if os.path.exists(log_file1):
+        with open(log_file1) as f:
+            data_log1 = _json.load(f)
+        check('wlint --log valid JSON', isinstance(data_log1, dict))
+    else:
+        check('wlint --log valid JSON', False, 'file not created')
+finally:
+    shutil.rmtree(d_log1, ignore_errors=True)
+
+# Test 2: log contains required top-level fields
+d_log2 = _wlint_tree()
+log_file2 = os.path.join(d_log2, 'run.json')
+try:
+    run('wlint', '--log', log_file2, d_log2)
+    if os.path.exists(log_file2):
+        with open(log_file2) as f:
+            data_log2 = _json.load(f)
+        for field in ('schema_version', 'wlint_version', 'run_at', 'scan_paths', 'summary', 'options'):
+            check(f'wlint --log has {field}', field in data_log2)
+    else:
+        for field in ('schema_version', 'wlint_version', 'run_at', 'scan_paths', 'summary', 'options'):
+            check(f'wlint --log has {field}', False, 'file not created')
+finally:
+    shutil.rmtree(d_log2, ignore_errors=True)
+
+# Test 3: log summary fields
+d_log3 = _wlint_tree()
+log_file3 = os.path.join(d_log3, 'run.json')
+try:
+    run('wlint', '--log', log_file3, d_log3)
+    if os.path.exists(log_file3):
+        with open(log_file3) as f:
+            data_log3 = _json.load(f)
+        summary = data_log3.get('summary', {})
+        for field in ('files_scanned', 'dirs_scanned', 'duplicate_groups', 'bytes_reclaimable', 'elapsed_ms'):
+            check(f'wlint --log summary has {field}', field in summary)
+        check('wlint --log summary duplicate_groups > 0', summary.get('duplicate_groups', 0) > 0)
+    else:
+        check('wlint --log summary fields', False, 'file not created')
+finally:
+    shutil.rmtree(d_log3, ignore_errors=True)
+
+# Test 4: log options fields
+d_log4 = _wlint_tree()
+log_file4 = os.path.join(d_log4, 'run.json')
+try:
+    run('wlint', '--keep', 'oldest', '--log', log_file4, d_log4)
+    if os.path.exists(log_file4):
+        with open(log_file4) as f:
+            data_log4 = _json.load(f)
+        opts = data_log4.get('options', {})
+        check('wlint --log options has keep', 'keep' in opts)
+        check('wlint --log options keep=oldest', opts.get('keep') == 'oldest')
+    else:
+        check('wlint --log options fields', False, 'file not created')
+finally:
+    shutil.rmtree(d_log4, ignore_errors=True)
+
+
+# ── wsim --pretty and --recommend-keep ────────────────────────────────────────
+
+def _wsim_scan_rk():
+    """Return (tmpdir, scan_json_path) with two similar-named .txt files of different mtimes."""
+    d = tempfile.mkdtemp()
+    import json as _jsm
+    # Two similar files: same ext, similar name, same size
+    files = [
+        {"path": d + "\\report.txt",      "size": 1000, "mtime": "2025-01-10T10:00:00",
+         "ext": ".txt", "basename": "report.txt"},
+        {"path": d + "\\report copy.txt", "size": 1000, "mtime": "2025-06-20T10:00:00",
+         "ext": ".txt", "basename": "report copy.txt"},
+    ]
+    scan = {"schema_version": "1.0", "wlint_version": "1.4", "generated": "2026-01-01T00:00:00Z",
+            "scan_paths": [d], "filters": {"min_size": 1, "max_size": 0, "include_pats": [], "exclude_pats": []},
+            "file_count": 2, "files": files}
+    scan_path = os.path.join(d, 'scan.json')
+    with open(scan_path, 'w') as f:
+        _jsm.dump(scan, f)
+    return d, scan_path
+
+# Test: --pretty produces text output (not JSON)
+d_pr1, scan_pr1 = _wsim_scan_rk()
+try:
+    out_pr1, err_pr1, rc_pr1 = run('wsim', '--pretty', scan_pr1)
+    check('wsim --pretty exit non-2', rc_pr1 != 2)
+    check('wsim --pretty contains Group', 'Group' in out_pr1)
+    check('wsim --pretty contains score', 'score' in out_pr1)
+    check('wsim --pretty contains file path', 'report' in out_pr1.lower())
+finally:
+    shutil.rmtree(d_pr1, ignore_errors=True)
+
+# Test: --recommend-keep newest in JSON output
+d_rk1, scan_rk1 = _wsim_scan_rk()
+try:
+    out_rk1, err_rk1, rc_rk1 = run('wsim', '--recommend-keep', 'newest', scan_rk1)
+    check('wsim --recommend-keep newest exit non-2', rc_rk1 != 2)
+    if rc_rk1 != 2:
+        data_rk1 = _json.loads(out_rk1)
+        check('wsim --recommend-keep newest: recommend_keep in JSON', 'recommend_keep' in data_rk1)
+        check('wsim --recommend-keep newest: value', data_rk1.get('recommend_keep') == 'newest')
+        groups_rk1 = data_rk1.get('candidate_groups', [])
+        if groups_rk1:
+            files_rk1 = groups_rk1[0].get('files', [])
+            check('wsim --recommend-keep newest: files have keep field',
+                  all('keep' in f for f in files_rk1))
+            kept_rk1 = [f for f in files_rk1 if f.get('keep')]
+            check('wsim --recommend-keep newest: exactly one kept', len(kept_rk1) == 1)
+            # newest mtime = 2025-06-20
+            check('wsim --recommend-keep newest: keeps newest mtime',
+                  '2025-06-20' in kept_rk1[0].get('mtime', ''))
+finally:
+    shutil.rmtree(d_rk1, ignore_errors=True)
+
+# Test: --recommend-keep oldest keeps the older file
+d_rk2, scan_rk2 = _wsim_scan_rk()
+try:
+    out_rk2, err_rk2, rc_rk2 = run('wsim', '--recommend-keep', 'oldest', scan_rk2)
+    check('wsim --recommend-keep oldest exit non-2', rc_rk2 != 2)
+    if rc_rk2 != 2:
+        data_rk2 = _json.loads(out_rk2)
+        groups_rk2 = data_rk2.get('candidate_groups', [])
+        if groups_rk2:
+            files_rk2 = groups_rk2[0].get('files', [])
+            kept_rk2 = [f for f in files_rk2 if f.get('keep')]
+            check('wsim --recommend-keep oldest: keeps oldest mtime',
+                  '2025-01-10' in kept_rk2[0].get('mtime', '') if kept_rk2 else False)
+finally:
+    shutil.rmtree(d_rk2, ignore_errors=True)
+
+# Test: --recommend-keep path-shortest keeps shorter path
+d_rk3, scan_rk3 = _wsim_scan_rk()
+try:
+    out_rk3, err_rk3, rc_rk3 = run('wsim', '--recommend-keep', 'path-shortest', scan_rk3)
+    check('wsim --recommend-keep path-shortest exit non-2', rc_rk3 != 2)
+    if rc_rk3 != 2:
+        data_rk3 = _json.loads(out_rk3)
+        groups_rk3 = data_rk3.get('candidate_groups', [])
+        if groups_rk3:
+            files_rk3 = groups_rk3[0].get('files', [])
+            kept_rk3 = [f for f in files_rk3 if f.get('keep')]
+            not_kept_rk3 = [f for f in files_rk3 if not f.get('keep')]
+            check('wsim --recommend-keep path-shortest: kept path is shorter',
+                  (len(kept_rk3) == 1 and len(not_kept_rk3) >= 1 and
+                   len(kept_rk3[0]['path']) <= len(not_kept_rk3[0]['path'])))
+finally:
+    shutil.rmtree(d_rk3, ignore_errors=True)
+
+# Test: --pretty --recommend-keep shows KEEP label
+d_rk4, scan_rk4 = _wsim_scan_rk()
+try:
+    out_rk4, err_rk4, rc_rk4 = run('wsim', '--pretty', '--recommend-keep', 'newest', scan_rk4)
+    check('wsim --pretty --recommend-keep exit non-2', rc_rk4 != 2)
+    check('wsim --pretty --recommend-keep shows KEEP', 'KEEP' in out_rk4)
+finally:
+    shutil.rmtree(d_rk4, ignore_errors=True)
+
+# Test: invalid --recommend-keep policy returns error
+out_bad, err_bad, rc_bad = run('wsim', '--recommend-keep', 'badpolicy', 'dummy.json')
+check('wsim --recommend-keep invalid policy returns 2', rc_bad == 2)
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────

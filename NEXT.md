@@ -108,6 +108,7 @@
 | **1.8** | Done | `wlint` v1.3 ✅ — `--scan-json FILE` raw file inventory for wsim (path, size, mtime, ext, basename) |
 | **1.9** | Done | `wsim` v0.1 ✅ — similarity scorer (basename/ext/size/mtime scoring, blocking, union-find grouping, JSON output) |
 | **2.0** | Done | `apropos` ✅ — search command descriptions by keyword; substring + whole-word modes |
+| **2.1** | Done | `wlint` v1.4 ✅ — `--log FILE` operational JSON log (summary, options, elapsed_ms); `wsim` v0.2 ✅ — `--pretty` human-readable output, `--recommend-keep newest\|oldest\|path-shortest` |
 
 ---
 
@@ -193,9 +194,9 @@
 - [x] JSON output (stdout or `--out FILE`), sorted by score descending
 - [x] `--min-score N` threshold, `--verbose`, `--version`, `--help`
 - [x] Exit codes: 0=no candidates, 1=candidates found, 2=error
-- [ ] `--pretty` human-readable output
+- [x] `--pretty` human-readable output
 - [ ] `--min-score` default tuning after real-world testing
-- [ ] `--recommend-keep newest|oldest|path-shortest`
+- [x] `--recommend-keep newest|oldest|path-shortest`
 - [ ] `--csv` output
 
 ## wlint (v1.6 → v1.7)
@@ -214,6 +215,7 @@
 - [x] Stats always present in JSON output (`stats` key)
 - [x] Deterministic within-group ordering (non-kept files sorted lex by path)
 - [x] `--scan-json FILE` — raw file inventory JSON for wsim (path, size, mtime, ext, basename)
+- [x] `--log FILE` — operational JSON log (files_scanned, dup groups, bytes_reclaimable, elapsed_ms, options)
 - [ ] Temp file detection (common temp extensions)
 - [ ] Syntax highlighting in `nix` editor
 

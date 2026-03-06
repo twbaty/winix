@@ -55,7 +55,7 @@
 #include <io.h>
 #include <ctype.h>
 
-#define WLINT_VERSION  "1.3"
+#define WLINT_VERSION  "1.4"
 #define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
@@ -122,6 +122,7 @@ typedef struct {
     int64_t     max_size;       /* 0 = no limit */
     int         do_stats;
     char       *scan_json_out;  /* --scan-json FILE */
+    char       *log_out;        /* --log FILE       */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -969,6 +970,74 @@ static void output_scan_json(FILE *fp) {
     fprintf(fp, "}\n");
 }
 
+/* ── Output: operational log ─────────────────────────────────── */
+
+static void output_log(FILE *fp) {
+    SYSTEMTIME now;
+    GetSystemTime(&now);
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             now.wYear, now.wMonth, now.wDay,
+             now.wHour, now.wMinute, now.wSecond);
+
+    char esc[PATH_BUF * 2];
+
+    /* compute summary stats */
+    int64_t total_reclaimable = 0;
+    size_t  total_dup_files   = 0;
+    for (size_t i = 0; i < g_dupsets.count; i++) {
+        DupSet *ds = &g_dupsets.items[i];
+        total_reclaimable += (int64_t)(ds->count - 1) * ds->size;
+        total_dup_files   += ds->count;
+    }
+
+    const char *keep_str = (g_opts.keep == KEEP_OLDEST) ? "oldest"
+                         : (g_opts.keep == KEEP_FIRST)  ? "first" : "newest";
+
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"schema_version\": \"%s\",\n", SCHEMA_VERSION);
+    fprintf(fp, "  \"wlint_version\": \"%s\",\n",  WLINT_VERSION);
+    fprintf(fp, "  \"run_at\": \"%s\",\n", ts);
+    fprintf(fp, "  \"scan_paths\": [");
+    for (int i = 0; i < g_opts.nscan; i++) {
+        json_esc(g_opts.scan_paths[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "],\n");
+    fprintf(fp, "  \"summary\": {\n");
+    fprintf(fp, "    \"files_scanned\":     %zu,\n", g_files_scanned);
+    fprintf(fp, "    \"dirs_scanned\":      %zu,\n", g_dirs_scanned);
+    fprintf(fp, "    \"duplicate_groups\":  %zu,\n", g_dupsets.count);
+    fprintf(fp, "    \"duplicate_files\":   %zu,\n", total_dup_files);
+    fprintf(fp, "    \"bytes_reclaimable\": %lld,\n", (long long)total_reclaimable);
+    fprintf(fp, "    \"empty_files\":       %zu,\n", g_empty_files.count);
+    fprintf(fp, "    \"empty_dirs\":        %zu,\n", g_empty_dirs.count);
+    fprintf(fp, "    \"warnings\":          %zu,\n", g_warnings);
+    fprintf(fp, "    \"elapsed_ms\":        %llu\n",
+            (unsigned long long)g_elapsed_ms);
+    fprintf(fp, "  },\n");
+    fprintf(fp, "  \"options\": {\n");
+    fprintf(fp, "    \"keep\":     \"%s\",\n", keep_str);
+    fprintf(fp, "    \"min_size\": %lld,\n",  (long long)g_opts.min_size);
+    fprintf(fp, "    \"max_size\": %lld,\n",  (long long)g_opts.max_size);
+    fprintf(fp, "    \"verify\":   %s,\n", g_opts.do_verify ? "true" : "false");
+    fprintf(fp, "    \"empty\":    %s,\n", g_opts.do_empty  ? "true" : "false");
+    fprintf(fp, "    \"include_pats\": [");
+    for (int i = 0; i < g_opts.ninclude; i++) {
+        json_esc(g_opts.include_pats[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "],\n");
+    fprintf(fp, "    \"exclude_pats\": [");
+    for (int i = 0; i < g_opts.nexclude; i++) {
+        json_esc(g_opts.exclude_pats[i], esc, sizeof(esc));
+        fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
+    }
+    fprintf(fp, "]\n");
+    fprintf(fp, "  }\n");
+    fprintf(fp, "}\n");
+}
+
 /* ── Subtree guard ───────────────────────────────────────────── */
 
 /* Return 1 if qdir is inside or equal to any scan root (case-insensitive). */
@@ -1256,6 +1325,7 @@ static void usage(const char *prog) {
         "      --json FILE       write JSON report to FILE\n"
         "      --csv  FILE       write CSV  report to FILE\n"
         "      --scan-json FILE  write full file inventory JSON for wsim\n"
+        "      --log FILE        write operational log JSON to FILE\n"
         "      --quarantine DIR  move non-kept duplicates to DIR\n"
         "      --dry-run         show quarantine plan without moving files\n"
         "      --undo MANIFEST   restore quarantined files from move manifest\n"
@@ -1318,6 +1388,7 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(a, "--json") && i + 1 < argc)       { g_opts.json_out   = argv[++i]; }
         else if (!strcmp(a, "--csv")  && i + 1 < argc)       { g_opts.csv_out    = argv[++i]; }
         else if (!strcmp(a, "--scan-json") && i + 1 < argc) { g_opts.scan_json_out = argv[++i]; }
+        else if (!strcmp(a, "--log")       && i + 1 < argc) { g_opts.log_out        = argv[++i]; }
         else if (!strcmp(a, "--quarantine") && i + 1 < argc)  { g_opts.quarantine = argv[++i]; }
         else if (!strcmp(a, "--include") && i + 1 < argc)     { push_include(argv[++i]); }
         else if (!strcmp(a, "--exclude") && i + 1 < argc)     { push_exclude(argv[++i]); }
@@ -1444,6 +1515,19 @@ int main(int argc, char *argv[]) {
             fclose(fp);
             if (g_opts.verbose)
                 fprintf(stderr, "CSV: %s\n", g_opts.csv_out);
+        }
+    }
+
+    if (g_opts.log_out) {
+        FILE *fp = fopen(g_opts.log_out, "w");
+        if (!fp) {
+            fprintf(stderr, "wlint: cannot write: %s\n", g_opts.log_out);
+            ret = 2;
+        } else {
+            output_log(fp);
+            fclose(fp);
+            if (g_opts.verbose)
+                fprintf(stderr, "Log: %s\n", g_opts.log_out);
         }
     }
 

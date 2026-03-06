@@ -39,8 +39,20 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <io.h>
 
-#define WSIM_VERSION   "0.1"
+/* ── ANSI colors ─────────────────────────────────────────────── */
+#define C_GRN   "\x1b[32m"
+#define C_YEL   "\x1b[33m"
+#define C_CYN   "\x1b[36m"
+#define C_BOLD  "\x1b[1m"
+#define C_RST   "\x1b[0m"
+
+static int g_color = 0;
+static const char *cc(const char *c) { return g_color ? c : ""; }
+static const char *cr(void)          { return g_color ? C_RST : ""; }
+
+#define WSIM_VERSION   "0.2"
 #define SCHEMA_VERSION "1.0"
 #define PATH_BUF       4096
 #define NAME_BUF       512
@@ -77,6 +89,8 @@ typedef struct {
     char  *out_file;
     double min_score;
     int    verbose;
+    int    pretty;           /* --pretty: human-readable instead of JSON */
+    char  *recommend_keep;   /* --recommend-keep newest|oldest|path-shortest */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -447,7 +461,7 @@ static int load_scan_json(const char *path) {
 
 static void output_json(FILE *fp, const char *source_scan,
                         int **gmembers, Score *gscores,
-                        int *gsizes, int ngroups) {
+                        int *gsizes, int *gkeep, int ngroups) {
     char esc[PATH_BUF * 2], esc_base[NAME_BUF * 2], esc_ext[EXT_BUF * 2];
     char esc_src[PATH_BUF * 2];
     json_esc(source_scan ? source_scan : "", esc_src, sizeof(esc_src));
@@ -456,6 +470,8 @@ static void output_json(FILE *fp, const char *source_scan,
     fprintf(fp, "  \"schema_version\": \"%s\",\n", SCHEMA_VERSION);
     fprintf(fp, "  \"wsim_version\": \"%s\",\n", WSIM_VERSION);
     fprintf(fp, "  \"source_scan\": \"%s\",\n", esc_src);
+    if (g_opts.recommend_keep)
+        fprintf(fp, "  \"recommend_keep\": \"%s\",\n", g_opts.recommend_keep);
     fprintf(fp, "  \"candidate_groups\": [\n");
 
     for (int g = 0; g < ngroups; g++) {
@@ -476,12 +492,14 @@ static void output_json(FILE *fp, const char *source_scan,
             json_esc(fe->path,     esc,      sizeof(esc));
             json_esc(fe->basename, esc_base, sizeof(esc_base));
             json_esc(fe->ext,      esc_ext,  sizeof(esc_ext));
+            const char *keep_field = "";
+            if (gkeep) keep_field = (fi == gkeep[g]) ? ", \"keep\": true" : ", \"keep\": false";
             fprintf(fp,
                 "        {\"path\": \"%s\", \"size\": %lld,"
                 " \"mtime\": \"%s\", \"ext\": \"%s\","
-                " \"basename\": \"%s\"}%s\n",
+                " \"basename\": \"%s\"%s}%s\n",
                 esc, (long long)fe->size, fe->mtime,
-                esc_ext, esc_base,
+                esc_ext, esc_base, keep_field,
                 fi + 1 < gsizes[g] ? "," : "");
         }
 
@@ -493,6 +511,50 @@ static void output_json(FILE *fp, const char *source_scan,
     fprintf(fp, "}\n");
 }
 
+/* ── Output: human-readable (--pretty) ───────────────────────── */
+
+static void fmt_sz(int64_t s, char *buf, size_t n) {
+    if      (s >= (int64_t)1 << 30) snprintf(buf, n, "%.2f GB", s / (double)(1<<30));
+    else if (s >= (int64_t)1 << 20) snprintf(buf, n, "%.2f MB", s / (double)(1<<20));
+    else if (s >= (int64_t)1 << 10) snprintf(buf, n, "%.2f KB", s / (double)(1<<10));
+    else                             snprintf(buf, n, "%lld B",  (long long)s);
+}
+
+static void output_pretty(FILE *fp, const char *source_scan,
+                          int **gmembers, Score *gscores,
+                          int *gsizes, int *gkeep, int ngroups) {
+    (void)source_scan;
+    fprintf(fp, "%swsim%s — %d candidate group(s)  (min-score %.2f)\n\n",
+            cc(C_BOLD), cr(), ngroups, g_opts.min_score);
+
+    for (int g = 0; g < ngroups; g++) {
+        Score *sc = &gscores[g];
+        fprintf(fp, "%sGroup %d%s  score: %.4f\n",
+                cc(C_BOLD), g + 1, cr(), sc->total);
+        fprintf(fp,
+            "  %sReasoning:%s  name %.2f | ext %s | size %.2f | mtime %.0fd apart\n",
+            cc(C_CYN), cr(),
+            sc->basename_sim,
+            sc->ext_match ? "match" : "differ",
+            sc->size_sim,
+            sc->mtime_days);
+
+        for (int fi = 0; fi < gsizes[g]; fi++) {
+            FileEntry *fe = &g_files[gmembers[g][fi]];
+            int is_keep = gkeep && (fi == gkeep[g]);
+            char sz[32];
+            fmt_sz(fe->size, sz, sizeof(sz));
+            if (is_keep)
+                fprintf(fp, "  %sKEEP%s  %-60s  %8s  %s\n",
+                        cc(C_GRN), cr(), fe->path, sz, fe->mtime);
+            else
+                fprintf(fp, "        %-60s  %8s  %s\n",
+                        fe->path, sz, fe->mtime);
+        }
+        fprintf(fp, "\n");
+    }
+}
+
 /* ── Usage ────────────────────────────────────────────────────── */
 
 static void usage(const char *prog) {
@@ -501,11 +563,13 @@ static void usage(const char *prog) {
         "Score files in a wlint scan inventory for similarity.\n"
         "Read-only — never modifies or moves files.\n\n"
         "Options:\n"
-        "      --out FILE        write JSON results to FILE (default: stdout)\n"
-        "      --min-score N     minimum score to report (0.0–1.0, default: 0.40)\n"
-        "  -v  --verbose         progress output to stderr\n"
-        "      --version         show version\n"
-        "      --help            show this help\n\n"
+        "      --out FILE           write results to FILE (default: stdout)\n"
+        "      --min-score N        minimum score to report (0.0-1.0, default: 0.40)\n"
+        "      --pretty             human-readable output (default: JSON)\n"
+        "      --recommend-keep P   mark file to keep: newest|oldest|path-shortest\n"
+        "  -v  --verbose            progress output to stderr\n"
+        "      --version            show version\n"
+        "      --help               show this help\n\n"
         "Scoring model (weights):\n"
         "  basename similarity  50%%\n"
         "  extension match      15%%\n"
@@ -532,6 +596,17 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(a, "--out")       && i + 1 < argc)    { g_opts.out_file  = argv[++i]; }
         else if (!strcmp(a, "--min-score") && i + 1 < argc)    { g_opts.min_score = atof(argv[++i]); }
         else if (!strcmp(a, "--verbose")   || !strcmp(a, "-v")) { g_opts.verbose = 1; }
+        else if (!strcmp(a, "--pretty"))                       { g_opts.pretty  = 1; }
+        else if (!strcmp(a, "--recommend-keep") && i + 1 < argc) {
+            char *pol = argv[++i];
+            if (strcmp(pol, "newest") != 0 && strcmp(pol, "oldest") != 0 &&
+                strcmp(pol, "path-shortest") != 0) {
+                fprintf(stderr, "wsim: unknown keep policy '%s' "
+                        "(use newest|oldest|path-shortest)\n", pol);
+                return 2;
+            }
+            g_opts.recommend_keep = pol;
+        }
         else if (a[0] != '-')                                  { g_opts.scan_file = argv[i]; }
         else { fprintf(stderr, "wsim: invalid option -- '%s'\n", a); return 2; }
     }
@@ -541,6 +616,9 @@ int main(int argc, char *argv[]) {
         usage(argv[0]);
         return 2;
     }
+
+    /* Enable color only when output goes to a terminal */
+    g_color = !g_opts.out_file && _isatty(_fileno(stdout));
 
     if (!load_scan_json(g_opts.scan_file)) return 2;
 
@@ -561,7 +639,10 @@ int main(int argc, char *argv[]) {
 
     /* Trivial case: fewer than 2 files — nothing to compare */
     if (g_nfiles < 2) {
-        output_json(out_fp, g_opts.scan_file, NULL, NULL, NULL, 0);
+        if (g_opts.pretty)
+            output_pretty(out_fp, g_opts.scan_file, NULL, NULL, NULL, NULL, 0);
+        else
+            output_json(out_fp, g_opts.scan_file, NULL, NULL, NULL, NULL, 0);
         if (g_opts.out_file) fclose(out_fp);
         free(g_files);
         return 0;
@@ -646,6 +727,7 @@ int main(int argc, char *argv[]) {
     int    *gsizes   = NULL;
     Score  *gscores  = NULL;
     int    *root2grp = NULL;
+    int    *gkeep    = NULL;
 
     if (ngroups > 0) {
         gmembers = (int   **)calloc((size_t)ngroups, sizeof(int *));
@@ -696,13 +778,38 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    output_json(out_fp, g_opts.scan_file, gmembers, gscores, gsizes, ngroups);
+    /* Compute recommended-keep index per group */
+    if (ngroups > 0 && g_opts.recommend_keep) {
+        gkeep = (int *)calloc((size_t)ngroups, sizeof(int));
+        if (gkeep) {
+            for (int g = 0; g < ngroups; g++) {
+                int best = 0;
+                for (int fi = 1; fi < gsizes[g]; fi++) {
+                    FileEntry *ca = &g_files[gmembers[g][best]];
+                    FileEntry *cb = &g_files[gmembers[g][fi]];
+                    if (strcmp(g_opts.recommend_keep, "newest") == 0) {
+                        if (strcmp(cb->mtime, ca->mtime) > 0) best = fi;
+                    } else if (strcmp(g_opts.recommend_keep, "oldest") == 0) {
+                        if (strcmp(cb->mtime, ca->mtime) < 0) best = fi;
+                    } else if (strcmp(g_opts.recommend_keep, "path-shortest") == 0) {
+                        if (strlen(cb->path) < strlen(ca->path)) best = fi;
+                    }
+                }
+                gkeep[g] = best;
+            }
+        }
+    }
+
+    if (g_opts.pretty)
+        output_pretty(out_fp, g_opts.scan_file, gmembers, gscores, gsizes, gkeep, ngroups);
+    else
+        output_json(out_fp, g_opts.scan_file, gmembers, gscores, gsizes, gkeep, ngroups);
     ret = ngroups > 0 ? 1 : 0;
 
 cleanup:
     if (g_opts.out_file && out_fp) fclose(out_fp);
     if (gmembers) for (int i = 0; i < ngroups; i++) free(gmembers[i]);
-    free(gmembers); free(gsizes); free(gscores); free(root2grp);
+    free(gmembers); free(gsizes); free(gscores); free(root2grp); free(gkeep);
     free(root_sz);
     free(best);
     free(g_uf);
