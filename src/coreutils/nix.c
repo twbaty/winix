@@ -38,7 +38,7 @@
 #include <conio.h>
 #include <windows.h>
 
-#define VERSION       "nix 1.0 (Winix 1.0)"
+#define VERSION       "nix 1.1 (Winix 1.0)"
 #define MAX_PATH_LEN  MAX_PATH
 #define LINE_CAP_INIT 64
 #define UNDO_MAX      512
@@ -67,6 +67,10 @@ typedef struct {
     int   textlen;
 } UndoRecord;
 
+/* ── Syntax highlighting language ───────────────────────────────────────── */
+
+typedef enum { LANG_NONE, LANG_C, LANG_SH, LANG_PY, LANG_JSON } LangType;
+
 /* ── Data model ─────────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -86,6 +90,7 @@ typedef struct {
     int    clip_nlines;
     bool   clip_active;      /* true if last op was Ctrl+K (enables line accumulation) */
     char  last_search[256];  /* last Find pattern, shared by ^W and ^N */
+    LangType lang;           /* syntax highlighting language */
     /* undo ring buffer */
     UndoRecord undo_ring[UNDO_MAX];
     int        undo_head;    /* oldest entry index */
@@ -247,6 +252,7 @@ static void editor_init(Editor *e) {
     e->msg[0]      = '\0';
     e->clip_lines  = NULL;
     e->clip_nlines = 0;
+    e->lang        = LANG_NONE;
     e->clip_active = false;
     e->last_search[0] = '\0';
     e->undo_head   = 0;
@@ -488,6 +494,317 @@ static int prompt_in_status(const char *prompt, char *buf, int bufsz) {
 
 /* ── Rendering ──────────────────────────────────────────────────────────── */
 
+/* ── Syntax highlighting ─────────────────────────────────────────────────── */
+
+#define HL_NORMAL   0
+#define HL_KEYWORD  1
+#define HL_STRING   2
+#define HL_COMMENT  3
+#define HL_NUMBER   4
+#define HL_PREPROC  5
+#define HL_MAX_LINE 4096
+
+static const char * const HL_ANSI[] = {
+    "\033[0m",    /* NORMAL  — default */
+    "\033[36m",   /* KEYWORD — cyan    */
+    "\033[32m",   /* STRING  — green   */
+    "\033[90m",   /* COMMENT — dark    */
+    "\033[33m",   /* NUMBER  — yellow  */
+    "\033[35m",   /* PREPROC — magenta */
+};
+
+static const char * const C_KW[] = {
+    "auto","break","case","char","const","continue","default","do",
+    "double","else","enum","extern","float","for","goto","if","inline",
+    "int","long","register","return","short","signed","sizeof","static",
+    "struct","switch","typedef","union","unsigned","void","volatile","while",
+    "NULL","true","false","nullptr","bool",
+    "int8_t","int16_t","int32_t","int64_t",
+    "uint8_t","uint16_t","uint32_t","uint64_t","size_t","wchar_t",
+    NULL
+};
+static const char * const SH_KW[] = {
+    "if","then","elif","else","fi","for","while","do","done",
+    "case","esac","in","return","exit","break","continue",
+    "function","local","export","unset","readonly","shift",
+    "echo","printf","read","source","true","false",NULL
+};
+static const char * const PY_KW[] = {
+    "False","None","True","and","as","assert","async","await",
+    "break","class","continue","def","del","elif","else","except",
+    "finally","for","from","global","if","import","in","is","lambda",
+    "nonlocal","not","or","pass","raise","return","try","while","with","yield",
+    NULL
+};
+static const char * const JSON_KW[] = { "true","false","null", NULL };
+
+static LangType detect_lang(const char *path) {
+    const char *dot = NULL;
+    for (const char *p = path; *p; p++) if (*p == '.') dot = p;
+    if (!dot) return LANG_NONE;
+    if (!_stricmp(dot,".c")  || !_stricmp(dot,".h")  ||
+        !_stricmp(dot,".cpp")|| !_stricmp(dot,".cc") ||
+        !_stricmp(dot,".cxx")|| !_stricmp(dot,".hpp")) return LANG_C;
+    if (!_stricmp(dot,".sh") || !_stricmp(dot,".bash")|| !_stricmp(dot,".zsh"))
+        return LANG_SH;
+    if (!_stricmp(dot,".py"))   return LANG_PY;
+    if (!_stricmp(dot,".json")) return LANG_JSON;
+    return LANG_NONE;
+}
+
+static int hl_isword(char c) {
+    return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_';
+}
+
+static int hl_is_kw(const char *text, int pos, int len,
+                    const char * const *kw) {
+    for (int i = 0; kw[i]; i++) {
+        int kl = (int)strlen(kw[i]);
+        if (len == kl && strncmp(text + pos, kw[i], kl) == 0) return 1;
+    }
+    return 0;
+}
+
+/*
+ * Fill hl[0..len-1] with HL_* codes for each character.
+ * in_blk: non-zero if entering the line inside a C block comment.
+ * Returns block-comment state at END of line (for threading to next line).
+ */
+static int hl_compute(const char *text, int len,
+                      unsigned char *hl, LangType lang, int in_blk) {
+    int i = 0;
+    memset(hl, HL_NORMAL, (size_t)len);
+    if (lang == LANG_NONE || len == 0) return 0;
+
+    if (lang == LANG_C) {
+        /* Carry block-comment state in from previous line */
+        if (in_blk) {
+            while (i < len) {
+                hl[i] = HL_COMMENT;
+                if (text[i]=='*' && i+1<len && text[i+1]=='/') {
+                    hl[i+1] = HL_COMMENT; i += 2; in_blk = 0; break;
+                }
+                i++;
+            }
+        }
+        while (i < len) {
+            /* Preprocessor line */
+            if (i == 0 && text[0] == '#') {
+                while (i < len) hl[i++] = HL_PREPROC; break;
+            }
+            /* Line comment */
+            if (text[i]=='/' && i+1<len && text[i+1]=='/') {
+                while (i < len) hl[i++] = HL_COMMENT; break;
+            }
+            /* Block comment open */
+            if (text[i]=='/' && i+1<len && text[i+1]=='*') {
+                hl[i] = hl[i+1] = HL_COMMENT; i += 2; in_blk = 1;
+                while (i < len) {
+                    hl[i] = HL_COMMENT;
+                    if (text[i]=='*' && i+1<len && text[i+1]=='/') {
+                        hl[i+1] = HL_COMMENT; i += 2; in_blk = 0; break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+            /* String / char literal */
+            if (text[i]=='"' || text[i]=='\'') {
+                char q = text[i]; hl[i++] = HL_STRING;
+                while (i < len) {
+                    hl[i] = HL_STRING;
+                    if (text[i]=='\\' && i+1<len) { hl[++i]=HL_STRING; i++; continue; }
+                    if (text[i]==q)   { i++; break; }
+                    i++;
+                }
+                continue;
+            }
+            /* Number */
+            if (text[i]>='0' && text[i]<='9' && (i==0||!hl_isword(text[i-1]))) {
+                while (i<len && (hl_isword(text[i])||text[i]=='.')) hl[i++]=HL_NUMBER;
+                continue;
+            }
+            /* Identifier / keyword */
+            if (hl_isword(text[i]) && !(text[i]>='0'&&text[i]<='9')) {
+                int j = i;
+                while (j < len && hl_isword(text[j])) j++;
+                unsigned char c = hl_is_kw(text,i,j-i,C_KW) ? HL_KEYWORD : HL_NORMAL;
+                while (i < j) hl[i++] = c;
+                continue;
+            }
+            i++;
+        }
+
+    } else if (lang == LANG_SH) {
+        /* Skip leading whitespace then check for comment */
+        int ws = 0;
+        while (ws < len && (text[ws]==' '||text[ws]=='\t')) ws++;
+        if (ws < len && text[ws] == '#') {
+            while (i < len) hl[i++] = HL_COMMENT; return 0;
+        }
+        while (i < len) {
+            if (text[i]=='"' || text[i]=='\'') {
+                char q = text[i]; hl[i++] = HL_STRING;
+                while (i < len) {
+                    hl[i] = HL_STRING;
+                    if (q=='"' && text[i]=='\\' && i+1<len) { hl[++i]=HL_STRING; i++; continue; }
+                    if (text[i]==q) { i++; break; }
+                    i++;
+                }
+                continue;
+            }
+            if (text[i]>='0'&&text[i]<='9'&&(i==0||!hl_isword(text[i-1]))) {
+                while (i<len&&(text[i]>='0'&&text[i]<='9'||text[i]=='.')) hl[i++]=HL_NUMBER;
+                continue;
+            }
+            if (hl_isword(text[i]) && !(text[i]>='0'&&text[i]<='9')) {
+                int j = i;
+                while (j < len && hl_isword(text[j])) j++;
+                unsigned char c = hl_is_kw(text,i,j-i,SH_KW) ? HL_KEYWORD : HL_NORMAL;
+                while (i < j) hl[i++] = c;
+                continue;
+            }
+            i++;
+        }
+
+    } else if (lang == LANG_PY) {
+        while (i < len) {
+            if (text[i] == '#') { while (i<len) hl[i++]=HL_COMMENT; break; }
+            if (text[i]=='"' || text[i]=='\'') {
+                char q = text[i];
+                /* Triple-quote? */
+                int triple = (i+2<len && text[i+1]==q && text[i+2]==q);
+                if (triple) {
+                    hl[i]=hl[i+1]=hl[i+2]=HL_STRING; i+=3;
+                    while (i+2<len) {
+                        hl[i]=HL_STRING;
+                        if (text[i]==q&&text[i+1]==q&&text[i+2]==q) {
+                            hl[i]=hl[i+1]=hl[i+2]=HL_STRING; i+=3; goto py_after_str;
+                        }
+                        i++;
+                    }
+                    while (i<len) hl[i++]=HL_STRING;
+                    py_after_str:;
+                } else {
+                    hl[i++]=HL_STRING;
+                    while (i<len) {
+                        hl[i]=HL_STRING;
+                        if (text[i]=='\\' && i+1<len) { hl[++i]=HL_STRING; i++; continue; }
+                        if (text[i]==q)   { i++; break; }
+                        i++;
+                    }
+                }
+                continue;
+            }
+            if (text[i]>='0'&&text[i]<='9'&&(i==0||!hl_isword(text[i-1]))) {
+                while (i<len&&(hl_isword(text[i])||text[i]=='.')) hl[i++]=HL_NUMBER;
+                continue;
+            }
+            if (hl_isword(text[i]) && !(text[i]>='0'&&text[i]<='9')) {
+                int j = i;
+                while (j < len && hl_isword(text[j])) j++;
+                unsigned char c = hl_is_kw(text,i,j-i,PY_KW) ? HL_KEYWORD : HL_NORMAL;
+                while (i < j) hl[i++] = c;
+                continue;
+            }
+            i++;
+        }
+
+    } else if (lang == LANG_JSON) {
+        while (i < len) {
+            if (text[i] == '"') {
+                hl[i++] = HL_STRING;
+                while (i < len) {
+                    hl[i] = HL_STRING;
+                    if (text[i]=='\\' && i+1<len) { hl[++i]=HL_STRING; i++; continue; }
+                    if (text[i]=='"') { i++; break; }
+                    i++;
+                }
+                continue;
+            }
+            if ((text[i]>='0'&&text[i]<='9') || (text[i]=='-'&&i+1<len&&text[i+1]>='0'&&text[i+1]<='9')) {
+                while (i<len&&(hl_isword(text[i])||text[i]=='.'||text[i]=='-'||text[i]=='+'||text[i]=='e'||text[i]=='E'))
+                    hl[i++]=HL_NUMBER;
+                continue;
+            }
+            if (hl_isword(text[i]) && !(text[i]>='0'&&text[i]<='9')) {
+                int j = i;
+                while (j<len && hl_isword(text[j])) j++;
+                unsigned char c = hl_is_kw(text,i,j-i,JSON_KW) ? HL_KEYWORD : HL_NORMAL;
+                while (i < j) hl[i++] = c;
+                continue;
+            }
+            i++;
+        }
+    }
+    return in_blk;
+}
+
+/*
+ * Scan lines 0..(target_line-1) to determine C block-comment state
+ * at the start of target_line.  Fast path for non-C languages.
+ */
+static int hl_block_state(Editor *e, int target_line) {
+    if (e->lang != LANG_C) return 0;
+    int in_blk = 0;
+    for (int li = 0; li < target_line && li < e->nlines; li++) {
+        const char *p = e->lines[li].d;
+        int len = e->lines[li].len, i = 0;
+        while (i < len) {
+            if (!in_blk) {
+                if (p[i]=='/'&&i+1<len&&p[i+1]=='/') break;
+                if (p[i]=='/'&&i+1<len&&p[i+1]=='*') { in_blk=1; i+=2; continue; }
+                if (p[i]=='"'||p[i]=='\'') {
+                    char q=p[i++];
+                    while (i<len && p[i]!=q) { if (p[i]=='\\') i++; i++; }
+                    if (i<len) i++;
+                    continue;
+                }
+            } else {
+                if (p[i]=='*'&&i+1<len&&p[i+1]=='/') { in_blk=0; i+=2; continue; }
+            }
+            i++;
+        }
+    }
+    return in_blk;
+}
+
+/*
+ * Render the visible slice [start, start+vis_cols) of a line with
+ * syntax highlighting.  Emits ANSI codes only on color transitions.
+ * Returns the block-comment state at the END of the full line
+ * (for passing to the next line).
+ */
+static int draw_line_hl(const char *text, int len,
+                        int start, int vis_cols,
+                        LangType lang, int in_blk) {
+    if (vis_cols <= 0) return in_blk;
+
+    if (lang == LANG_NONE) {
+        fwrite(text + start, 1, vis_cols, stdout);
+        return 0;
+    }
+
+    unsigned char hl[HL_MAX_LINE];
+    int scan_len = len < HL_MAX_LINE ? len : HL_MAX_LINE;
+    int new_blk  = hl_compute(text, scan_len, hl, lang, in_blk);
+
+    int cur = -1;
+    int end = start + vis_cols;
+    if (end > scan_len) end = scan_len;
+
+    for (int i = start; i < end; i++) {
+        if (hl[i] != cur) { printf("%s", HL_ANSI[hl[i]]); cur = hl[i]; }
+        putchar((unsigned char)text[i]);
+    }
+    /* Chars beyond HL_MAX_LINE (no highlighting) */
+    for (int i = end; i < start + vis_cols && i < len; i++)
+        putchar((unsigned char)text[i]);
+
+    if (cur > HL_NORMAL) printf("\033[0m");
+    return new_blk;
+}
+
 static void draw(Editor *e) {
     int rows    = term_rows();
     int cols    = term_cols();
@@ -511,6 +828,7 @@ static void draw(Editor *e) {
     printf("\033[0m");
 
     /* ── Content rows (1 .. rows-2) ── */
+    int blk = hl_block_state(e, e->top_row);
     for (int r = 0; r < content; r++) {
         move_cursor(0, r + 1);
         int li = e->top_row + r;
@@ -519,7 +837,7 @@ static void draw(Editor *e) {
             int   start = e->left_col < ln->len ? e->left_col : ln->len;
             int   vis   = ln->len - start;
             if (vis > cols) vis = cols;
-            if (vis > 0) fwrite(ln->d + start, 1, vis, stdout);
+            blk = draw_line_hl(ln->d, ln->len, start, vis, e->lang, blk);
         }
         printf("\033[K");
     }
@@ -976,6 +1294,7 @@ int main(int argc, char *argv[]) {
     if (argc >= 2) {
         strncpy(e.filename, argv[1], MAX_PATH_LEN - 1);
         e.filename[MAX_PATH_LEN - 1] = '\0';
+        e.lang = detect_lang(e.filename);
         if (!editor_load(&e, argv[1]))
             snprintf(e.msg, sizeof(e.msg), "New file: %s", argv[1]);
     }

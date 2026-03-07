@@ -113,6 +113,7 @@
 | **2.3** | Done | `wlint` v1.6 ✅ — parallel hashing: `--threads N` worker pool (default 2, max 64); Windows thread pool with `CRITICAL_SECTION` work queue; overlapped I/O across files simultaneously |
 | **2.4** | Done | `wlint` v1.7 ✅ — `--temp`/`-t` temp/junk file detection (.tmp .bak .swp .cache .crdownload .part .dmp ~$ etc.); `wsim` v0.3 ✅ — `--csv FILE` output, `--min-score` default raised 0.40→0.65 |
 | **2.5** | Done | `chmod` ✅ — sidecar POSIX permission emulation (`<file>.winixmeta`), full octal/symbolic mode tracking; `chown` ✅ — ACL inheritance: DACL updated with `GENERIC_ALL` + inherit flags for new owner |
+| **2.6** | Done | `nix` v1.1 ✅ — syntax highlighting: C/C++ (keywords, strings, comments, numbers, preprocessor), Shell, Python, JSON; ANSI colors, block-comment state threading, language detection by extension |
 
 ---
 
@@ -135,7 +136,7 @@
 - [x] Unsaved-changes prompt on quit
 - [x] Find + replace (Ctrl+R) — y/n/a/ESC interactive, undo per replacement
 - [x] Multi-line clipboard (repeated Ctrl+K cuts accumulate; Ctrl+U pastes all)
-- [ ] Syntax highlighting (v1.4+)
+- [x] Syntax highlighting (v1.1) — C/C++, Shell, Python, JSON
 
 ## cp
 - [x] Basic copy (works)
@@ -221,6 +222,6 @@
 - [x] `--scan-json FILE` — raw file inventory JSON for wsim (path, size, mtime, ext, basename)
 - [x] `--log FILE` — operational JSON log (files_scanned, dup groups, bytes_reclaimable, elapsed_ms, options)
 - [x] Temp file detection (common temp extensions) — `--temp` / `-t`
-- [ ] Syntax highlighting in `nix` editor
+- [x] Syntax highlighting in `nix` editor — C/C++, Shell, Python, JSON
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._
