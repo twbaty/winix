@@ -17,6 +17,7 @@
  * Usage:
  *   wlint [options] <path> [path ...]
  *   -e  --empty           report empty files and directories
+ *   -t  --temp            report temp/junk files (.tmp .bak .swp ~$ etc.)
  *   -V  --verify          byte-for-byte verify after SHA-256 match
  *   -k  --keep POLICY     newest | oldest | first  (default: newest)
  *       --min-size BYTES  skip files smaller than BYTES (default: 1)
@@ -55,7 +56,7 @@
 #include <io.h>
 #include <ctype.h>
 
-#define WLINT_VERSION  "1.6"
+#define WLINT_VERSION  "1.7"
 #define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
@@ -109,6 +110,7 @@ typedef struct {
     char      **scan_paths;
     int         nscan;
     int         do_empty;
+    int         do_temp;         /* --temp: report temp/junk files */
     int         do_verify;
     KeepPolicy  keep;
     int64_t     min_size;
@@ -135,6 +137,7 @@ static DWORD             g_cbHashObj = 0;
 static FileVec   g_files;
 static FileVec   g_empty_files;
 static FileVec   g_empty_dirs;
+static FileVec   g_temp_files;
 static DupSetVec g_dupsets;
 static Opts      g_opts;
 
@@ -252,6 +255,26 @@ static int file_accepted(const char *path) {
     for (int i = 0; i < g_opts.nexclude; i++)
         if (glob_match_ci(g_opts.exclude_pats[i], path)) return 0;
     return 1;
+}
+
+/* Returns 1 if the file looks like a temp/junk file by extension or name pattern. */
+static int is_temp_file(const char *basename) {
+    static const char * const TEMP_EXTS[] = {
+        ".tmp", ".temp", ".bak", ".old", ".orig",
+        ".swp", ".swo", ".cache",
+        ".crdownload", ".part", ".partial", ".dmp",
+        NULL
+    };
+    const char *ext = path_ext(basename);
+    for (int i = 0; TEMP_EXTS[i]; i++)
+        if (_stricmp(ext, TEMP_EXTS[i]) == 0) return 1;
+
+    /* Office/editor lock files: ~$*.docx, *.c~ etc. */
+    size_t blen = strlen(basename);
+    if (blen >= 2 && basename[0] == '~' && basename[1] == '$') return 1;
+    if (blen >= 1 && basename[blen - 1] == '~') return 1;
+
+    return 0;
 }
 
 static void push_include(const char *pat) {
@@ -560,6 +583,12 @@ static void scan_path(const wchar_t *dir, int depth) {
                 if (file_accepted(pu)) {
                     fvec_push(&g_files, file_new(pu, size, fd.ftLastWriteTime));
                     g_bytes_in_pool += size;
+                }
+                if (g_opts.do_temp) {
+                    char *base = (char *)path_basename(pu);
+                    if (is_temp_file(base))
+                        fvec_push(&g_temp_files,
+                                  file_new(pu, size, fd.ftLastWriteTime));
                 }
             }
             free(pu);
@@ -896,9 +925,21 @@ static void output_pretty(void) {
         printf("\n");
     }
 
+    if (g_opts.do_temp && g_temp_files.count > 0) {
+        printf("%s[TEMP / JUNK FILES]%s\n", cc(C_YEL), cr());
+        for (size_t i = 0; i < g_temp_files.count; i++) {
+            char tsz[64], tmt[32];
+            fmt_size(g_temp_files.items[i]->size, tsz, sizeof(tsz));
+            fmt_mtime(g_temp_files.items[i]->mtime, tmt, sizeof(tmt));
+            printf("  %s  %s  %s\n", tsz, tmt, g_temp_files.items[i]->path);
+        }
+        printf("\n");
+    }
+
     int lint_found = (g_dupsets.count > 0) ||
                      (g_opts.do_empty &&
-                      (g_empty_files.count > 0 || g_empty_dirs.count > 0));
+                      (g_empty_files.count > 0 || g_empty_dirs.count > 0)) ||
+                     (g_opts.do_temp && g_temp_files.count > 0);
 
     if (!lint_found) {
         printf("%s[CLEAN]%s  No lint found.\n", cc(C_GRN), cr());
@@ -914,6 +955,8 @@ static void output_pretty(void) {
         printf("  Empty files:      %zu\n", g_empty_files.count);
         printf("  Empty dirs:       %zu\n", g_empty_dirs.count);
     }
+    if (g_opts.do_temp)
+        printf("  Temp/junk files:  %zu\n", g_temp_files.count);
     if (g_warnings > 0)
         printf("  Warnings:         %zu (unreadable files, see stderr)\n", g_warnings);
 
@@ -976,6 +1019,7 @@ static void output_json(FILE *fp) {
     fprintf(fp, "    \"reclaimable_bytes\": %lld,\n", (long long)total_rec);
     fprintf(fp, "    \"empty_files\": %zu,\n",        g_empty_files.count);
     fprintf(fp, "    \"empty_dirs\": %zu,\n",         g_empty_dirs.count);
+    fprintf(fp, "    \"temp_files\": %zu,\n",         g_temp_files.count);
     fprintf(fp, "    \"warnings\": %zu\n",             g_warnings);
     fprintf(fp, "  },\n");
 
@@ -1024,6 +1068,16 @@ static void output_json(FILE *fp) {
         json_esc(g_empty_dirs.items[i]->path, esc, sizeof(esc));
         fprintf(fp, "%s\"%s\"", i ? ", " : "", esc);
     }
+    fprintf(fp, "],\n");
+
+    fprintf(fp, "  \"temp_files\": [");
+    for (size_t i = 0; i < g_temp_files.count; i++) {
+        json_esc(g_temp_files.items[i]->path, esc, sizeof(esc));
+        fmt_mtime(g_temp_files.items[i]->mtime, mt, sizeof(mt));
+        fprintf(fp, "%s{\"path\": \"%s\", \"size\": %lld, \"mtime\": \"%s\"}",
+                i ? ", " : "", esc,
+                (long long)g_temp_files.items[i]->size, mt);
+    }
     fprintf(fp, "]\n");
     fprintf(fp, "}\n");
 }
@@ -1054,6 +1108,12 @@ static void output_csv(FILE *fp) {
 
     for (size_t i = 0; i < g_empty_dirs.count; i++)
         fprintf(fp, "empty_directory,,0,,\"%s\",\n", g_empty_dirs.items[i]->path);
+
+    for (size_t i = 0; i < g_temp_files.count; i++) {
+        fmt_mtime(g_temp_files.items[i]->mtime, mt, sizeof(mt));
+        fprintf(fp, "temp_file,,0,,\"%s\",%s\n",
+                g_temp_files.items[i]->path, mt);
+    }
 }
 
 /* ── Output: Scan JSON (wsim candidate inventory) ────────────── */
@@ -1166,6 +1226,7 @@ static void output_log(FILE *fp) {
     fprintf(fp, "    \"bytes_reclaimable\": %lld,\n", (long long)total_reclaimable);
     fprintf(fp, "    \"empty_files\":       %zu,\n", g_empty_files.count);
     fprintf(fp, "    \"empty_dirs\":        %zu,\n", g_empty_dirs.count);
+    fprintf(fp, "    \"temp_files\":        %zu,\n", g_temp_files.count);
     fprintf(fp, "    \"warnings\":          %zu,\n", g_warnings);
     fprintf(fp, "    \"elapsed_ms\":        %llu\n",
             (unsigned long long)g_elapsed_ms);
@@ -1176,6 +1237,7 @@ static void output_log(FILE *fp) {
     fprintf(fp, "    \"max_size\": %lld,\n",  (long long)g_opts.max_size);
     fprintf(fp, "    \"verify\":   %s,\n", g_opts.do_verify ? "true" : "false");
     fprintf(fp, "    \"empty\":    %s,\n", g_opts.do_empty  ? "true" : "false");
+    fprintf(fp, "    \"temp\":     %s,\n", g_opts.do_temp   ? "true" : "false");
     fprintf(fp, "    \"include_pats\": [");
     for (int i = 0; i < g_opts.ninclude; i++) {
         json_esc(g_opts.include_pats[i], esc, sizeof(esc));
@@ -1473,6 +1535,7 @@ static void usage(const char *prog) {
         "Find duplicate files and filesystem lint.\n\n"
         "Options:\n"
         "  -e  --empty           report empty files and directories\n"
+        "  -t  --temp            report temp/junk files (.tmp .bak .swp ~$ etc.)\n"
         "  -V  --verify          byte-for-byte verify after SHA-256 match\n"
         "  -k  --keep POLICY     newest|oldest|first  (default: newest)\n"
         "      --min-size BYTES  skip files smaller than BYTES (default: 1)\n"
@@ -1522,6 +1585,7 @@ int main(int argc, char *argv[]) {
             printf("wlint %s (Winix)\n", WLINT_VERSION); free(paths); return 0;
         }
         else if (!strcmp(a, "-e") || !strcmp(a, "--empty"))   { g_opts.do_empty  = 1; }
+        else if (!strcmp(a, "-t") || !strcmp(a, "--temp"))    { g_opts.do_temp   = 1; }
         else if (!strcmp(a, "-V") || !strcmp(a, "--verify"))  { g_opts.do_verify = 1; }
         else if (!strcmp(a, "-v") || !strcmp(a, "--verbose")) { g_opts.verbose   = 1; }
         else if (!strcmp(a, "--no-color"))                    { g_color           = 0; }
@@ -1707,6 +1771,7 @@ int main(int argc, char *argv[]) {
     fvec_free(&g_files);
     fvec_free(&g_empty_files);
     fvec_free(&g_empty_dirs);
+    fvec_free(&g_temp_files);
     for (size_t i = 0; i < g_dupsets.count; i++) free(g_dupsets.items[i].files);
     free(g_dupsets.items);
     for (int i = 0; i < g_opts.ninclude; i++) free(g_opts.include_pats[i]);

@@ -111,6 +111,7 @@
 | **2.1** | Done | `wlint` v1.4 ✅ — `--log FILE` operational JSON log (summary, options, elapsed_ms); `wsim` v0.2 ✅ — `--pretty` human-readable output, `--recommend-keep newest\|oldest\|path-shortest` |
 | **2.2** | Done | `wlint` v1.5 ✅ — 3-phase hashing: 1 MiB quick-hash eliminates large-file false candidates before full SHA-256; 1 MiB I/O buffer (was 64 KB); `--stats` shows quick-hash ops vs full-hash ops |
 | **2.3** | Done | `wlint` v1.6 ✅ — parallel hashing: `--threads N` worker pool (default 2, max 64); Windows thread pool with `CRITICAL_SECTION` work queue; overlapped I/O across files simultaneously |
+| **2.4** | Done | `wlint` v1.7 ✅ — `--temp`/`-t` temp/junk file detection (.tmp .bak .swp .cache .crdownload .part .dmp ~$ etc.); `wsim` v0.3 ✅ — `--csv FILE` output, `--min-score` default raised 0.40→0.65 |
 
 ---
 
@@ -197,11 +198,11 @@
 - [x] `--min-score N` threshold, `--verbose`, `--version`, `--help`
 - [x] Exit codes: 0=no candidates, 1=candidates found, 2=error
 - [x] `--pretty` human-readable output
-- [ ] `--min-score` default tuning after real-world testing
+- [x] `--min-score` default tuning after real-world testing (raised to 0.65)
 - [x] `--recommend-keep newest|oldest|path-shortest`
-- [ ] `--csv` output
+- [x] `--csv` output
 
-## wlint (v1.6 → v1.7)
+## wlint (v1.7)
 - [x] Three-phase duplicate detection: size grouping → SHA-256 (Windows CNG BCrypt) → optional byte-verify (`--verify`)
 - [x] Empty file and empty directory detection (`--empty`)
 - [x] Keep policies: `newest` (default), `oldest`, `first`
@@ -218,7 +219,7 @@
 - [x] Deterministic within-group ordering (non-kept files sorted lex by path)
 - [x] `--scan-json FILE` — raw file inventory JSON for wsim (path, size, mtime, ext, basename)
 - [x] `--log FILE` — operational JSON log (files_scanned, dup groups, bytes_reclaimable, elapsed_ms, options)
-- [ ] Temp file detection (common temp extensions)
+- [x] Temp file detection (common temp extensions) — `--temp` / `-t`
 - [ ] Syntax highlighting in `nix` editor
 
 _Keep this file updated with every commit.  When something ships, tick it off — and feel good about it._

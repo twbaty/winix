@@ -8,7 +8,8 @@
  * Usage:
  *   wsim [options] <scan.json>
  *       --out FILE        write JSON results to FILE (default: stdout)
- *       --min-score N     minimum score to report (0.0–1.0, default: 0.40)
+ *       --min-score N     minimum score to report (0.0–1.0, default: 0.65)
+ *       --csv FILE        write CSV results to FILE
  *   -v  --verbose         progress output to stderr
  *       --version
  *       --help
@@ -52,7 +53,7 @@ static int g_color = 0;
 static const char *cc(const char *c) { return g_color ? c : ""; }
 static const char *cr(void)          { return g_color ? C_RST : ""; }
 
-#define WSIM_VERSION   "0.2"
+#define WSIM_VERSION   "0.3"
 #define SCHEMA_VERSION "1.0"
 #define PATH_BUF       4096
 #define NAME_BUF       512
@@ -91,6 +92,7 @@ typedef struct {
     int    verbose;
     int    pretty;           /* --pretty: human-readable instead of JSON */
     char  *recommend_keep;   /* --recommend-keep newest|oldest|path-shortest */
+    char  *csv_out;          /* --csv FILE */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -98,7 +100,7 @@ typedef struct {
 static FileEntry *g_files  = NULL;
 static int        g_nfiles = 0;
 static int       *g_uf     = NULL;  /* union-find parent array */
-static Opts       g_opts   = { NULL, NULL, 0.40, 0 };
+static Opts       g_opts   = { NULL, NULL, 0.65, 0 };
 
 /* ── JSON helpers ─────────────────────────────────────────────── */
 
@@ -555,6 +557,38 @@ static void output_pretty(FILE *fp, const char *source_scan,
     }
 }
 
+/* ── Output: CSV ──────────────────────────────────────────────── */
+
+/* CSV-escape a string: double any embedded double-quotes, wrap in quotes. */
+static void csv_field(const char *s, char *dst, size_t dsz) {
+    size_t j = 0;
+    dst[j++] = '"';
+    for (const char *p = s; *p && j + 4 < dsz; p++) {
+        if (*p == '"') dst[j++] = '"';   /* double the quote */
+        dst[j++] = *p;
+    }
+    dst[j++] = '"';
+    dst[j]   = '\0';
+}
+
+static void output_csv(FILE *fp, int **gmembers, Score *gscores,
+                       int *gsizes, int *gkeep, int ngroups) {
+    char cf[PATH_BUF * 2 + 4];
+    fprintf(fp, "group,score,path,size,mtime,ext,basename,keep\n");
+    for (int g = 0; g < ngroups; g++) {
+        for (int fi = 0; fi < gsizes[g]; fi++) {
+            FileEntry *fe = &g_files[gmembers[g][fi]];
+            int is_keep = gkeep && (fi == gkeep[g]);
+            csv_field(fe->path, cf, sizeof(cf));
+            fprintf(fp, "%d,%.4f,%s,%lld,%s,%s,\"%s\",%s\n",
+                    g + 1, gscores[g].total,
+                    cf, (long long)fe->size, fe->mtime,
+                    fe->ext, fe->basename,
+                    gkeep ? (is_keep ? "true" : "false") : "");
+        }
+    }
+}
+
 /* ── Usage ────────────────────────────────────────────────────── */
 
 static void usage(const char *prog) {
@@ -563,8 +597,9 @@ static void usage(const char *prog) {
         "Score files in a wlint scan inventory for similarity.\n"
         "Read-only — never modifies or moves files.\n\n"
         "Options:\n"
-        "      --out FILE           write results to FILE (default: stdout)\n"
-        "      --min-score N        minimum score to report (0.0-1.0, default: 0.40)\n"
+        "      --out FILE           write JSON results to FILE (default: stdout)\n"
+        "      --csv FILE           write CSV results to FILE\n"
+        "      --min-score N        minimum score to report (0.0-1.0, default: 0.65)\n"
         "      --pretty             human-readable output (default: JSON)\n"
         "      --recommend-keep P   mark file to keep: newest|oldest|path-shortest\n"
         "  -v  --verbose            progress output to stderr\n"
@@ -594,6 +629,7 @@ int main(int argc, char *argv[]) {
         if      (!strcmp(a, "--version"))                      { printf("wsim %s (Winix)\n", WSIM_VERSION); return 0; }
         else if (!strcmp(a, "--help") || !strcmp(a, "-h"))     { usage(argv[0]); return 0; }
         else if (!strcmp(a, "--out")       && i + 1 < argc)    { g_opts.out_file  = argv[++i]; }
+        else if (!strcmp(a, "--csv")       && i + 1 < argc)    { g_opts.csv_out   = argv[++i]; }
         else if (!strcmp(a, "--min-score") && i + 1 < argc)    { g_opts.min_score = atof(argv[++i]); }
         else if (!strcmp(a, "--verbose")   || !strcmp(a, "-v")) { g_opts.verbose = 1; }
         else if (!strcmp(a, "--pretty"))                       { g_opts.pretty  = 1; }
@@ -643,6 +679,10 @@ int main(int argc, char *argv[]) {
             output_pretty(out_fp, g_opts.scan_file, NULL, NULL, NULL, NULL, 0);
         else
             output_json(out_fp, g_opts.scan_file, NULL, NULL, NULL, NULL, 0);
+        if (g_opts.csv_out) {
+            FILE *cf = fopen(g_opts.csv_out, "w");
+            if (cf) { output_csv(cf, NULL, NULL, NULL, NULL, 0); fclose(cf); }
+        }
         if (g_opts.out_file) fclose(out_fp);
         free(g_files);
         return 0;
@@ -804,6 +844,17 @@ int main(int argc, char *argv[]) {
         output_pretty(out_fp, g_opts.scan_file, gmembers, gscores, gsizes, gkeep, ngroups);
     else
         output_json(out_fp, g_opts.scan_file, gmembers, gscores, gsizes, gkeep, ngroups);
+
+    if (g_opts.csv_out) {
+        FILE *cf = fopen(g_opts.csv_out, "w");
+        if (!cf) {
+            fprintf(stderr, "wsim: cannot write: %s\n", g_opts.csv_out);
+        } else {
+            output_csv(cf, gmembers, gscores, gsizes, gkeep, ngroups);
+            fclose(cf);
+        }
+    }
+
     ret = ngroups > 0 ? 1 : 0;
 
 cleanup:
