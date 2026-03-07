@@ -168,6 +168,11 @@ target_link_libraries(wsim winixcommon)
 
 add_executable(apropos  src/coreutils/apropos.c)
 
+add_executable(strings  src/coreutils/strings.c)
+add_executable(xxd      src/coreutils/xxd.c)
+add_executable(od       src/coreutils/od.c)
+add_executable(split    src/coreutils/split.c)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -184,5 +189,6 @@ install(TARGETS
     test_cmd lbracket
     mktemp realpath cmp fold expand unexpand
     column time watch bc awk wlint wsim apropos
+    strings xxd od split
     DESTINATION bin
 )
