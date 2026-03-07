@@ -15,8 +15,11 @@ static int recursive = 0;
 
 #ifdef _WIN32
 /*
- * Look up `username` via LookupAccountNameA, then transfer ownership of
- * `path` using SetNamedSecurityInfoA with OWNER_SECURITY_INFORMATION.
+ * Look up `username` via LookupAccountNameA, then:
+ *   1. Transfer ownership using SetNamedSecurityInfoA (OWNER_SECURITY_INFORMATION).
+ *   2. Update the DACL to grant the new owner Full Control, with ACE inheritance
+ *      flags so child objects under a directory pick up the same grant.
+ *
  * Returns 0 on success, 1 on error.
  */
 static int set_owner(const char *path, const char *username) {
@@ -34,6 +37,7 @@ static int set_owner(const char *path, const char *username) {
         return 1;
     }
 
+    /* ── 1. Set owner ──────────────────────────────────────────── */
     DWORD err = SetNamedSecurityInfoA(
         (LPSTR)path,
         SE_FILE_OBJECT,
@@ -46,6 +50,51 @@ static int set_owner(const char *path, const char *username) {
                 path, err);
         return 1;
     }
+
+    /* ── 2. Update DACL to grant new owner Full Control ─────────
+     *
+     * Get the existing DACL, merge in a new ACE for the new owner,
+     * and write the combined ACL back.  For directories we set inherit
+     * flags (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) so that new
+     * child files and subdirectories inherit the grant automatically.
+     */
+    PACL  old_dacl = NULL;
+    PSECURITY_DESCRIPTOR psd = NULL;
+    err = GetNamedSecurityInfoA(
+        (LPSTR)path,
+        SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        NULL, NULL, &old_dacl, NULL, &psd);
+
+    if (err == ERROR_SUCCESS) {
+        /* Determine if path is a directory for inheritance flags */
+        DWORD attr = GetFileAttributesA(path);
+        BOOL  is_dir = (attr != INVALID_FILE_ATTRIBUTES) &&
+                       (attr & FILE_ATTRIBUTE_DIRECTORY);
+
+        EXPLICIT_ACCESSA ea;
+        ZeroMemory(&ea, sizeof(ea));
+        ea.grfAccessPermissions = GENERIC_ALL;
+        ea.grfAccessMode        = SET_ACCESS;
+        ea.grfInheritance       = is_dir
+            ? (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)
+            : NO_INHERITANCE;
+        ea.Trustee.TrusteeForm  = TRUSTEE_IS_SID;
+        ea.Trustee.TrusteeType  = TRUSTEE_IS_USER;
+        ea.Trustee.ptstrName    = (LPCH)(PSID)sid_buf;
+
+        PACL new_dacl = NULL;
+        if (SetEntriesInAclA(1, &ea, old_dacl, &new_dacl) == ERROR_SUCCESS) {
+            SetNamedSecurityInfoA(
+                (LPSTR)path,
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                NULL, NULL, new_dacl, NULL);
+            LocalFree(new_dacl);
+        }
+        LocalFree(psd);
+    }
+    /* DACL update failure is non-fatal — ownership was already transferred */
 
     if (verbose)
         printf("owner of '%s' changed to '%s'\n", path, username);

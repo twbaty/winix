@@ -9,64 +9,110 @@
 static int verbose   = 0;
 static int recursive = 0;
 
-/*
- * Interpret a mode string against the file's current attributes.
- *
- * Windows only exposes one meaningful permission bit: FILE_ATTRIBUTE_READONLY.
- * We map POSIX modes to it as follows:
- *   - Any write bit present  → clear READONLY (writable)
- *   - No write bits          → set   READONLY
- *
- * Returns:
- *   0   clear READONLY (make writable)
- *   1   set   READONLY (make read-only)
- *  -1   parse error (invalid mode string)
- *  -2   valid mode but has no Windows-mappable effect (e.g. +x, -r)
- */
-static int interpret_mode(const char *mode, DWORD cur_attrs) {
+/* ── Sidecar helpers (.winixmeta) ─────────────────────────────── */
 
-    /* ---- octal: 0?NNN ---- */
+/* Build sidecar path: <path>.winixmeta */
+static void meta_path(const char *path, char *buf, size_t bufsz) {
+    snprintf(buf, bufsz, "%s.winixmeta", path);
+}
+
+/* Read octal mode from sidecar. Returns 1 and sets *mode on success. */
+static int read_meta_mode(const char *path, int *mode) {
+    char mp[4096];
+    meta_path(path, mp, sizeof(mp));
+    FILE *f = fopen(mp, "r");
+    if (!f) return 0;
+    int m = 0;
+    int ok = fscanf(f, "%o", &m) == 1;
+    fclose(f);
+    if (ok) { *mode = m; return 1; }
+    return 0;
+}
+
+/* Write octal mode to sidecar (creates/overwrites). Marks it hidden. */
+static void write_meta(const char *path, int mode) {
+    char mp[4096];
+    meta_path(path, mp, sizeof(mp));
+    FILE *f = fopen(mp, "w");
+    if (!f) return;
+    fprintf(f, "%04o\n", mode & 07777);
+    fclose(f);
+    /* Mark hidden so it stays out of normal dir listings */
+    SetFileAttributesA(mp, FILE_ATTRIBUTE_HIDDEN);
+}
+
+/* ── Mode computation ─────────────────────────────────────────── */
+
+/*
+ * Apply mode string to cur_mode and return the new full POSIX mode (0–07777).
+ * Returns -1 on parse error.
+ *
+ * Handles:
+ *   Octal:    0755, 644, etc.
+ *   Symbolic: [ugoa]*[+-=][rwxX]+
+ */
+static int compute_new_mode(const char *mode, int cur_mode) {
+    /* ---- octal ---- */
     if (mode[0] >= '0' && mode[0] <= '7') {
         char *end;
         long val = strtol(mode, &end, 8);
-        if (*end != '\0' || val < 0 || val > 07777)
-            return -1;
-        /* write bits: owner=0200, group=0020, other=0002 */
-        return (val & 0222) ? 0 : 1;
+        if (*end != '\0' || val < 0 || val > 07777) return -1;
+        return (int)val;
     }
 
-    /* ---- symbolic: [ugoa]*[+-=][rwxX]+ ---- */
+    /* ---- symbolic ---- */
     const char *p = mode;
-    while (*p == 'u' || *p == 'g' || *p == 'o' || *p == 'a') p++;
+    int who = 0;   /* bitmask: 1=u 2=g 4=o */
+    while (*p == 'u' || *p == 'g' || *p == 'o' || *p == 'a') {
+        if (*p == 'u') who |= 1;
+        if (*p == 'g') who |= 2;
+        if (*p == 'o') who |= 4;
+        if (*p == 'a') who = 7;
+        p++;
+    }
+    if (who == 0) who = 7;  /* no who → 'a' (all) */
 
     if (*p != '+' && *p != '-' && *p != '=') return -1;
     char op = *p++;
+    if (*p == '\0') return -1;
 
-    if (*p == '\0') return -1;  /* operator with no permissions */
-
-    int has_r = 0, has_w = 0, has_x = 0;
+    int pbits = 0;  /* r=4 w=2 x=1; X=8 (conditional execute) */
     for (; *p; p++) {
         switch (*p) {
-            case 'r':           has_r = 1; break;
-            case 'w':           has_w = 1; break;
-            case 'x': case 'X': has_x = 1; break;
+            case 'r': pbits |= 4; break;
+            case 'w': pbits |= 2; break;
+            case 'x': pbits |= 1; break;
+            case 'X': pbits |= 8; break;
             default: return -1;
         }
     }
 
-    /* +r, -r, +x, -x — valid POSIX but nothing to toggle on Windows */
-    if (!has_w && op != '=') return -2;
-
-    int cur_writable = !(cur_attrs & FILE_ATTRIBUTE_READONLY);
-    int new_writable  = cur_writable;
-
-    switch (op) {
-        case '+': new_writable = has_w ? 1 : cur_writable; break;
-        case '-': new_writable = has_w ? 0 : cur_writable; break;
-        case '=': new_writable = has_w ? 1 : 0;            break;
+    /* Resolve X: set x only if any x already set in cur_mode */
+    if (pbits & 8) {
+        pbits &= ~8;
+        if (cur_mode & 0111) pbits |= 1;
     }
 
-    return new_writable ? 0 : 1;
+    /* Build bit mask covering the chosen who-classes */
+    int mask = 0;
+    if (who & 1) mask |= (pbits << 6);  /* owner */
+    if (who & 2) mask |= (pbits << 3);  /* group */
+    if (who & 4) mask |= pbits;          /* other */
+
+    int new_mode = cur_mode;
+    switch (op) {
+        case '+': new_mode |= mask; break;
+        case '-': new_mode &= ~mask; break;
+        case '=': {
+            int clear = 0;
+            if (who & 1) clear |= 0700;
+            if (who & 2) clear |= 0070;
+            if (who & 4) clear |= 0007;
+            new_mode = (cur_mode & ~clear) | mask;
+            break;
+        }
+    }
+    return new_mode & 07777;
 }
 
 /* Apply mode_str to a single path. Returns 0 on success, 1 on error. */
@@ -77,25 +123,24 @@ static int apply_mode(const char *mode_str, const char *path) {
         return 1;
     }
 
-    int result = interpret_mode(mode_str, attrs);
+    /* Determine current POSIX mode: sidecar first, then infer from Windows attrs */
+    int is_dir   = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    int cur_mode = is_dir ? 0755 : 0644;
+    if (attrs & FILE_ATTRIBUTE_READONLY) cur_mode &= ~0222;
+    read_meta_mode(path, &cur_mode);   /* overrides if sidecar exists */
 
-    if (result == -1) {
+    int new_mode = compute_new_mode(mode_str, cur_mode);
+    if (new_mode < 0) {
         fprintf(stderr, "chmod: invalid mode: '%s'\n", mode_str);
         return 1;
     }
 
-    if (result == -2) {
-        /* Valid but unmappable on Windows — silently succeed */
-        if (verbose)
-            printf("chmod: '%s': mode '%s' has no effect on Windows\n", path, mode_str);
-        return 0;
-    }
-
+    /* Apply write-bit to Windows READONLY attribute */
     DWORD new_attrs = attrs;
-    if (result == 1)
-        new_attrs |=  FILE_ATTRIBUTE_READONLY;
-    else
+    if (new_mode & 0222)
         new_attrs &= ~FILE_ATTRIBUTE_READONLY;
+    else
+        new_attrs |=  FILE_ATTRIBUTE_READONLY;
 
     if (new_attrs != attrs) {
         if (!SetFileAttributesA(path, new_attrs)) {
@@ -103,12 +148,17 @@ static int apply_mode(const char *mode_str, const char *path) {
                     path, GetLastError());
             return 1;
         }
-        if (verbose)
-            printf("mode of '%s' changed to %s\n", path,
-                   (new_attrs & FILE_ATTRIBUTE_READONLY) ? "read-only" : "writable");
-    } else if (verbose) {
-        printf("mode of '%s' retained as %s\n", path,
-               (attrs & FILE_ATTRIBUTE_READONLY) ? "read-only" : "writable");
+    }
+
+    /* Always update sidecar with the full new mode */
+    write_meta(path, new_mode);
+
+    if (verbose) {
+        if (new_mode != cur_mode)
+            printf("mode of '%s' changed from %04o to %04o\n",
+                   path, cur_mode, new_mode);
+        else
+            printf("mode of '%s' retained as %04o\n", path, cur_mode);
     }
 
     return 0;
@@ -133,6 +183,10 @@ static int chmod_recursive(const char *mode_str, const char *path) {
         struct dirent *ent;
         while ((ent = readdir(d)) != NULL) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                continue;
+            /* skip sidecar files */
+            size_t nlen = strlen(ent->d_name);
+            if (nlen > 11 && strcmp(ent->d_name + nlen - 11, ".winixmeta") == 0)
                 continue;
             char child[4096];
             snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);

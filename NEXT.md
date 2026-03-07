@@ -112,6 +112,7 @@
 | **2.2** | Done | `wlint` v1.5 ✅ — 3-phase hashing: 1 MiB quick-hash eliminates large-file false candidates before full SHA-256; 1 MiB I/O buffer (was 64 KB); `--stats` shows quick-hash ops vs full-hash ops |
 | **2.3** | Done | `wlint` v1.6 ✅ — parallel hashing: `--threads N` worker pool (default 2, max 64); Windows thread pool with `CRITICAL_SECTION` work queue; overlapped I/O across files simultaneously |
 | **2.4** | Done | `wlint` v1.7 ✅ — `--temp`/`-t` temp/junk file detection (.tmp .bak .swp .cache .crdownload .part .dmp ~$ etc.); `wsim` v0.3 ✅ — `--csv FILE` output, `--min-score` default raised 0.40→0.65 |
+| **2.5** | Done | `chmod` ✅ — sidecar POSIX permission emulation (`<file>.winixmeta`), full octal/symbolic mode tracking; `chown` ✅ — ACL inheritance: DACL updated with `GENERIC_ALL` + inherit flags for new owner |
 
 ---
 
@@ -145,12 +146,12 @@
 ## chmod
 - [x] Stub implementation
 - [x] Implement SetFileAttributes() mapping (read-only/writable)
-- [ ] Add sidecar POSIX permission emulation (.meta)
+- [x] Add sidecar POSIX permission emulation (.meta)
 
 ## chown
 - [x] Stub for Windows
 - [x] Map usernames using LookupAccountNameA() → SID → SetNamedSecurityInfoA()
-- [ ] Integrate future Windows SID translation (ACL inheritance)
+- [x] Integrate future Windows SID translation (ACL inheritance)
 
 ## cut
 - [x] Field extraction (`-f`) with custom delimiter (`-d`) and suppress (`-s`)
