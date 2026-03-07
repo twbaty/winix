@@ -173,6 +173,16 @@ add_executable(xxd      src/coreutils/xxd.c)
 add_executable(od       src/coreutils/od.c)
 add_executable(split    src/coreutils/split.c)
 
+add_executable(expr     src/coreutils/expr.c)
+add_executable(nproc    src/coreutils/nproc.c)
+add_executable(truncate src/coreutils/truncate.c)
+target_link_libraries(truncate winixcommon)
+add_executable(numfmt   src/coreutils/numfmt.c)
+target_link_libraries(numfmt m)
+add_executable(readlink src/coreutils/readlink.c)
+add_executable(cksum    src/coreutils/cksum.c)
+add_executable(factor   src/coreutils/factor.c)
+
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
     winix
@@ -190,5 +200,6 @@ install(TARGETS
     mktemp realpath cmp fold expand unexpand
     column time watch bc awk wlint wsim apropos
     strings xxd od split
+    expr nproc truncate numfmt readlink cksum factor
     DESTINATION bin
 )

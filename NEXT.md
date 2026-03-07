@@ -115,6 +115,7 @@
 | **2.5** | Done | `chmod` ✅ — sidecar POSIX permission emulation (`<file>.winixmeta`), full octal/symbolic mode tracking; `chown` ✅ — ACL inheritance: DACL updated with `GENERIC_ALL` + inherit flags for new owner |
 | **2.6** | Done | `nix` v1.1 ✅ — syntax highlighting: C/C++ (keywords, strings, comments, numbers, preprocessor), Shell, Python, JSON; ANSI colors, block-comment state threading, language detection by extension |
 | **2.7** | Done | `tee` ✅ v1.0 — rewritten: multiple files, `-a` append, binary-safe; `strings` ✅ — extract printable runs (`-n`, `-t d/o/x`); `xxd` ✅ — hex dump + reverse mode (`-n/-s/-c/-g/-u/-p/-r`); `od` ✅ — octal/hex/char dump (`-t/-A/-N/-j/-w`); `split` ✅ — split by bytes/lines/chunks (`-b/-l/-n/-d/-a`) |
+| **2.8** | Done | `expr` ✅ — arithmetic/comparison/logic/string ops; `nproc` ✅ — processor count (`--all`, `--ignore=N`); `truncate` ✅ — resize files (`-s [+/-]SIZE`); `numfmt` ✅ — SI/IEC number formatting; `readlink` ✅ — symlink resolution (`-f/-e/-m`); `cksum` ✅ — CRC-32 + byte count; `factor` ✅ — prime factorization |
 
 ---
 
