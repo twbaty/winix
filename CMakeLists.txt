@@ -179,9 +179,17 @@ add_executable(truncate src/coreutils/truncate.c)
 target_link_libraries(truncate winixcommon)
 add_executable(numfmt   src/coreutils/numfmt.c)
 target_link_libraries(numfmt m)
-add_executable(readlink src/coreutils/readlink.c)
-add_executable(cksum    src/coreutils/cksum.c)
-add_executable(factor   src/coreutils/factor.c)
+add_executable(readlink  src/coreutils/readlink.c)
+add_executable(cksum     src/coreutils/cksum.c)
+add_executable(factor    src/coreutils/factor.c)
+add_executable(sha1sum   src/coreutils/sha1sum.c)
+add_executable(sha512sum src/coreutils/sha512sum.c)
+add_executable(join      src/coreutils/join.c)
+add_executable(tsort     src/coreutils/tsort.c)
+add_executable(tty       src/coreutils/tty.c)
+add_executable(logname   src/coreutils/logname.c)
+add_executable(printenv  src/coreutils/printenv.c)
+add_executable(fmt       src/coreutils/fmt.c)
 
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
@@ -201,5 +209,6 @@ install(TARGETS
     column time watch bc awk wlint wsim apropos
     strings xxd od split
     expr nproc truncate numfmt readlink cksum factor
+    sha1sum sha512sum join tsort tty logname printenv fmt
     DESTINATION bin
 )
