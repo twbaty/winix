@@ -1795,7 +1795,7 @@ def _wlint_tree():
 
 # version / help
 out, err, rc = run('wlint', '--version')
-check('wlint --version', 'wlint' in out and '1.4' in out)
+check('wlint --version', 'wlint' in out and '1.5' in out)
 
 out, err, rc = run('wlint', '--help')
 check('wlint --help exit 0', rc == 0)
@@ -2221,7 +2221,7 @@ def _wsim_scan(path, files_list):
     """Write a minimal wlint-compatible scan JSON for wsim tests."""
     data = {
         "schema_version": "1.0",
-        "wlint_version": "1.4",
+        "wlint_version": "1.5",
         "generated": "2026-01-01T00:00:00Z",
         "scan_paths": ["C:\\test"],
         "filters": {"min_size": 1, "max_size": 0, "include_pats": [], "exclude_pats": []},

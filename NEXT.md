@@ -109,6 +109,7 @@
 | **1.9** | Done | `wsim` v0.1 ✅ — similarity scorer (basename/ext/size/mtime scoring, blocking, union-find grouping, JSON output) |
 | **2.0** | Done | `apropos` ✅ — search command descriptions by keyword; substring + whole-word modes |
 | **2.1** | Done | `wlint` v1.4 ✅ — `--log FILE` operational JSON log (summary, options, elapsed_ms); `wsim` v0.2 ✅ — `--pretty` human-readable output, `--recommend-keep newest\|oldest\|path-shortest` |
+| **2.2** | Done | `wlint` v1.5 ✅ — 3-phase hashing: 1 MiB quick-hash eliminates large-file false candidates before full SHA-256; 1 MiB I/O buffer (was 64 KB); `--stats` shows quick-hash ops vs full-hash ops |
 
 ---
 

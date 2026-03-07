@@ -55,11 +55,12 @@
 #include <io.h>
 #include <ctype.h>
 
-#define WLINT_VERSION  "1.4"
+#define WLINT_VERSION  "1.5"
 #define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
-#define READ_BUF_SZ    65536
+#define READ_BUF_SZ    1048576   /* 1 MiB I/O buffer */
+#define SAMPLE_SIZE    1048576LL /* 1 MiB quick-hash sample */
 #define PATH_BUF       4096      /* wchar_t or char path length */
 
 /* ── ANSI colors ─────────────────────────────────────────────── */
@@ -146,6 +147,7 @@ static ULONGLONG g_elapsed_ms       = 0;
 static int64_t   g_bytes_in_pool    = 0;
 static size_t    g_same_size_groups = 0;
 static size_t    g_sha256_ops       = 0;
+static size_t    g_partial_ops      = 0;   /* quick-hash (1 MiB sample) ops */
 static size_t    g_verify_ops       = 0;
 
 /* ── Utility ─────────────────────────────────────────────────── */
@@ -390,15 +392,20 @@ static void bcrypt_fini(void) {
     if (g_hAlg) { BCryptCloseAlgorithmProvider(g_hAlg, 0); g_hAlg = NULL; }
 }
 
-static int sha256_file(const char *path, char hex[SHA256_HEX]) {
+/* Hash up to max_bytes of path into hex.  max_bytes=0 means the whole file. */
+static int sha256_file(const char *path, char hex[SHA256_HEX], int64_t max_bytes) {
     BCRYPT_HASH_HANDLE hHash  = NULL;
     PBYTE              pbObj  = NULL;
     BYTE               digest[SHA256_BYTES];
     HANDLE             hFile  = INVALID_HANDLE_VALUE;
     wchar_t           *wpath  = NULL;
-    BYTE               buf[READ_BUF_SZ];
+    BYTE              *buf    = NULL;
     DWORD              nRead;
+    int64_t            total  = 0;
     int                ret    = -1;
+
+    buf = (BYTE *)malloc(READ_BUF_SZ);
+    if (!buf) goto done;
 
     pbObj = (PBYTE)malloc(g_cbHashObj);
     if (!pbObj) goto done;
@@ -413,8 +420,13 @@ static int sha256_file(const char *path, char hex[SHA256_HEX]) {
                         OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
     if (hFile == INVALID_HANDLE_VALUE) goto done;
 
-    while (ReadFile(hFile, buf, sizeof(buf), &nRead, NULL) && nRead > 0) {
-        if (BCryptHashData(hHash, buf, nRead, 0) != 0) goto done;
+    while (ReadFile(hFile, buf, READ_BUF_SZ, &nRead, NULL) && nRead > 0) {
+        DWORD to_hash = nRead;
+        if (max_bytes > 0 && total + (int64_t)nRead > max_bytes)
+            to_hash = (DWORD)(max_bytes - total);
+        if (BCryptHashData(hHash, buf, to_hash, 0) != 0) goto done;
+        total += to_hash;
+        if (max_bytes > 0 && total >= max_bytes) break;
     }
 
     if (BCryptFinishHash(hHash, digest, SHA256_BYTES, 0) != 0) goto done;
@@ -427,6 +439,7 @@ static int sha256_file(const char *path, char hex[SHA256_HEX]) {
 done:
     if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
     if (hHash) BCryptDestroyHash(hHash);
+    free(buf);
     free(pbObj);
     free(wpath);
     return ret;
@@ -618,10 +631,9 @@ static void apply_keep_policy(DupSet *ds) {
 static void find_duplicates(void) {
     if (g_files.count == 0) return;
 
-    /* phase 1: sort by size */
+    /* Phase 1: sort by size — O(n log n), no I/O */
     qsort(g_files.items, g_files.count, sizeof(File *), cmp_size);
 
-    /* phase 2: hash same-size runs */
     size_t i = 0;
     while (i < g_files.count) {
         size_t j = i + 1;
@@ -629,59 +641,113 @@ static void find_duplicates(void) {
                g_files.items[j]->size == g_files.items[i]->size)
             j++;
 
-        size_t run = j - i;
-        if (run > 1) {
-            g_same_size_groups++;
-            /* hash every file in this same-size group */
-            for (size_t k = i; k < j; k++) {
-                File *f = g_files.items[k];
+        size_t  run       = j - i;
+        int64_t file_size = g_files.items[i]->size;
+        if (run < 2) { i = j; continue; }
+
+        g_same_size_groups++;
+
+        /*
+         * Phase 2a: quick-hash (first SAMPLE_SIZE bytes) for large files;
+         * full hash for files that already fit in the sample window.
+         * Files that differ at byte 0..SAMPLE_SIZE are eliminated here —
+         * no need to read the remaining hundreds of MB.
+         */
+        int use_partial = (file_size > SAMPLE_SIZE);
+
+        for (size_t k = i; k < j; k++) {
+            File *f = g_files.items[k];
+            if (use_partial) {
+                g_partial_ops++;
+                if (sha256_file(f->path, f->hash, SAMPLE_SIZE) != 0) {
+                    snprintf(f->hash, SHA256_HEX, "PERR%zu", k);
+                    fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
+                    g_warnings++;
+                }
+                if (g_opts.verbose)
+                    fprintf(stderr, "\r  Quick hash... %zu   \r", g_partial_ops);
+            } else {
+                /* small file: one full hash, no second pass needed */
                 g_sha256_ops++;
-                if (sha256_file(f->path, f->hash) != 0) {
-                    /* unreadable file: assign unique sentinel so it won't match */
+                if (sha256_file(f->path, f->hash, 0) != 0) {
                     snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
                     fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
                     g_warnings++;
                 }
                 g_hashed++;
                 if (g_opts.verbose)
-                    fprintf(stderr, "\r  Hashing... %zu files   \r", g_hashed);
+                    fprintf(stderr, "\r  Hashing... %zu   \r", g_hashed);
             }
+        }
 
-            /* phase 3: sort subrange by hash -> find matching runs */
-            qsort(g_files.items + i, run, sizeof(File *), cmp_hash);
+        /* sort same-size group by quick/full hash */
+        qsort(g_files.items + i, run, sizeof(File *), cmp_hash);
 
-            size_t m = i;
-            while (m < j) {
-                size_t n = m + 1;
-                while (n < j && strcmp(g_files.items[n]->hash,
-                                       g_files.items[m]->hash) == 0)
-                    n++;
+        /*
+         * Phase 2b: walk quick-hash runs.
+         * For large files: only the subset that matched on the sample gets a
+         * full read — typically a tiny fraction of the group.
+         * For small files: hash is already final; go straight to dup detection.
+         */
+        size_t m = i;
+        while (m < j) {
+            size_t n = m + 1;
+            while (n < j && strcmp(g_files.items[n]->hash,
+                                   g_files.items[m]->hash) == 0)
+                n++;
 
-                if (n - m > 1) {
-                    DupSet ds;
-                    memset(&ds, 0, sizeof(ds));
-                    ds.size  = g_files.items[m]->size;
-                    memcpy(ds.hash, g_files.items[m]->hash, SHA256_HEX);
-                    ds.count = n - m;
-                    ds.files = (File **)malloc(ds.count * sizeof(File *));
-
-                    for (size_t k = 0; k < ds.count; k++)
-                        ds.files[k] = g_files.items[m + k];
-
-                    /* optional byte-for-byte verification */
-                    if (g_opts.do_verify && ds.count >= 2) {
-                        g_verify_ops++;
-                        ds.verified = files_identical(ds.files[0]->path,
-                                                      ds.files[1]->path);
+            size_t subrun = n - m;
+            if (subrun > 1) {
+                if (use_partial) {
+                    /* Full hash only for files that survived the quick-hash filter */
+                    for (size_t k = m; k < n; k++) {
+                        File *f = g_files.items[k];
+                        g_sha256_ops++;
+                        if (sha256_file(f->path, f->hash, 0) != 0) {
+                            snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
+                            fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
+                            g_warnings++;
+                        }
+                        g_hashed++;
+                        if (g_opts.verbose)
+                            fprintf(stderr, "\r  Hashing... %zu   \r", g_hashed);
                     }
-
-                    apply_keep_policy(&ds);
-                    /* sort non-kept files by path for stable output */
-                    qsort(ds.files + 1, ds.count - 1, sizeof(File *), cmp_path);
-                    dvec_push(&g_dupsets, ds);
+                    qsort(g_files.items + m, subrun, sizeof(File *), cmp_hash);
                 }
-                m = n;
+
+                /* Find confirmed duplicate runs */
+                size_t p = m;
+                while (p < n) {
+                    size_t q = p + 1;
+                    while (q < n && strcmp(g_files.items[q]->hash,
+                                           g_files.items[p]->hash) == 0)
+                        q++;
+
+                    if (q - p > 1) {
+                        DupSet ds;
+                        memset(&ds, 0, sizeof(ds));
+                        ds.size  = g_files.items[p]->size;
+                        memcpy(ds.hash, g_files.items[p]->hash, SHA256_HEX);
+                        ds.count = q - p;
+                        ds.files = (File **)malloc(ds.count * sizeof(File *));
+
+                        for (size_t k = 0; k < ds.count; k++)
+                            ds.files[k] = g_files.items[p + k];
+
+                        if (g_opts.do_verify && ds.count >= 2) {
+                            g_verify_ops++;
+                            ds.verified = files_identical(ds.files[0]->path,
+                                                          ds.files[1]->path);
+                        }
+
+                        apply_keep_policy(&ds);
+                        qsort(ds.files + 1, ds.count - 1, sizeof(File *), cmp_path);
+                        dvec_push(&g_dupsets, ds);
+                    }
+                    p = q;
+                }
             }
+            m = n;
         }
         i = j;
     }
@@ -780,7 +846,15 @@ static void output_pretty(void) {
         printf("  Elapsed:           %llu ms\n",  (unsigned long long)g_elapsed_ms);
         printf("  Bytes in pool:     %s\n",        pool_sz);
         printf("  Same-size groups:  %zu\n",       g_same_size_groups);
-        printf("  SHA-256 ops:       %zu\n",       g_sha256_ops);
+        if (g_partial_ops > 0) {
+            size_t skipped = g_partial_ops > g_sha256_ops
+                           ? g_partial_ops - g_sha256_ops : 0;
+            printf("  Quick hash ops:    %zu  (1 MiB sample)\n", g_partial_ops);
+            printf("  Full SHA-256 ops:  %zu  (%zu large-file reads skipped)\n",
+                   g_sha256_ops, skipped);
+        } else {
+            printf("  SHA-256 ops:       %zu\n",   g_sha256_ops);
+        }
         printf("  Byte-verify ops:   %zu\n",       g_verify_ops);
     }
 }
@@ -830,6 +904,7 @@ static void output_json(FILE *fp) {
     fprintf(fp, "    \"elapsed_ms\": %llu,\n",      (unsigned long long)g_elapsed_ms);
     fprintf(fp, "    \"bytes_in_pool\": %lld,\n",   (long long)g_bytes_in_pool);
     fprintf(fp, "    \"same_size_groups\": %zu,\n", g_same_size_groups);
+    fprintf(fp, "    \"quick_hash_ops\": %zu,\n",   g_partial_ops);
     fprintf(fp, "    \"sha256_ops\": %zu,\n",       g_sha256_ops);
     fprintf(fp, "    \"verify_ops\": %zu\n",        g_verify_ops);
     fprintf(fp, "  },\n");
@@ -1274,7 +1349,7 @@ static int do_undo(const char *manifest_path) {
         /* b) hash mismatch */
         if (sha256[0]) {
             char actual[SHA256_HEX] = "";
-            if (sha256_file(qpath, actual) == 0 && strcmp(actual, sha256) != 0) {
+            if (sha256_file(qpath, actual, 0) == 0 && strcmp(actual, sha256) != 0) {
                 fprintf(stderr, "wlint: undo: hash mismatch (failed): %s\n", qpath);
                 failed++;
                 continue;
