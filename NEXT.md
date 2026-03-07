@@ -1,6 +1,6 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 1.5
-**Date:** 2026-03-01
+**Version:** 3.2
+**Date:** 2026-03-07
 
 ---
 
@@ -119,13 +119,14 @@
 | **2.9** | Done | `sha1sum` ✅ — SHA-1 checksums (pure C, check mode, BSD tag); `sha512sum` ✅ — SHA-512 checksums (pure C FIPS 180-4); `join` ✅ — join sorted files on common field (`-1/-2/-j/-t/-i/-a/-v/-e/-o`); `tsort` ✅ — topological sort (Kahn's algorithm, cycle detection); `tty` ✅ — print terminal name; `logname` ✅ — print login name; `printenv` ✅ — print environment variables (`--null`); `fmt` ✅ — reformat paragraphs (`-w/-s/-u`) |
 | **3.0** | Done | GNU coreutils parity sprint: `sha224sum` ✅ SHA-224; `sha384sum` ✅ SHA-384; `unlink` ✅ raw delete; `link` ✅ hard link; `sync` ✅ flush buffers; `pathchk` ✅ validate filenames; `base32` ✅ RFC 4648; `shred` ✅ secure overwrite (`-n/-z/-u/-v`); `dd` ✅ block copy (`if/of/bs/count/skip/seek/conv`); `nice` ✅ priority classes; `nohup` ✅ hangup-immune; `groups` ✅ group memberships; `who` ✅ logged-on sessions; `users` ✅ logged-on names |
 | **3.1** | Done | GNU coreutils final niche tools: `csplit` ✅ — context split on regex/line patterns (`-f/-n/-b/-k/-z`); `pr` ✅ — paginate/columnate for printing (`-N cols/-l/-w/-h/-t/-d/-o/-m`); `stdbuf` ✅ — buffering wrapper (passthrough with Windows caveat note); `b2sum` ✅ — BLAKE2b checksums (pure C RFC 7693, `-l BITS`, check mode, `--tag`) |
+| **3.2** | Done | Shebang script execution ✅ — `./foo.sh` and `./foo` run in-process; shebang `#!/usr/bin/env winix` (or `sh`/`bash`) uses built-in interpreter; foreign shebangs (`python3`, `node`, etc.) spawn the interpreter from PATH; `name.sh` without `./` searches PATH only (Linux behaviour); no shebang defaults to winix |
 
 ---
 
 ## 🗺️ Forward Roadmap
 
 ### Next Up
-- [ ] Tests for v3.0/v3.1 batch (`dd`, `base32`, `shred`, `nice`, `nohup`, `who`, `groups`, `csplit`, `pr`, `b2sum`, etc.)
+- [x] Tests for v3.0/v3.1 batch (`dd`, `base32`, `shred`, `nice`, `nohup`, `who`, `groups`, `csplit`, `pr`, `b2sum`, etc.)
 - [ ] `chgrp` — change group (Windows ACL stub, maps to chown pattern)
 - [ ] `install` — copy files + set permissions in one step
 
