@@ -184,12 +184,29 @@ add_executable(cksum     src/coreutils/cksum.c)
 add_executable(factor    src/coreutils/factor.c)
 add_executable(sha1sum   src/coreutils/sha1sum.c)
 add_executable(sha512sum src/coreutils/sha512sum.c)
+add_executable(sha224sum src/coreutils/sha224sum.c)
+add_executable(sha384sum src/coreutils/sha384sum.c)
 add_executable(join      src/coreutils/join.c)
 add_executable(tsort     src/coreutils/tsort.c)
 add_executable(tty       src/coreutils/tty.c)
 add_executable(logname   src/coreutils/logname.c)
 add_executable(printenv  src/coreutils/printenv.c)
 add_executable(fmt       src/coreutils/fmt.c)
+add_executable(unlink    src/coreutils/unlink.c)
+add_executable(link      src/coreutils/link.c)
+add_executable(sync      src/coreutils/sync.c)
+add_executable(pathchk   src/coreutils/pathchk.c)
+add_executable(base32    src/coreutils/base32.c)
+add_executable(shred     src/coreutils/shred.c)
+add_executable(dd        src/coreutils/dd.c)
+add_executable(nice      src/coreutils/nice.c)
+add_executable(nohup     src/coreutils/nohup.c)
+add_executable(groups    src/coreutils/groups.c)
+target_link_libraries(groups netapi32 advapi32)
+add_executable(who       src/coreutils/who.c)
+target_link_libraries(who wtsapi32)
+add_executable(users     src/coreutils/users.c)
+target_link_libraries(users wtsapi32)
 
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
@@ -209,6 +226,9 @@ install(TARGETS
     column time watch bc awk wlint wsim apropos
     strings xxd od split
     expr nproc truncate numfmt readlink cksum factor
-    sha1sum sha512sum join tsort tty logname printenv fmt
+    sha1sum sha512sum sha224sum sha384sum
+    join tsort tty logname printenv fmt
+    unlink link sync pathchk base32 shred dd nice nohup
+    groups who users
     DESTINATION bin
 )

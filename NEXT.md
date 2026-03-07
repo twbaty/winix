@@ -117,6 +117,7 @@
 | **2.7** | Done | `tee` ✅ v1.0 — rewritten: multiple files, `-a` append, binary-safe; `strings` ✅ — extract printable runs (`-n`, `-t d/o/x`); `xxd` ✅ — hex dump + reverse mode (`-n/-s/-c/-g/-u/-p/-r`); `od` ✅ — octal/hex/char dump (`-t/-A/-N/-j/-w`); `split` ✅ — split by bytes/lines/chunks (`-b/-l/-n/-d/-a`) |
 | **2.8** | Done | `expr` ✅ — arithmetic/comparison/logic/string ops; `nproc` ✅ — processor count (`--all`, `--ignore=N`); `truncate` ✅ — resize files (`-s [+/-]SIZE`); `numfmt` ✅ — SI/IEC number formatting; `readlink` ✅ — symlink resolution (`-f/-e/-m`); `cksum` ✅ — CRC-32 + byte count; `factor` ✅ — prime factorization |
 | **2.9** | Done | `sha1sum` ✅ — SHA-1 checksums (pure C, check mode, BSD tag); `sha512sum` ✅ — SHA-512 checksums (pure C FIPS 180-4); `join` ✅ — join sorted files on common field (`-1/-2/-j/-t/-i/-a/-v/-e/-o`); `tsort` ✅ — topological sort (Kahn's algorithm, cycle detection); `tty` ✅ — print terminal name; `logname` ✅ — print login name; `printenv` ✅ — print environment variables (`--null`); `fmt` ✅ — reformat paragraphs (`-w/-s/-u`) |
+| **3.0** | Done | GNU coreutils parity sprint: `sha224sum` ✅ SHA-224; `sha384sum` ✅ SHA-384; `unlink` ✅ raw delete; `link` ✅ hard link; `sync` ✅ flush buffers; `pathchk` ✅ validate filenames; `base32` ✅ RFC 4648; `shred` ✅ secure overwrite (`-n/-z/-u/-v`); `dd` ✅ block copy (`if/of/bs/count/skip/seek/conv`); `nice` ✅ priority classes; `nohup` ✅ hangup-immune; `groups` ✅ group memberships; `who` ✅ logged-on sessions; `users` ✅ logged-on names |
 
 ---
 
