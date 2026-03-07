@@ -2235,7 +2235,7 @@ def _wsim_scan(path, files_list):
 out_v, err_v, rc_v = run('wsim', '--version')
 check('wsim --version exit 0', rc_v == 0)
 check('wsim --version shows wsim', 'wsim' in out_v)
-check('wsim --version shows 0.2', '0.2' in out_v)
+check('wsim --version shows 0.3', '0.3' in out_v)
 
 # Test 2: --help
 out_h, err_h, rc_h = run('wsim', '--help')
