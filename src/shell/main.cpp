@@ -1592,6 +1592,107 @@ static int run_command_line(const std::string& raw, const Paths& paths,
     if (handle_builtin(line, aliases, paths, href, cref))
         return 0;
 
+    // Script invocation: ./foo.sh, ./foo, ../foo.sh, or name.sh searched in PATH
+    {
+        auto toks = shell_tokens(line);
+        if (!toks.empty()) {
+            std::string cmd0 = toks[0];
+            bool is_relative = (cmd0.rfind("./", 0) == 0 || cmd0.rfind("../", 0) == 0);
+            bool is_absolute = (!cmd0.empty() && (cmd0[0] == '/' || cmd0[0] == '\\' ||
+                                (cmd0.size() > 1 && cmd0[1] == ':')));
+            bool has_sh_ext  = (cmd0.size() > 3 &&
+                                to_lower(cmd0.substr(cmd0.size() - 3)) == ".sh");
+
+            std::string script_path;
+
+            if (is_relative || is_absolute) {
+                // Explicit path — try as-is, then with .sh appended
+                if (fs::exists(cmd0))
+                    script_path = cmd0;
+                else if (!has_sh_ext && fs::exists(cmd0 + ".sh"))
+                    script_path = cmd0 + ".sh";
+            } else if (has_sh_ext) {
+                // name.sh without ./ — search PATH dirs (not cwd, matching Linux)
+                char buf[MAX_PATH] = {};
+                if (SearchPathA(NULL, cmd0.c_str(), NULL, MAX_PATH, buf, NULL) > 0)
+                    script_path = buf;
+            }
+
+            if (!script_path.empty()) {
+                std::ifstream fin(script_path);
+                if (fin) {
+                    std::vector<std::string> slines;
+                    std::string sl;
+                    std::string interp_line;
+                    bool first = true;
+                    while (std::getline(fin, sl)) {
+                        if (!sl.empty() && sl.back() == '\r') sl.pop_back();
+                        if (first && sl.rfind("#!", 0) == 0) {
+                            interp_line = trim(sl.substr(2));
+                            first = false;
+                            continue;
+                        }
+                        first = false;
+                        slines.push_back(sl);
+                    }
+
+                    // Parse shebang to determine interpreter
+                    bool use_winix = true;
+                    std::string ext_interp;
+                    if (!interp_line.empty()) {
+                        std::istringstream iss(interp_line);
+                        std::string iexe_tok, iarg_tok;
+                        iss >> iexe_tok;
+                        iss >> iarg_tok;
+                        std::string iname = fs::path(iexe_tok).filename().string();
+                        // Strip .exe suffix for comparison
+                        if (iname.size() > 4 && to_lower(iname.substr(iname.size()-4)) == ".exe")
+                            iname = iname.substr(0, iname.size() - 4);
+                        // Handle "env <interp>" form
+                        if (iname == "env" && !iarg_tok.empty()) {
+                            iname = fs::path(iarg_tok).filename().string();
+                            if (iname.size() > 4 && to_lower(iname.substr(iname.size()-4)) == ".exe")
+                                iname = iname.substr(0, iname.size() - 4);
+                            iexe_tok = iarg_tok;
+                        }
+                        if (iname == "winix" || iname == "sh" || iname == "bash" || iname == "dash") {
+                            use_winix = true;
+                        } else {
+                            use_winix = false;
+                            ext_interp = iexe_tok;
+                        }
+                    }
+
+                    if (use_winix) {
+                        auto old_pos = g_positional;
+                        g_positional.assign(toks.begin() + 1, toks.end());
+                        ScriptState ss;
+                        int rc = script_exec_lines(slines, paths, aliases, hist, cfg, last_exit, ss);
+                        if (ss.do_return) rc = ss.return_val;
+                        g_positional = old_pos;
+                        return rc;
+                    } else {
+                        // Find the interpreter executable in PATH
+                        std::string iexe = resolve_exe(fs::path(ext_interp).filename().string(), paths);
+                        if (iexe.empty()) {
+                            std::string fname = fs::path(ext_interp).filename().string();
+                            char buf[MAX_PATH] = {};
+                            if (SearchPathA(NULL, fname.c_str(), NULL, MAX_PATH, buf, NULL) > 0)
+                                iexe = buf;
+                        }
+                        if (iexe.empty()) {
+                            std::cerr << "winix: " << ext_interp << ": interpreter not found\n";
+                            return 127;
+                        }
+                        std::vector<std::string> iargs = {script_path};
+                        for (size_t i = 1; i < toks.size(); i++) iargs.push_back(toks[i]);
+                        return (int)spawn_direct(iexe, iargs, true);
+                    }
+                }
+            }
+        }
+    }
+
     // Chain splitting (;, &&, ||) then exec
     auto chain = split_chain(line);
     int rc = last_exit;
