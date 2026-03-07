@@ -2670,6 +2670,330 @@ out_bad, err_bad, rc_bad = run('wsim', '--recommend-keep', 'badpolicy', 'dummy.j
 check('wsim --recommend-keep invalid policy returns 2', rc_bad == 2)
 
 
+# ── Helper for new tests ──────────────────────────────────────────────────────
+def write_file(path, content, mode='w'):
+    with open(path, mode) as _f: _f.write(content)
+
+# ── sha1sum ───────────────────────────────────────────────────────────────────
+out, err, rc = run('sha1sum', '--version')
+check('sha1sum --version exits 0', rc == 0)
+check('sha1sum --version shows sha1sum', 'sha1sum' in out)
+
+out, err, rc = run('sha1sum', '--help')
+check('sha1sum --help exits 0', rc == 0)
+# stdin hash: verify format (40 hex chars)
+out, err, rc = run('sha1sum', stdin_text='hello\n')
+check('sha1sum stdin exits 0', rc == 0)
+check('sha1sum produces 40 hex chars', len(out.split()[0]) == 40)
+
+# ── sha512sum ──────────────────────────────────────────────────────────────────
+out, err, rc = run('sha512sum', '--version')
+check('sha512sum --version exits 0', rc == 0)
+check('sha512sum --version shows sha512sum', 'sha512sum' in out)
+
+d_sha512 = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_sha512, 'hello.txt')
+    write_file(f1, 'Hello, World!\n')
+    out, err, rc = run('sha512sum', f1)
+    check('sha512sum file exits 0', rc == 0)
+    check('sha512sum has 128 hex chars', len(out.split()[0]) == 128)
+finally:
+    shutil.rmtree(d_sha512, ignore_errors=True)
+
+# ── sha224sum ──────────────────────────────────────────────────────────────────
+out, err, rc = run('sha224sum', '--version')
+check('sha224sum --version exits 0', rc == 0)
+check('sha224sum --version shows sha224sum', 'sha224sum' in out)
+
+d_sha224 = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_sha224, 'hello.txt')
+    write_file(f1, 'Hello, World!\n')
+    out, err, rc = run('sha224sum', f1)
+    check('sha224sum file exits 0', rc == 0)
+    check('sha224sum has 56 hex chars', len(out.split()[0]) == 56)
+finally:
+    shutil.rmtree(d_sha224, ignore_errors=True)
+
+# ── sha384sum ──────────────────────────────────────────────────────────────────
+out, err, rc = run('sha384sum', '--version')
+check('sha384sum --version exits 0', rc == 0)
+
+d_sha384 = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_sha384, 'hello.txt')
+    write_file(f1, 'Hello, World!\n')
+    out, err, rc = run('sha384sum', f1)
+    check('sha384sum file exits 0', rc == 0)
+    check('sha384sum has 96 hex chars', len(out.split()[0]) == 96)
+finally:
+    shutil.rmtree(d_sha384, ignore_errors=True)
+
+# ── b2sum ──────────────────────────────────────────────────────────────────────
+out, err, rc = run('b2sum', '--version')
+check('b2sum --version exits 0', rc == 0)
+check('b2sum --version shows b2sum', 'b2sum' in out)
+
+d_b2 = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_b2, 'hello.txt')
+    write_file(f1, 'Hello, World!\n')
+    out, err, rc = run('b2sum', f1)
+    check('b2sum file exits 0', rc == 0)
+    check('b2sum default has 128 hex chars', len(out.split()[0]) == 128)
+    out2, err2, rc2 = run('b2sum', '-l', '256', f1)
+    check('b2sum -l 256 exits 0', rc2 == 0)
+    check('b2sum -l 256 has 64 hex chars', len(out2.split()[0]) == 64)
+finally:
+    shutil.rmtree(d_b2, ignore_errors=True)
+
+# ── base32 ─────────────────────────────────────────────────────────────────────
+out, err, rc = run('base32', stdin_text='hello\n')
+check('base32 encodes hello', rc == 0)
+check('base32 encoded output', 'NBSWY3DPBI======' in out.replace('\n', ''))
+out2, err2, rc2 = run('base32', '-d', stdin_text='NBSWY3DPEB3W64TMMQ======\n')
+check('base32 -d decodes', rc2 == 0)
+check('base32 -d output', 'hello' in out2)
+out3, err3, rc3 = run('base32', '--version')
+check('base32 --version exits 0', rc3 == 0)
+
+# ── dd ─────────────────────────────────────────────────────────────────────────
+out, err, rc = run('dd', '--version')
+check('dd --version exits 0', rc == 0)
+check('dd --version shows dd', 'dd' in out)
+
+d_dd = tempfile.mkdtemp()
+try:
+    src = os.path.join(d_dd, 'src.bin')
+    dst = os.path.join(d_dd, 'dst.bin')
+    write_file(src, 'abcdefghij')
+    out, err, rc = run('dd', f'if={src}', f'of={dst}', 'bs=1', 'count=5', 'status=none')
+    check('dd exits 0', rc == 0)
+    check('dd copies count bytes', open(dst, 'rb').read() == b'abcde')
+    dst2 = os.path.join(d_dd, 'dst2.bin')
+    out, err, rc = run('dd', f'if={src}', f'of={dst2}', 'bs=512', 'status=none')
+    check('dd full copy exits 0', rc == 0)
+    check('dd full copy size matches', os.path.getsize(dst2) == os.path.getsize(src))
+finally:
+    shutil.rmtree(d_dd, ignore_errors=True)
+
+# ── shred ──────────────────────────────────────────────────────────────────────
+out, err, rc = run('shred', '--version')
+check('shred --version exits 0', rc == 0)
+
+d_shred = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_shred, 'secret.txt')
+    write_file(f1, 'sensitive data here\n')
+    out, err, rc = run('shred', '-n', '1', f1)
+    check('shred exits 0', rc == 0)
+    check('shred file still exists', os.path.exists(f1))
+    f2 = os.path.join(d_shred, 'gone.txt')
+    write_file(f2, 'delete me\n')
+    out, err, rc = run('shred', '-n', '1', '-u', f2)
+    check('shred -u removes file', not os.path.exists(f2))
+finally:
+    shutil.rmtree(d_shred, ignore_errors=True)
+
+# ── unlink ─────────────────────────────────────────────────────────────────────
+out, err, rc = run('unlink', '--version')
+check('unlink --version exits 0', rc == 0)
+
+d_ul = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_ul, 'todel.txt')
+    write_file(f1, 'bye\n')
+    out, err, rc = run('unlink', f1)
+    check('unlink exits 0', rc == 0)
+    check('unlink removes file', not os.path.exists(f1))
+    out2, err2, rc2 = run('unlink', os.path.join(d_ul, 'noexist.txt'))
+    check('unlink missing exits 1', rc2 == 1)
+finally:
+    shutil.rmtree(d_ul, ignore_errors=True)
+
+# ── link ───────────────────────────────────────────────────────────────────────
+out, err, rc = run('link', '--version')
+check('link --version exits 0', rc == 0)
+
+d_lk = tempfile.mkdtemp()
+try:
+    src = os.path.join(d_lk, 'orig.txt')
+    dst = os.path.join(d_lk, 'hard.txt')
+    write_file(src, 'original\n')
+    out, err, rc = run('link', src, dst)
+    check('link exits 0', rc == 0)
+    check('link creates destination', os.path.exists(dst))
+    check('link content matches', open(dst).read() == 'original\n')
+finally:
+    shutil.rmtree(d_lk, ignore_errors=True)
+
+# ── sync ───────────────────────────────────────────────────────────────────────
+out, err, rc = run('sync', '--version')
+check('sync --version exits 0', rc == 0)
+out, err, rc = run('sync')
+check('sync exits 0', rc == 0)
+
+# ── pathchk ────────────────────────────────────────────────────────────────────
+out, err, rc = run('pathchk', '--version')
+check('pathchk --version exits 0', rc == 0)
+out, err, rc = run('pathchk', 'normal_file.txt')
+check('pathchk valid name exits 0', rc == 0)
+out, err, rc = run('pathchk', '-P', '')
+check('pathchk -P empty name exits 1', rc == 1)
+
+# ── nice ───────────────────────────────────────────────────────────────────────
+out, err, rc = run('nice', '--version')
+check('nice --version exits 0', rc == 0)
+out, err, rc = run('nice', 'true')
+check('nice true exits 0', rc == 0)
+out, err, rc = run('nice', '-n', '10', 'true')
+check('nice -n 10 true exits 0', rc == 0)
+out, err, rc = run('nice', '-n', '10', 'false')
+check('nice propagates exit code', rc == 1)
+
+# ── nohup ──────────────────────────────────────────────────────────────────────
+out, err, rc = run('nohup', '--version')
+check('nohup --version exits 0', rc == 0)
+
+d_nohup = tempfile.mkdtemp()
+try:
+    old_dir = os.getcwd()
+    os.chdir(d_nohup)
+    out, err, rc = run('nohup', 'true')
+    check('nohup true exits 0', rc == 0)
+    out2, err2, rc2 = run('nohup', 'false')
+    check('nohup propagates exit 1', rc2 == 1)
+    os.chdir(old_dir)
+finally:
+    os.chdir(old_dir)
+    shutil.rmtree(d_nohup, ignore_errors=True)
+
+# ── tty ────────────────────────────────────────────────────────────────────────
+out, err, rc = run('tty', '--version')
+check('tty --version exits 0', rc == 0)
+# In CI stdin is not a tty, so exit 1 is expected; either 0 or 1 is valid
+out, err, rc = run('tty')
+check('tty exits 0 or 1', rc in (0, 1))
+out, err, rc = run('tty', '-s')
+check('tty -s silent exits 0 or 1', rc in (0, 1))
+
+# ── logname ────────────────────────────────────────────────────────────────────
+out, err, rc = run('logname', '--version')
+check('logname --version exits 0', rc == 0)
+out, err, rc = run('logname')
+check('logname exits 0', rc == 0)
+check('logname prints something', len(out.strip()) > 0)
+
+# ── printenv ───────────────────────────────────────────────────────────────────
+out, err, rc = run('printenv', '--version')
+check('printenv --version exits 0', rc == 0)
+out, err, rc = run('printenv', 'PATH')
+check('printenv PATH exits 0', rc == 0)
+check('printenv PATH has content', len(out.strip()) > 0)
+out, err, rc = run('printenv', 'WINIX_NONEXISTENT_VAR_XYZ')
+check('printenv missing var exits 1', rc == 1)
+
+# ── fmt ────────────────────────────────────────────────────────────────────────
+out, err, rc = run('fmt', '--version')
+check('fmt --version exits 0', rc == 0)
+long_line = 'word ' * 20  # 100 chars
+out, err, rc = run('fmt', stdin_text=long_line + '\n')
+check('fmt exits 0', rc == 0)
+check('fmt wraps long line', any(len(l) <= 75 for l in out.splitlines()))
+out2, err2, rc2 = run('fmt', '-w', '40', stdin_text=long_line + '\n')
+check('fmt -w 40 wraps tighter', all(len(l) <= 45 for l in out2.splitlines() if l))
+
+# ── join ───────────────────────────────────────────────────────────────────────
+out, err, rc = run('join', '--version')
+check('join --version exits 0', rc == 0)
+
+d_join = tempfile.mkdtemp()
+try:
+    f1 = os.path.join(d_join, 'f1.txt')
+    f2 = os.path.join(d_join, 'f2.txt')
+    write_file(f1, 'a 1\nb 2\nc 3\n')
+    write_file(f2, 'a x\nb y\nd z\n')
+    out, err, rc = run('join', f1, f2)
+    check('join exits 0', rc == 0)
+    check('join matches a', 'a 1 x' in out)
+    check('join matches b', 'b 2 y' in out)
+    check('join excludes unmatched', 'c' not in out and 'd' not in out)
+    out2, err2, rc2 = run('join', '-a', '1', f1, f2)
+    check('join -a 1 includes unmatched from f1', 'c' in out2)
+finally:
+    shutil.rmtree(d_join, ignore_errors=True)
+
+# ── tsort ──────────────────────────────────────────────────────────────────────
+out, err, rc = run('tsort', '--version')
+check('tsort --version exits 0', rc == 0)
+out, err, rc = run('tsort', stdin_text='a b\nb c\nc d\n')
+check('tsort exits 0', rc == 0)
+lines_ts = out.strip().splitlines()
+check('tsort a before b', lines_ts.index('a') < lines_ts.index('b'))
+check('tsort b before c', lines_ts.index('b') < lines_ts.index('c'))
+check('tsort c before d', lines_ts.index('c') < lines_ts.index('d'))
+
+# ── who / users / groups ───────────────────────────────────────────────────────
+out, err, rc = run('who', '--version')
+check('who --version exits 0', rc == 0)
+out, err, rc = run('who')
+check('who exits 0', rc == 0)
+
+out, err, rc = run('users', '--version')
+check('users --version exits 0', rc == 0)
+out, err, rc = run('users')
+check('users exits 0', rc == 0)
+
+out, err, rc = run('groups', '--version')
+check('groups --version exits 0', rc == 0)
+check('groups --version shows groups', 'groups' in out)
+
+# ── csplit ─────────────────────────────────────────────────────────────────────
+out, err, rc = run('csplit', '--version')
+check('csplit --version exits 0', rc == 0)
+
+d_cs = tempfile.mkdtemp()
+try:
+    old_dir = os.getcwd()
+    os.chdir(d_cs)
+    src = os.path.join(d_cs, 'input.txt')
+    write_file(src, 'aaa\nbbb\nccc\nddd\neee\n')
+    out, err, rc = run('csplit', src, '3')
+    check('csplit exits 0', rc == 0)
+    check('csplit xx00 created', os.path.exists(os.path.join(d_cs, 'xx00')))
+    check('csplit xx01 created', os.path.exists(os.path.join(d_cs, 'xx01')))
+    check('csplit xx00 has first 2 lines', open(os.path.join(d_cs, 'xx00')).read() == 'aaa\nbbb\n')
+    os.chdir(old_dir)
+finally:
+    os.chdir(old_dir)
+    shutil.rmtree(d_cs, ignore_errors=True)
+
+# ── pr ─────────────────────────────────────────────────────────────────────────
+out, err, rc = run('pr', '--version')
+check('pr --version exits 0', rc == 0)
+
+d_pr = tempfile.mkdtemp()
+try:
+    src = os.path.join(d_pr, 'input.txt')
+    write_file(src, '\n'.join(str(i) for i in range(1, 21)) + '\n')
+    out, err, rc = run('pr', '-t', src)
+    check('pr -t exits 0', rc == 0)
+    check('pr -t has content', '1' in out)
+    out2, err2, rc2 = run('pr', src)
+    check('pr with header exits 0', rc2 == 0)
+    check('pr header has Page', 'Page' in out2)
+finally:
+    shutil.rmtree(d_pr, ignore_errors=True)
+
+# ── stdbuf ─────────────────────────────────────────────────────────────────────
+out, err, rc = run('stdbuf', '--version')
+check('stdbuf --version exits 0', rc == 0)
+out, err, rc = run('stdbuf', '-o', '0', 'true')
+check('stdbuf true exits 0', rc == 0)
+out, err, rc = run('stdbuf', '-o', 'L', 'false')
+check('stdbuf propagates exit code', rc == 1)
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed
