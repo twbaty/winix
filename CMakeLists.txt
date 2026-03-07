@@ -182,6 +182,10 @@ target_link_libraries(numfmt m)
 add_executable(readlink  src/coreutils/readlink.c)
 add_executable(cksum     src/coreutils/cksum.c)
 add_executable(factor    src/coreutils/factor.c)
+add_executable(csplit    src/coreutils/csplit.c)
+add_executable(pr        src/coreutils/pr.c)
+add_executable(stdbuf    src/coreutils/stdbuf.c)
+add_executable(b2sum     src/coreutils/b2sum.c)
 add_executable(sha1sum   src/coreutils/sha1sum.c)
 add_executable(sha512sum src/coreutils/sha512sum.c)
 add_executable(sha224sum src/coreutils/sha224sum.c)
@@ -230,5 +234,6 @@ install(TARGETS
     join tsort tty logname printenv fmt
     unlink link sync pathchk base32 shred dd nice nohup
     groups who users
+    csplit pr stdbuf b2sum
     DESTINATION bin
 )

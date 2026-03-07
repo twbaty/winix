@@ -118,6 +118,33 @@
 | **2.8** | Done | `expr` ✅ — arithmetic/comparison/logic/string ops; `nproc` ✅ — processor count (`--all`, `--ignore=N`); `truncate` ✅ — resize files (`-s [+/-]SIZE`); `numfmt` ✅ — SI/IEC number formatting; `readlink` ✅ — symlink resolution (`-f/-e/-m`); `cksum` ✅ — CRC-32 + byte count; `factor` ✅ — prime factorization |
 | **2.9** | Done | `sha1sum` ✅ — SHA-1 checksums (pure C, check mode, BSD tag); `sha512sum` ✅ — SHA-512 checksums (pure C FIPS 180-4); `join` ✅ — join sorted files on common field (`-1/-2/-j/-t/-i/-a/-v/-e/-o`); `tsort` ✅ — topological sort (Kahn's algorithm, cycle detection); `tty` ✅ — print terminal name; `logname` ✅ — print login name; `printenv` ✅ — print environment variables (`--null`); `fmt` ✅ — reformat paragraphs (`-w/-s/-u`) |
 | **3.0** | Done | GNU coreutils parity sprint: `sha224sum` ✅ SHA-224; `sha384sum` ✅ SHA-384; `unlink` ✅ raw delete; `link` ✅ hard link; `sync` ✅ flush buffers; `pathchk` ✅ validate filenames; `base32` ✅ RFC 4648; `shred` ✅ secure overwrite (`-n/-z/-u/-v`); `dd` ✅ block copy (`if/of/bs/count/skip/seek/conv`); `nice` ✅ priority classes; `nohup` ✅ hangup-immune; `groups` ✅ group memberships; `who` ✅ logged-on sessions; `users` ✅ logged-on names |
+| **3.1** | Done | GNU coreutils final niche tools: `csplit` ✅ — context split on regex/line patterns (`-f/-n/-b/-k/-z`); `pr` ✅ — paginate/columnate for printing (`-N cols/-l/-w/-h/-t/-d/-o/-m`); `stdbuf` ✅ — buffering wrapper (passthrough with Windows caveat note); `b2sum` ✅ — BLAKE2b checksums (pure C RFC 7693, `-l BITS`, check mode, `--tag`) |
+
+---
+
+## 🗺️ Forward Roadmap
+
+### Next Up
+- [ ] Tests for v3.0/v3.1 batch (`dd`, `base32`, `shred`, `nice`, `nohup`, `who`, `groups`, `csplit`, `pr`, `b2sum`, etc.)
+- [ ] `chgrp` — change group (Windows ACL stub, maps to chown pattern)
+- [ ] `install` — copy files + set permissions in one step
+
+### Shell Features
+- [ ] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
+- [ ] `select` statement (menu loop)
+- [ ] `$*` vs `$@` correct distinction inside double quotes
+- [ ] Process substitution `<(cmd)` and `>(cmd)`
+
+### Bigger Additions
+- [ ] `tar` — archive creation/extraction (basic: `-c/-x/-t/-f/-z/-v`)
+- [ ] `gzip`/`gunzip` — DEFLATE compression (or delegate to Windows `Compress-Archive`)
+- [ ] `ping` — network diagnostic via `IcmpSendEcho` Windows API
+- [ ] `curl`-lite — basic HTTP GET via `WinHTTP` (Winix-native, no external deps)
+
+### Quality
+- [ ] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar
+- [ ] `wlint` v1.8 — `--age DAYS` filter (flag files not modified in N days)
+- [ ] More cppcheck suppressions / fix any new warnings from v3.0/v3.1 batch
 
 ---
 
