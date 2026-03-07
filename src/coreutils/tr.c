@@ -325,7 +325,7 @@ int main(int argc, char *argv[])
             bool in1[256];
             memset(in1, 0, sizeof(in1));
             for (int i = 0; i < n1; i++) in1[arr1[i]] = true;
-            unsigned char comp[256];
+            unsigned char comp[256] = {0};
             int nc = 0;
             for (int i = 0; i < 256; i++) {
                 if (!in1[i]) comp[nc++] = (unsigned char)i;

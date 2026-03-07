@@ -57,7 +57,7 @@ static int ci_strstr(const char* hay, const char* needle){
     if(!nlen) return 1;
     for(const char* p=hay; *p; ++p){
         size_t i=0;
-        while(p[i] && i<nlen){
+        while(i<nlen && p[i]){
             char a = p[i], b = needle[i];
             if(a>='A' && a<='Z') a = (char)(a - 'A' + 'a');
             if(b>='A' && b<='Z') b = (char)(b - 'A' + 'a');

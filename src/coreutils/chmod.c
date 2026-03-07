@@ -22,10 +22,10 @@ static int read_meta_mode(const char *path, int *mode) {
     meta_path(path, mp, sizeof(mp));
     FILE *f = fopen(mp, "r");
     if (!f) return 0;
-    int m = 0;
+    unsigned int m = 0;
     int ok = fscanf(f, "%o", &m) == 1;
     fclose(f);
-    if (ok) { *mode = m; return 1; }
+    if (ok) { *mode = (int)m; return 1; }
     return 0;
 }
 

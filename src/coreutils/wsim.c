@@ -243,8 +243,10 @@ static void normalize_name(const char *basename, const char *ext,
 
 static void first_token(const char *norm, char *tok, size_t toksz) {
     size_t i = 0;
-    while (norm[i] && norm[i] != ' ' && i + 1 < toksz)
-        tok[i] = norm[i++];
+    while (norm[i] && norm[i] != ' ' && i + 1 < toksz) {
+        tok[i] = norm[i];
+        i++;
+    }
     tok[i] = '\0';
 }
 
