@@ -130,7 +130,9 @@ static char *make_filename(void) {
 static void register_file(const char *name) {
     if (g_nfiles >= g_fnames_cap) {
         g_fnames_cap = g_fnames_cap ? g_fnames_cap * 2 : 32;
-        g_filenames = realloc(g_filenames, (size_t)g_fnames_cap * sizeof(char *));
+        char **tmp = realloc(g_filenames, (size_t)g_fnames_cap * sizeof(char *));
+        if (!tmp) { perror("csplit"); exit(1); }
+        g_filenames = tmp;
     }
     g_filenames[g_nfiles++] = strdup(name);
 }
@@ -236,7 +238,9 @@ int main(int argc, char *argv[]) {
     while (fgets(lbuf, sizeof(lbuf), fp)) {
         if (nlines >= lcap) {
             lcap = lcap ? lcap * 2 : 1024;
-            lines = realloc(lines, (size_t)lcap * sizeof(char *));
+            char **tmp2 = realloc(lines, (size_t)lcap * sizeof(char *));
+            if (!tmp2) { perror("csplit"); exit(1); }
+            lines = tmp2;
         }
         lines[nlines++] = strdup(lbuf);
     }

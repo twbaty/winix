@@ -142,7 +142,9 @@ static int pr_columns(FILE *fp, const char *fname, int ncols) {
     while (fgets(buf, sizeof(buf), fp)) {
         if (nlines >= lcap) {
             lcap = lcap ? lcap * 2 : 256;
-            lines = realloc(lines, (size_t)lcap * sizeof(char *));
+            char **tmp = realloc(lines, (size_t)lcap * sizeof(char *));
+            if (!tmp) { perror("pr"); exit(1); }
+            lines = tmp;
         }
         int len = (int)strlen(buf);
         while (len > 0 && (buf[len-1]=='\n'||buf[len-1]=='\r')) buf[--len] = '\0';
