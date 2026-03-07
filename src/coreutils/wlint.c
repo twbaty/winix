@@ -55,7 +55,7 @@
 #include <io.h>
 #include <ctype.h>
 
-#define WLINT_VERSION  "1.5"
+#define WLINT_VERSION  "1.6"
 #define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
@@ -124,6 +124,7 @@ typedef struct {
     int         do_stats;
     char       *scan_json_out;  /* --scan-json FILE */
     char       *log_out;        /* --log FILE       */
+    int         threads;        /* --threads N (default 2) */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -628,6 +629,103 @@ static void apply_keep_policy(DupSet *ds) {
     ds->kept_idx = 0; /* after sort, index 0 is always the one to keep */
 }
 
+/* ── Parallel hash worker pool ────────────────────────────────── */
+
+typedef struct {
+    File           **files;
+    size_t           nfiles;
+    int64_t          max_bytes;
+    volatile LONG    done;      /* progress counter — Interlocked */
+    size_t           next_idx;  /* next file to claim — protected by cs */
+    size_t           errors;    /* hash errors      — protected by cs */
+    CRITICAL_SECTION cs;
+} HashWork;
+
+static DWORD WINAPI hash_worker_thread(LPVOID arg) {
+    HashWork *w = (HashWork *)arg;
+    for (;;) {
+        EnterCriticalSection(&w->cs);
+        size_t idx = w->next_idx;
+        if (idx >= w->nfiles) { LeaveCriticalSection(&w->cs); break; }
+        w->next_idx++;
+        LeaveCriticalSection(&w->cs);
+
+        File *f = w->files[idx];
+        if (sha256_file(f->path, f->hash, w->max_bytes) != 0) {
+            snprintf(f->hash, SHA256_HEX, "ERR%zu", idx);
+            EnterCriticalSection(&w->cs);
+            fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
+            w->errors++;
+            LeaveCriticalSection(&w->cs);
+        }
+        InterlockedIncrement(&w->done);
+    }
+    return 0;
+}
+
+/*
+ * Hash files[0..n-1] using up to nthreads threads.
+ * max_bytes: 0 = full file, >0 = partial sample.
+ * Returns error count; caller adds to g_warnings.
+ */
+static size_t hash_parallel(File **files, size_t n,
+                             int64_t max_bytes, int nthreads,
+                             const char *label) {
+    if (n == 0) return 0;
+    if (nthreads < 1) nthreads = 1;
+    if ((size_t)nthreads > n) nthreads = (int)n;
+    if (nthreads > 64) nthreads = 64; /* WaitForMultipleObjects limit */
+
+    HashWork w;
+    w.files    = files;
+    w.nfiles   = n;
+    w.max_bytes = max_bytes;
+    w.done     = 0;
+    w.next_idx = 0;
+    w.errors   = 0;
+    InitializeCriticalSection(&w.cs);
+
+    HANDLE *ths = (HANDLE *)malloc((size_t)nthreads * sizeof(HANDLE));
+    if (!ths) {
+        DeleteCriticalSection(&w.cs);
+        /* fallback: single-threaded */
+        for (size_t k = 0; k < n; k++) {
+            File *f = files[k];
+            if (sha256_file(f->path, f->hash, max_bytes) != 0) {
+                snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
+                fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
+                w.errors++;
+            }
+            if (g_opts.verbose)
+                fprintf(stderr, "\r  %s... %zu   \r", label, k + 1);
+        }
+        return w.errors;
+    }
+
+    for (int t = 0; t < nthreads; t++)
+        ths[t] = CreateThread(NULL, 0, hash_worker_thread, &w, 0, NULL);
+
+    /* Main thread drives the verbose ticker while workers run */
+    if (g_opts.verbose) {
+        LONG last = -1;
+        while (w.done < (LONG)n) {
+            LONG cur = w.done;
+            if (cur != last) {
+                fprintf(stderr, "\r  %s... %ld/%zu   \r", label, cur, n);
+                last = cur;
+            }
+            Sleep(50);
+        }
+        fprintf(stderr, "\r  %s... %zu/%zu   \r", label, n, n);
+    }
+
+    WaitForMultipleObjects(nthreads, ths, TRUE, INFINITE);
+    for (int t = 0; t < nthreads; t++) CloseHandle(ths[t]);
+    free(ths);
+    DeleteCriticalSection(&w.cs);
+    return w.errors;
+}
+
 static void find_duplicates(void) {
     if (g_files.count == 0) return;
 
@@ -655,29 +753,15 @@ static void find_duplicates(void) {
          */
         int use_partial = (file_size > SAMPLE_SIZE);
 
-        for (size_t k = i; k < j; k++) {
-            File *f = g_files.items[k];
-            if (use_partial) {
-                g_partial_ops++;
-                if (sha256_file(f->path, f->hash, SAMPLE_SIZE) != 0) {
-                    snprintf(f->hash, SHA256_HEX, "PERR%zu", k);
-                    fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
-                    g_warnings++;
-                }
-                if (g_opts.verbose)
-                    fprintf(stderr, "\r  Quick hash... %zu   \r", g_partial_ops);
-            } else {
-                /* small file: one full hash, no second pass needed */
-                g_sha256_ops++;
-                if (sha256_file(f->path, f->hash, 0) != 0) {
-                    snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
-                    fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
-                    g_warnings++;
-                }
-                g_hashed++;
-                if (g_opts.verbose)
-                    fprintf(stderr, "\r  Hashing... %zu   \r", g_hashed);
-            }
+        {
+            size_t errs = hash_parallel(
+                g_files.items + i, run,
+                use_partial ? SAMPLE_SIZE : 0,
+                g_opts.threads,
+                use_partial ? "Quick hash" : "Hashing");
+            g_warnings += errs;
+            if (use_partial) g_partial_ops += run;
+            else { g_sha256_ops += run; g_hashed += run; }
         }
 
         /* sort same-size group by quick/full hash */
@@ -700,18 +784,12 @@ static void find_duplicates(void) {
             if (subrun > 1) {
                 if (use_partial) {
                     /* Full hash only for files that survived the quick-hash filter */
-                    for (size_t k = m; k < n; k++) {
-                        File *f = g_files.items[k];
-                        g_sha256_ops++;
-                        if (sha256_file(f->path, f->hash, 0) != 0) {
-                            snprintf(f->hash, SHA256_HEX, "ERR%zu", k);
-                            fprintf(stderr, "wlint: warning: cannot hash: %s\n", f->path);
-                            g_warnings++;
-                        }
-                        g_hashed++;
-                        if (g_opts.verbose)
-                            fprintf(stderr, "\r  Hashing... %zu   \r", g_hashed);
-                    }
+                    size_t errs2 = hash_parallel(
+                        g_files.items + m, subrun, 0,
+                        g_opts.threads, "Hashing");
+                    g_warnings   += errs2;
+                    g_sha256_ops += subrun;
+                    g_hashed     += subrun;
                     qsort(g_files.items + m, subrun, sizeof(File *), cmp_hash);
                 }
 
@@ -845,7 +923,8 @@ static void output_pretty(void) {
         printf("%s[STATS]%s\n", cc(C_BOLD), cr());
         printf("  Elapsed:           %llu ms\n",  (unsigned long long)g_elapsed_ms);
         printf("  Bytes in pool:     %s\n",        pool_sz);
-        printf("  Same-size groups:  %zu\n",       g_same_size_groups);
+        printf("  Hash threads:      %d\n",         g_opts.threads);
+        printf("  Same-size groups:  %zu\n",        g_same_size_groups);
         if (g_partial_ops > 0) {
             size_t skipped = g_partial_ops > g_sha256_ops
                            ? g_partial_ops - g_sha256_ops : 0;
@@ -1408,6 +1487,7 @@ static void usage(const char *prog) {
         "      --exclude PAT     exclude files matching glob (repeatable)\n"
         "      --max-size BYTES  skip files larger than BYTES\n"
         "      --ext .EXT,...    include only these extensions (e.g. .jpg,.pdf)\n"
+        "      --threads N       parallel hash threads (default: 2, max: 64)\n"
         "      --stats           show performance statistics\n"
         "  -v  --verbose         show progress\n"
         "      --no-color        disable ANSI colors\n"
@@ -1426,6 +1506,7 @@ int main(int argc, char *argv[]) {
     memset(&g_opts, 0, sizeof(g_opts));
     g_opts.keep     = KEEP_NEWEST;
     g_opts.min_size = 1;
+    g_opts.threads  = 2;
     g_color         = _isatty(_fileno(stdout));
 
     char **paths = (char **)malloc(argc * sizeof(char *));
@@ -1469,6 +1550,11 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(a, "--exclude") && i + 1 < argc)     { push_exclude(argv[++i]); }
         else if (!strcmp(a, "--max-size") && i + 1 < argc)    { g_opts.max_size = (int64_t)atoll(argv[++i]); }
         else if (!strcmp(a, "--ext") && i + 1 < argc)         { parse_ext(argv[++i]); }
+        else if (!strcmp(a, "--threads") && i + 1 < argc) {
+            g_opts.threads = atoi(argv[++i]);
+            if (g_opts.threads < 1)  g_opts.threads = 1;
+            if (g_opts.threads > 64) g_opts.threads = 64;
+        }
         else if (!strcmp(a, "--stats"))                        { g_opts.do_stats = 1; }
         else if (a[0] == '-') {
             fprintf(stderr, "wlint: unknown option: %s\n", a);

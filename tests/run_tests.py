@@ -1795,7 +1795,7 @@ def _wlint_tree():
 
 # version / help
 out, err, rc = run('wlint', '--version')
-check('wlint --version', 'wlint' in out and '1.5' in out)
+check('wlint --version', 'wlint' in out and '1.6' in out)
 
 out, err, rc = run('wlint', '--help')
 check('wlint --help exit 0', rc == 0)
@@ -2221,7 +2221,7 @@ def _wsim_scan(path, files_list):
     """Write a minimal wlint-compatible scan JSON for wsim tests."""
     data = {
         "schema_version": "1.0",
-        "wlint_version": "1.5",
+        "wlint_version": "1.6",
         "generated": "2026-01-01T00:00:00Z",
         "scan_paths": ["C:\\test"],
         "filters": {"min_size": 1, "max_size": 0, "include_pats": [], "exclude_pats": []},
@@ -2471,6 +2471,34 @@ try:
         check('wlint --scan-json filter: file created', False, 'file not created')
 finally:
     shutil.rmtree(d_sj4, ignore_errors=True)
+
+
+# ── wlint --threads ───────────────────────────────────────────────────────────
+
+# --threads produces correct results (same as single-threaded)
+d_th1 = _wlint_tree()
+try:
+    out_th1, err_th1, rc_th1 = run('wlint', '--threads', '4', d_th1)
+    check('wlint --threads 4 finds duplicates', rc_th1 == 1)
+    check('wlint --threads 4 mentions DUPLICATE', 'DUPLICATE' in out_th1)
+finally:
+    shutil.rmtree(d_th1, ignore_errors=True)
+
+# --threads 1 (single-threaded path) still works
+d_th2 = _wlint_tree()
+try:
+    out_th2, err_th2, rc_th2 = run('wlint', '--threads', '1', d_th2)
+    check('wlint --threads 1 finds duplicates', rc_th2 == 1)
+finally:
+    shutil.rmtree(d_th2, ignore_errors=True)
+
+# --stats shows Hash threads line
+d_th3 = _wlint_tree()
+try:
+    out_th3, err_th3, rc_th3 = run('wlint', '--threads', '3', '--stats', d_th3)
+    check('wlint --stats shows Hash threads', 'Hash threads' in out_th3)
+finally:
+    shutil.rmtree(d_th3, ignore_errors=True)
 
 
 # ── wlint --log ───────────────────────────────────────────────────────────────

@@ -110,6 +110,7 @@
 | **2.0** | Done | `apropos` ✅ — search command descriptions by keyword; substring + whole-word modes |
 | **2.1** | Done | `wlint` v1.4 ✅ — `--log FILE` operational JSON log (summary, options, elapsed_ms); `wsim` v0.2 ✅ — `--pretty` human-readable output, `--recommend-keep newest\|oldest\|path-shortest` |
 | **2.2** | Done | `wlint` v1.5 ✅ — 3-phase hashing: 1 MiB quick-hash eliminates large-file false candidates before full SHA-256; 1 MiB I/O buffer (was 64 KB); `--stats` shows quick-hash ops vs full-hash ops |
+| **2.3** | Done | `wlint` v1.6 ✅ — parallel hashing: `--threads N` worker pool (default 2, max 64); Windows thread pool with `CRITICAL_SECTION` work queue; overlapped I/O across files simultaneously |
 
 ---
 
