@@ -5,6 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D4)
 ![Language](https://img.shields.io/badge/language-C%2FC%2B%2B-orange)
 [![CI](https://github.com/twbaty/winix/actions/workflows/ci.yml/badge.svg)](https://github.com/twbaty/winix/actions/workflows/ci.yml)
+[![Download](https://img.shields.io/github/v/release/twbaty/winix?label=download&color=brightgreen)](https://github.com/twbaty/winix/releases/latest)
 
 > The Unix Windows should have had.
 
@@ -16,8 +17,9 @@
 
 **No build tools required — just download and run.**
 
-1. Go to [Releases](https://github.com/twbaty/winix/releases/latest)
-2. Download `winix-vX.X-windows-x64.zip`
+👉 **[Download Latest Release](https://github.com/twbaty/winix/releases/latest)** (look for `winix-vX.X-windows-x64.zip` under Assets)
+
+1. Download `winix-vX.X-windows-x64.zip` from the link above
 3. Extract the zip to any folder
 4. Right-click `install.bat` → **Run as administrator**
 
