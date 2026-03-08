@@ -127,20 +127,17 @@
 
 ### Next Up
 - [x] Tests for v3.0/v3.1 batch (`dd`, `base32`, `shred`, `nice`, `nohup`, `who`, `groups`, `csplit`, `pr`, `b2sum`, etc.)
-- [ ] `chgrp` — change group (Windows ACL stub, maps to chown pattern)
-- [ ] `install` — copy files + set permissions in one step
+- [x] `chgrp` — change group (Windows ACL stub, maps to chown pattern)
+- [x] `install` — copy files + set permissions in one step
 
 ### Shell Features
-- [ ] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
+- [x] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
 - [ ] `select` statement (menu loop)
 - [ ] `$*` vs `$@` correct distinction inside double quotes
 - [ ] Process substitution `<(cmd)` and `>(cmd)`
 
 ### Bigger Additions
-- [ ] `tar` — archive creation/extraction (basic: `-c/-x/-t/-f/-z/-v`)
 - [ ] `gzip`/`gunzip` — DEFLATE compression (or delegate to Windows `Compress-Archive`)
-- [ ] `ping` — network diagnostic via `IcmpSendEcho` Windows API
-- [ ] `curl`-lite — basic HTTP GET via `WinHTTP` (Winix-native, no external deps)
 
 ### Quality
 - [ ] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar

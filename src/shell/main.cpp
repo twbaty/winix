@@ -299,6 +299,7 @@ static std::vector<std::string> shell_tokens(const std::string& s) {
 // Shell-local variables  (VAR=value assignments)
 // --------------------------------------------------
 static std::map<std::string, std::string> g_shell_vars;
+static std::map<std::string, std::vector<std::string>> g_arrays; // shell arrays
 static std::vector<std::string> g_positional; // $1...$N positional params (0-indexed)
 static std::map<std::string, std::vector<std::string>> g_functions; // user-defined functions
 
@@ -320,6 +321,25 @@ static std::string capture_command(const std::string& cmd) {
     // trim trailing newlines (POSIX $() behaviour)
     while (!result.empty() && (result.back()=='\n' || result.back()=='\r'))
         result.pop_back();
+    return result;
+}
+
+// Split whitespace-separated words respecting single/double quotes (for array literals).
+static std::vector<std::string> parse_array_words(const std::string& s) {
+    std::vector<std::string> result;
+    std::string cur;
+    bool in_s = false, in_d = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; continue; }
+        if (!in_s && !in_d && std::isspace((unsigned char)c)) {
+            if (!cur.empty()) { result.push_back(cur); cur.clear(); }
+        } else {
+            cur.push_back(c);
+        }
+    }
+    if (!cur.empty()) result.push_back(cur);
     return result;
 }
 
@@ -502,12 +522,29 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                     std::string inner = line.substr(i+2, j-(i+2));
                     i = j; // advance past '}'
 
-                    // ${#VAR} — string length
+                    // ${#VAR} — string length / ${#arr[@]} — array count
                     if (!inner.empty() && inner[0] == '#') {
                         std::string name = inner.substr(1);
-                        auto it = g_shell_vars.find(name);
-                        std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(name);
-                        out += std::to_string(val.size());
+                        size_t lb = name.find('[');
+                        if (lb != std::string::npos) {
+                            std::string arrname = name.substr(0, lb);
+                            size_t rb = name.find(']', lb);
+                            std::string idx = (rb != std::string::npos) ? name.substr(lb+1, rb-lb-1) : "";
+                            auto it = g_arrays.find(arrname);
+                            if (idx == "@" || idx == "*") {
+                                out += std::to_string(it != g_arrays.end() ? it->second.size() : 0);
+                            } else {
+                                if (it != g_arrays.end()) {
+                                    int n = (int)strtol(idx.c_str(), nullptr, 10);
+                                    if (n >= 0 && n < (int)it->second.size())
+                                        out += std::to_string(it->second[(size_t)n].size());
+                                }
+                            }
+                        } else {
+                            auto it = g_shell_vars.find(name);
+                            std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                            out += std::to_string(val.size());
+                        }
                         continue;
                     }
 
@@ -536,6 +573,30 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                             out += val; // unknown op — treat as plain
                         }
                         continue;
+                    }
+
+                    // ${arr[N]}, ${arr[@]}, ${arr[*]} — array subscript
+                    {
+                        size_t lb = inner.find('[');
+                        if (lb != std::string::npos) {
+                            std::string arrname = inner.substr(0, lb);
+                            size_t rb = inner.find(']', lb);
+                            std::string idx = (rb != std::string::npos) ? inner.substr(lb+1, rb-lb-1) : "";
+                            auto it = g_arrays.find(arrname);
+                            if (it != g_arrays.end()) {
+                                if (idx == "@" || idx == "*") {
+                                    for (size_t k = 0; k < it->second.size(); ++k) {
+                                        if (k) out += ' ';
+                                        out += it->second[k];
+                                    }
+                                } else {
+                                    int n = (int)strtol(idx.c_str(), nullptr, 10);
+                                    if (n >= 0 && n < (int)it->second.size())
+                                        out += it->second[(size_t)n];
+                                }
+                            }
+                            continue;
+                        }
                     }
 
                     // Plain ${VAR}
@@ -1354,17 +1415,26 @@ static bool handle_builtin(
         return true;
     }
 
-    // vars — list shell-local variables
+    // vars — list shell-local variables and arrays
     if (match("vars")) {
         for (auto& kv : g_shell_vars)
             std::cout << kv.first << "=" << kv.second << "\n";
+        for (auto& kv : g_arrays) {
+            std::cout << kv.first << "=(";
+            for (size_t i = 0; i < kv.second.size(); ++i) {
+                if (i) std::cout << ' ';
+                std::cout << kv.second[i];
+            }
+            std::cout << ")\n";
+        }
         return true;
     }
 
-    // unset VAR — remove shell variable
+    // unset VAR — remove shell variable or array
     if (starts("unset ")) {
         auto name = trim(line.substr(6));
         g_shell_vars.erase(name);
+        g_arrays.erase(name);
         return true;
     }
 
@@ -1529,16 +1599,45 @@ static int run_command_line(const std::string& raw, const Paths& paths,
     std::string line = trim(raw);
     if (line.empty()) return last_exit;
 
-    // VAR=value assignment
+    // VAR=value / VAR=(a b c) / VAR[N]=value assignment
     {
         size_t eq = line.find('=');
         if (eq != std::string::npos && eq > 0) {
+            // arr[N]=value — individual element assignment
+            size_t lb = line.find('[');
+            if (lb != std::string::npos && lb < eq) {
+                size_t rb = line.find(']', lb);
+                if (rb != std::string::npos && rb == eq - 1) {
+                    std::string arrname = line.substr(0, lb);
+                    bool valid = !arrname.empty() && !std::isdigit((unsigned char)arrname[0]);
+                    for (char ch : arrname) if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
+                    if (valid && arrname.find(' ') == std::string::npos) {
+                        std::string idxstr = line.substr(lb+1, rb-lb-1);
+                        int n = (int)strtol(idxstr.c_str(), nullptr, 10);
+                        std::string val = expand_vars(line.substr(eq + 1), last_exit);
+                        if (n >= 0) {
+                            auto& arr = g_arrays[arrname];
+                            if ((size_t)n >= arr.size()) arr.resize((size_t)n + 1);
+                            arr[(size_t)n] = val;
+                        }
+                        return 0;
+                    }
+                }
+            }
             std::string name = line.substr(0, eq);
             bool valid = !std::isdigit((unsigned char)name[0]);
             for (char ch : name)
                 if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
             if (valid && name.find(' ') == std::string::npos) {
-                g_shell_vars[name] = line.substr(eq + 1);
+                std::string val = line.substr(eq + 1);
+                if (!val.empty() && val.front() == '(') {
+                    // Array assignment: NAME=(a b c)
+                    size_t close = val.rfind(')');
+                    std::string content = (close != std::string::npos) ? val.substr(1, close - 1) : val.substr(1);
+                    g_arrays[name] = parse_array_words(expand_vars(content, last_exit));
+                } else {
+                    g_shell_vars[name] = val;
+                }
                 return 0;
             }
         }
@@ -1914,7 +2013,13 @@ static int script_exec_lines(const std::vector<std::string>& lines,
             for (size_t j = 2; j < toks.size(); ++j) {
                 if (toks[j] == "in")             { in_list = true; continue; }
                 if (toks[j] == "do" || toks[j] == ";") continue;
-                if (in_list) items.push_back(expand_vars(toks[j], last_exit));
+                if (in_list) {
+                    std::string expanded = expand_vars(toks[j], last_exit);
+                    // Word-split the expanded result so ${arr[@]} yields individual items.
+                    std::istringstream wss(expanded);
+                    std::string word;
+                    while (wss >> word) items.push_back(word);
+                }
             }
 
             size_t body_start = i + 1;
@@ -2353,20 +2458,51 @@ int main(int argc, char* argv[]) {
         auto expanded = expand_vars(
                             expand_aliases_once(original, aliases), last_exit);
 
-        // VAR=value — shell variable assignment (no spaces around =, valid identifier)
+        // VAR=value / VAR=(a b c) / VAR[N]=value — shell variable assignment
         {
             size_t eq = expanded.find('=');
             bool is_assign = false;
             if (eq != std::string::npos && eq > 0) {
-                std::string name = expanded.substr(0, eq);
-                bool valid = !std::isdigit((unsigned char)name[0]);
-                for (char ch : name)
-                    if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
-                // Only treat as assignment if there's no space before '=' (no command name)
-                if (valid && name.find(' ') == std::string::npos) {
-                    g_shell_vars[name] = expanded.substr(eq + 1);
-                    last_exit = 0;
-                    is_assign = true;
+                // arr[N]=value — individual element assignment
+                size_t lb = expanded.find('[');
+                if (lb != std::string::npos && lb < eq) {
+                    size_t rb = expanded.find(']', lb);
+                    if (rb != std::string::npos && rb == eq - 1) {
+                        std::string arrname = expanded.substr(0, lb);
+                        bool valid = !arrname.empty() && !std::isdigit((unsigned char)arrname[0]);
+                        for (char ch : arrname) if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
+                        if (valid && arrname.find(' ') == std::string::npos) {
+                            std::string idxstr = expanded.substr(lb+1, rb-lb-1);
+                            int n = (int)strtol(idxstr.c_str(), nullptr, 10);
+                            if (n >= 0) {
+                                auto& arr = g_arrays[arrname];
+                                if ((size_t)n >= arr.size()) arr.resize((size_t)n + 1);
+                                arr[(size_t)n] = expanded.substr(eq + 1);
+                            }
+                            last_exit = 0;
+                            is_assign = true;
+                        }
+                    }
+                }
+                if (!is_assign) {
+                    std::string name = expanded.substr(0, eq);
+                    bool valid = !std::isdigit((unsigned char)name[0]);
+                    for (char ch : name)
+                        if (!std::isalnum((unsigned char)ch) && ch != '_') { valid = false; break; }
+                    // Only treat as assignment if there's no space before '=' (no command name)
+                    if (valid && name.find(' ') == std::string::npos) {
+                        std::string val = expanded.substr(eq + 1);
+                        if (!val.empty() && val.front() == '(') {
+                            // Array assignment: NAME=(a b c)
+                            size_t close = val.rfind(')');
+                            std::string content = (close != std::string::npos) ? val.substr(1, close - 1) : val.substr(1);
+                            g_arrays[name] = parse_array_words(content);
+                        } else {
+                            g_shell_vars[name] = val;
+                        }
+                        last_exit = 0;
+                        is_assign = true;
+                    }
                 }
             }
             if (is_assign) {
