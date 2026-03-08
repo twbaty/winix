@@ -322,6 +322,11 @@ struct LocalFrame {
 };
 static std::vector<LocalFrame> g_local_stack;
 
+// Process substitution temp-file tracking.
+struct ProcSubOut { std::string path; std::string cmd; };
+static std::vector<std::string> g_proc_sub_in;   // <(cmd) temp files (delete after cmd)
+static std::vector<ProcSubOut>  g_proc_sub_out;  // >(cmd) entries (feed + delete after cmd)
+
 // Run a command string and capture its stdout output.
 static std::string capture_command(const std::string& cmd) {
     FILE* fp = _popen(cmd.c_str(), "r");
@@ -334,6 +339,69 @@ static std::string capture_command(const std::string& cmd) {
     while (!result.empty() && (result.back()=='\n' || result.back()=='\r'))
         result.pop_back();
     return result;
+}
+
+// Expand process substitutions <(cmd) and >(cmd) in a command line.
+// Replaces each with a temp file path; registers files in g_proc_sub_in / g_proc_sub_out.
+// Must be called before expand_vars on actual command lines (not variable assignments).
+static std::string expand_proc_subs(const std::string& line) {
+    std::string out;
+    bool in_s = false, in_d = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (c == '\'' && !in_d) { in_s = !in_s; out.push_back(c); continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; out.push_back(c); continue; }
+        if (!in_s && !in_d) {
+            bool is_in  = (c == '<' && i+1 < line.size() && line[i+1] == '(');
+            bool is_out = (c == '>' && i+1 < line.size() && line[i+1] == '(');
+            if (is_in || is_out) {
+                // Find matching close paren (depth-aware, quote-aware)
+                int depth = 1;
+                size_t j = i + 2;
+                bool ns = false, nd = false;
+                while (j < line.size() && depth > 0) {
+                    char nc = line[j];
+                    if      (nc == '\'' && !nd) ns = !ns;
+                    else if (nc == '"'  && !ns) nd = !nd;
+                    else if (!ns && !nd) {
+                        if      (nc == '(') depth++;
+                        else if (nc == ')') { if (--depth == 0) break; }
+                    }
+                    ++j;
+                }
+                std::string subcmd = line.substr(i + 2, j - (i + 2));
+
+                char tmpdir[MAX_PATH], tmpfile[MAX_PATH];
+                GetTempPathA(MAX_PATH, tmpdir);
+
+                if (is_in) {
+                    GetTempFileNameA(tmpdir, "psi", 0, tmpfile);
+                    // Run subcmd and capture output to temp file
+                    FILE* fp = _popen(subcmd.c_str(), "r");
+                    if (fp) {
+                        if (FILE* tf = fopen(tmpfile, "wb")) {
+                            char buf[4096]; size_t n;
+                            while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
+                                fwrite(buf, 1, n, tf);
+                            fclose(tf);
+                        }
+                        _pclose(fp);
+                    }
+                    g_proc_sub_in.push_back(tmpfile);
+                } else {
+                    GetTempFileNameA(tmpdir, "pso", 0, tmpfile);
+                    // Touch temp file; parent command will write to it
+                    if (FILE* tf = fopen(tmpfile, "wb")) fclose(tf);
+                    g_proc_sub_out.push_back({tmpfile, subcmd});
+                }
+                out += tmpfile;
+                i = j; // advance past ')'
+                continue;
+            }
+        }
+        out.push_back(c);
+    }
+    return out;
 }
 
 // Split whitespace-separated words respecting single/double quotes (for array literals).
@@ -1909,6 +1977,21 @@ static int run_command_line(const std::string& raw, const Paths& paths,
     return rc;
 }
 
+// Execute and clean up any pending process-substitution temp files.
+// For >(cmd): feeds the temp file into cmd, then deletes it.
+// For <(cmd): just deletes the temp file.
+static void flush_proc_subs(const Paths& paths, Aliases& aliases, int last_exit) {
+    for (auto& ps : g_proc_sub_out) {
+        std::string feed = ps.cmd + " < \"" + ps.path + "\"";
+        run_command_line(feed, paths, aliases, nullptr, nullptr, last_exit);
+        DeleteFileA(ps.path.c_str());
+    }
+    g_proc_sub_out.clear();
+    for (auto& p : g_proc_sub_in)
+        DeleteFileA(p.c_str());
+    g_proc_sub_in.clear();
+}
+
 // --------------------------------------------------
 // script_exec_lines — interpret a vector of script lines
 // --------------------------------------------------
@@ -2342,16 +2425,20 @@ static int script_exec_lines(const std::vector<std::string>& lines,
                 // Replace "<<DELIM" with "< tmpfile", keeping any suffix (e.g. "| grep x")
                 std::string suffix = (hd.end_pos < l.size()) ? l.substr(hd.end_pos) : "";
                 std::string cmd_part = trim(l.substr(0, hd.pos)) + " < " + tmpfile + suffix;
-                std::string ex = expand_vars(expand_aliases_once(cmd_part, aliases), last_exit);
+                std::string cp_ps = expand_proc_subs(cmd_part);
+                std::string ex = expand_vars(expand_aliases_once(cp_ps, aliases), last_exit);
                 last_exit = run_command_line(ex, paths, aliases, hist, cfg, last_exit);
                 DeleteFileA(tmpfile);
+                flush_proc_subs(paths, aliases, last_exit);
                 continue;
             }
         }
 
         // Regular command
-        std::string expanded = expand_vars(expand_aliases_once(l, aliases), last_exit);
+        std::string l_ps = expand_proc_subs(l);
+        std::string expanded = expand_vars(expand_aliases_once(l_ps, aliases), last_exit);
         last_exit = run_command_line(expanded, paths, aliases, hist, cfg, last_exit);
+        flush_proc_subs(paths, aliases, last_exit);
         i++;
     }
     return last_exit;
@@ -2653,6 +2740,9 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        // Process substitution: <(cmd) / >(cmd) → temp file paths
+        expanded = expand_proc_subs(expanded);
+
         // Split on ; && || then execute each segment conditionally
         auto chain = split_chain(expanded);
         for (auto& cc : chain) {
@@ -2685,6 +2775,7 @@ int main(int argc, char* argv[]) {
             if (bg && bg_hproc != INVALID_HANDLE_VALUE)
                 job_add(bg_hproc, bg_pid, cmd_str);
         }
+        flush_proc_subs(paths, aliases, last_exit);
 
         hist.add(original);
         hist.save(paths.history_file);

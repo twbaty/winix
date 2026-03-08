@@ -2998,6 +2998,39 @@ check('stdbuf true exits 0', rc == 0)
 out, err, rc = run('stdbuf', '-o', 'L', 'false')
 check('stdbuf propagates exit code', rc == 1)
 
+# ── process substitution ──────────────────────────────────────────────────────
+
+with tempfile.TemporaryDirectory() as d:
+    # <(cmd) — cat from a process substitution
+    script_ps1 = os.path.join(d, 'ps1.sh')
+    with open(script_ps1, 'w') as f:
+        f.write('cat <(echo hello)\n')
+    out, _, rc = run('winix', script_ps1)
+    check('proc_sub <(cmd) basic output', 'hello' in out)
+
+    # <(cmd) <(cmd) — two input substitutions
+    script_ps2 = os.path.join(d, 'ps2.sh')
+    with open(script_ps2, 'w') as f:
+        f.write('cat <(echo foo) <(echo bar)\n')
+    out, _, rc = run('winix', script_ps2)
+    check('proc_sub two <(cmd) both lines present', 'foo' in out and 'bar' in out)
+
+    # diff <(cmd) <(cmd) — classic real-world use case
+    script_ps3 = os.path.join(d, 'ps3.sh')
+    with open(script_ps3, 'w') as f:
+        f.write('diff <(echo apple) <(echo banana)\n')
+    out, _, rc = run('winix', script_ps3)
+    check('proc_sub diff detects difference', rc != 0)
+    check('proc_sub diff shows apple', 'apple' in out)
+    check('proc_sub diff shows banana', 'banana' in out)
+
+    # >(cmd) — tee into a process substitution
+    script_ps4 = os.path.join(d, 'ps4.sh')
+    with open(script_ps4, 'w') as f:
+        f.write('echo world | tee >(cat)\n')
+    out, _, rc = run('winix', script_ps4)
+    check('proc_sub >(cmd) feeds output', out.count('world') >= 1)
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed

@@ -137,7 +137,7 @@
 - [x] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
 - [x] `select` statement (menu loop)
 - [x] `$*` vs `$@` correct distinction inside double quotes
-- [ ] Process substitution `<(cmd)` and `>(cmd)`
+- [x] Process substitution `<(cmd)` and `>(cmd)`
 
 ### Engineering Philosophy
 > **Winix-first** — unless a battle-hardened standard library demonstrably does it better
