@@ -138,6 +138,7 @@
 
 ### Bigger Additions
 - [ ] `gzip`/`gunzip` — DEFLATE compression (or delegate to Windows `Compress-Archive`)
+- [ ] `man` — full man pages for all Winix commands (NAME/SYNOPSIS/DESCRIPTION/OPTIONS); currently passthrough to `--help`
 
 ### Quality
 - [ ] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar

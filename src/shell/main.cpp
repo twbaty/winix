@@ -1292,6 +1292,7 @@ static void print_help() {
         {"echo",    "[-ne] <text>",    "print text"},
         {"printf",  "<fmt> [args]",    "formatted print"},
         {"sleep",   "<seconds>",       "pause for N seconds"},
+        {"man",     "<cmd>",           "show command help (--help via less)"},
         {"which",   "<cmd>",           "locate a command"},
         {"basename","<path>",          "filename portion of path"},
         {"dirname", "<path>",          "directory portion of path"},
@@ -1397,6 +1398,19 @@ static bool handle_builtin(
 
     // help
     if (match("help")) { print_help(); return true; }
+
+    // man CMD — display CMD --help paged through less
+    if (starts("man ")) {
+        std::string cmd = trim(line.substr(4));
+        if (cmd.empty()) {
+            std::cerr << "Usage: man <command>\n";
+            return true;
+        }
+        // Run CMD --help and pipe through less
+        std::string manline = cmd + " --help 2>&1 | less";
+        system(manline.c_str());
+        return true;
+    }
 
     // history
     if (match("history"))    { hist.print(); return true; }
