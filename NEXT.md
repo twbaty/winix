@@ -133,7 +133,7 @@
 ### Shell Features
 - [x] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
 - [x] `select` statement (menu loop)
-- [ ] `$*` vs `$@` correct distinction inside double quotes
+- [x] `$*` vs `$@` correct distinction inside double quotes
 - [ ] Process substitution `<(cmd)` and `>(cmd)`
 
 ### Bigger Additions

@@ -464,8 +464,26 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 i++;
                 continue;
             }
-            // $@ — all positional params space-separated
+            // $@ — positional params; inside double quotes each element is a
+            //      separate word (close/reopen quote around each boundary so
+            //      downstream shell_tokens splits them correctly).
             if (c == '$' && i+1 < line.size() && line[i+1] == '@') {
+                if (in_d) {
+                    for (size_t k = 0; k < g_positional.size(); ++k) {
+                        if (k) out += "\" \""; // boundary: close quote, space, open quote
+                        out += g_positional[k];
+                    }
+                } else {
+                    for (size_t k = 0; k < g_positional.size(); ++k) {
+                        if (k) out += ' ';
+                        out += g_positional[k];
+                    }
+                }
+                i++;
+                continue;
+            }
+            // $* — all positional params joined as a single string with IFS (space)
+            if (c == '$' && i+1 < line.size() && line[i+1] == '*') {
                 for (size_t k = 0; k < g_positional.size(); ++k) {
                     if (k) out += ' ';
                     out += g_positional[k];
@@ -1678,7 +1696,9 @@ static int run_command_line(const std::string& raw, const Paths& paths,
         // User-defined function call
         if (!toks.empty() && g_functions.count(toks[0])) {
             auto old_pos = g_positional;
-            g_positional.assign(toks.begin() + 1, toks.end());
+            g_positional.clear();
+            for (size_t pi = 1; pi < toks.size(); ++pi)
+                g_positional.push_back(unquote(toks[pi]));
             g_local_stack.push_back({});   // push new local-variable frame
             ScriptState ss;
             int rc = script_exec_lines(g_functions[toks[0]], paths, aliases,
@@ -1776,7 +1796,9 @@ static int run_command_line(const std::string& raw, const Paths& paths,
 
                     if (use_winix) {
                         auto old_pos = g_positional;
-                        g_positional.assign(toks.begin() + 1, toks.end());
+                        g_positional.clear();
+                        for (size_t pi = 1; pi < toks.size(); ++pi)
+                            g_positional.push_back(unquote(toks[pi]));
                         ScriptState ss;
                         int rc = script_exec_lines(slines, paths, aliases, hist, cfg, last_exit, ss);
                         if (ss.do_return) rc = ss.return_val;
@@ -2027,10 +2049,10 @@ static int script_exec_lines(const std::vector<std::string>& lines,
                 if (toks[j] == "do" || toks[j] == ";") continue;
                 if (in_list) {
                     std::string expanded = expand_vars(toks[j], last_exit);
-                    // Word-split the expanded result so ${arr[@]} yields individual items.
-                    std::istringstream wss(expanded);
-                    std::string word;
-                    while (wss >> word) items.push_back(word);
+                    // Quote-aware word-split: handles "$@" → multiple quoted words,
+                    // plain expansion → whitespace split, "quoted val" → single word.
+                    for (auto& w : shell_tokens(expanded))
+                        items.push_back(unquote(w));
                 }
             }
 
