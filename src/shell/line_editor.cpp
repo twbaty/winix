@@ -101,9 +101,36 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
     std::vector<std::string> tab_matches;
     bool tab_active = false;
 
-    // Redraws the current line in-place.
+    // Fish-style first-word colorization cache.
+    // We re-query the completer only when the first word changes.
+    std::string cmd_cache_word = "\x01"; // sentinel — never matches real input
+    bool        cmd_cache_valid = false;
+
+    // Redraws the current line in-place with fish-style command colorization.
     auto redraw = [&]() {
-        std::cout << '\r' << prompt_str << buf << "\x1b[K";
+        // Split buf into first-word + rest.
+        size_t sp = buf.find(' ');
+        std::string first = buf.empty() ? "" :
+                            (sp == std::string::npos ? buf : buf.substr(0, sp));
+        std::string rest  = buf.substr(first.size());
+
+        // Update cache when first word changes.
+        if (first != cmd_cache_word) {
+            cmd_cache_word  = first;
+            cmd_cache_valid = false;
+            if (!first.empty() && completer_) {
+                for (auto& m : completer_(first))
+                    if (m == first) { cmd_cache_valid = true; break; }
+            }
+        }
+
+        std::cout << '\r' << prompt_str;
+        if (!first.empty() && cmd_cache_valid)
+            std::cout << "\x1b[1;32m" << first << "\x1b[0m";
+        else
+            std::cout << first;
+        std::cout << rest << "\x1b[K";
+
         size_t back = buf.size() - cursor;
         if (back > 0)
             std::cout << "\x1b[" << back << "D";
