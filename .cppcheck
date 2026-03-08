@@ -1,0 +1,44 @@
+# cppcheck suppression file for Winix
+# Usage: cppcheck --suppressions-list=.cppcheck ...
+
+# Style: add const to parameters/variables — too noisy, not a bug risk
+constParameter
+constParameterPointer
+constVariablePointer
+constVariableReference
+constVariable
+
+# Style: move variable declaration closer to use
+variableScope
+
+# Style: C++ STL algorithm suggestions (we write C-style for portability)
+useStlAlgorithm
+
+# Style: useless substr calls in C++ shell code
+uselessCallsSubstr
+
+# Style: unread variable — often intentional (loop counters, error captures)
+unreadVariable
+
+# False positive: knownConditionTrueFalse — many are intentional guards or
+# compiler-constant platform checks
+knownConditionTrueFalse
+
+# False positive: uninitvar in diff.c — normalize_ws() writes into dst as an
+# output buffer; cppcheck cannot see the out-param pattern
+uninitvar:src/coreutils/diff.c
+
+# False positive: internalAstError in shell C++ — parser limitation, not a bug
+internalAstError:src/shell/main.cpp
+
+# Informational: redundant initialization
+redundantInitialization
+
+# Informational: shadow variable (minor, not a bug)
+shadowVariable
+
+# Informational: duplicate expression in ternary (intentional defensive code)
+duplicateExpressionTernary
+
+# Suppress all warnings from bundled third-party zlib — not our code
+*:src/third_party/zlib/*

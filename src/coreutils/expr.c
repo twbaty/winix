@@ -72,6 +72,7 @@ static char *eval_string_op(const char *op) {
         if (pos >= slen || len <= 0) return strdup("");
         if (pos + len > slen) len = slen - pos;
         char *r = (char *)malloc((size_t)len + 1);
+        if (!r) { fprintf(stderr, "expr: out of memory\n"); exit(1); }
         memcpy(r, s + pos, (size_t)len);
         r[len] = '\0';
         return r;

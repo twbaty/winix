@@ -55,6 +55,7 @@ static void add_edge(int from, int to) {
     for (Edge *e = g_nodes[from].out; e; e = e->next)
         if (e->to == to) return;
     Edge *e = malloc(sizeof(Edge));
+    if (!e) { fprintf(stderr, "tsort: out of memory\n"); exit(1); }
     e->to = to; e->next = g_nodes[from].out;
     g_nodes[from].out = e;
     g_nodes[to].indeg++;
@@ -65,6 +66,7 @@ static void add_edge(int from, int to) {
 static int toposort(void) {
     /* queue of nodes with indeg 0 */
     int *queue = malloc((size_t)g_nnodes * sizeof(int));
+    if (!queue) { fprintf(stderr, "tsort: out of memory\n"); exit(1); }
     int head = 0, tail = 0;
 
     for (int i = 0; i < g_nnodes; i++)

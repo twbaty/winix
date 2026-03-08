@@ -226,6 +226,7 @@ static void arr_set(const char *aname, const char *key, Val v) {
     unsigned b = arr_hash(key);
     for (AEnt *e=a->bkt[b];e;e=e->next) { if(!strcmp(e->key,key)){e->val=v;return;} }
     AEnt *e = calloc(1,sizeof(AEnt));
+    if (!e) { fputs("awk: out of memory\n", stderr); exit(1); }
     strncpy(e->key,key,sizeof(e->key)-1); e->val=v; e->next=a->bkt[b]; a->bkt[b]=e;
 }
 static bool arr_has(const char *aname, const char *key) {
@@ -249,6 +250,7 @@ static int arr_keys(const char *aname, char ***keys_out) {
     int n=0;
     for (int b=0;b<ARR_BKTS;b++) for(AEnt *e=a->bkt[b];e;e=e->next) n++;
     char **ks = malloc(n * sizeof(char *));
+    if (!ks) { fputs("awk: out of memory\n", stderr); exit(1); }
     int i=0;
     for (int b=0;b<ARR_BKTS;b++) for(AEnt *e=a->bkt[b];e;e=e->next) ks[i++]=e->key;
     *keys_out = ks; return n;
@@ -1087,6 +1089,7 @@ static void exec_print(P *p, bool is_printf) {
     char *pipe_cmd=NULL;
     if (p->tok==T_PIPE) {
         next(p); Val cv=parse_expr(p); pipe_cmd=strdup(val_str(&cv));
+        if(!pipe_cmd){fputs("awk: out of memory\n",stderr);exit(1);}
         out=get_pipe(pipe_cmd); if(!out)out=stdout;
     }
     if (is_printf) {
@@ -1562,6 +1565,7 @@ int main(int argc, char *argv[]) {
             if(!sf){fprintf(stderr,"awk: cannot open %s\n",argv[i]);return 1;}
             fseek(sf,0,SEEK_END); long sz=ftell(sf); rewind(sf);
             prog_buf=malloc(sz+1);
+            if(!prog_buf){fputs("awk: out of memory\n",stderr);return 1;}
             sz=(long)fread(prog_buf,1,sz,sf); prog_buf[sz]='\0'; fclose(sf);
             prog=prog_buf; continue;
         }
@@ -1570,6 +1574,7 @@ int main(int argc, char *argv[]) {
             if(!sf){fprintf(stderr,"awk: cannot open %s\n",argv[i]+2);return 1;}
             fseek(sf,0,SEEK_END); long sz=ftell(sf); rewind(sf);
             prog_buf=malloc(sz+1);
+            if(!prog_buf){fputs("awk: out of memory\n",stderr);return 1;}
             sz=(long)fread(prog_buf,1,sz,sf); prog_buf[sz]='\0'; fclose(sf);
             prog=prog_buf; continue;
         }
@@ -1579,7 +1584,7 @@ int main(int argc, char *argv[]) {
         /* first non-option is the program (if not set via -f) */
         if(!prog&&!prog_buf) { prog=argv[i]; continue; }
         /* remaining are files */
-        if(!files) files=malloc((argc)*sizeof(char *));
+        if(!files) { files=malloc((argc)*sizeof(char *)); if(!files){fputs("awk: out of memory\n",stderr);return 1;} }
         files[nfiles++]=argv[i];
     }
 

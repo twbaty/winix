@@ -170,6 +170,7 @@ int main(int argc, char *argv[]) {
         if (fseek(fin, (long)to_skip, SEEK_SET) != 0) {
             /* fseek failed (stdin) — read and discard */
             unsigned char *tmp = malloc(g_ibs);
+            if (!tmp) { fprintf(stderr, "dd: out of memory\n"); exit(1); }
             for (int64_t s = 0; s < g_skip; s++) {
                 size_t r = fread(tmp, 1, g_ibs, fin);
                 if (r == 0) break;

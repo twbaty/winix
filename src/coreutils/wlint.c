@@ -515,7 +515,9 @@ static void fvec_push(FileVec *v, File *f) {
 
 static File *file_new(const char *path, int64_t size, FILETIME mtime) {
     File *f  = (File *)calloc(1, sizeof(File));
+    if (!f) { fprintf(stderr, "wlint: out of memory\n"); exit(1); }
     f->path  = _strdup(path);
+    if (!f->path) { fprintf(stderr, "wlint: out of memory\n"); exit(1); }
     f->size  = size;
     f->mtime = mtime;
     return f;
