@@ -124,10 +124,14 @@ add_executable(nix src/coreutils/nix.c)
 target_link_libraries(nix winixcommon)
 
 # Tier 1–4 coreutils
-foreach(cmd stat wc du df sort uniq grep tee alias export history kill uname uptime env ver cut tr tac rev nl seq yes hostname paste comm base64 shuf md5sum sha256sum hexdump)
+foreach(cmd stat wc du df sort uniq tee alias export history kill uname uptime env ver cut tr tac rev nl seq yes hostname paste comm base64 shuf md5sum sha256sum hexdump)
     add_executable(${cmd} src/coreutils/${cmd}.c)
     target_link_libraries(${cmd} winixcommon)
 endforeach()
+
+# grep is C++ (uses std::regex)
+add_executable(grep src/coreutils/grep.cpp)
+target_link_libraries(grep winixcommon)
 
 # test — CMake reserves the name "test" as a built-in target, so we name the
 # CMake target "test_cmd" and set the output binary name to "test".

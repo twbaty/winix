@@ -24,6 +24,12 @@ static void clear_prompt(void) {
 }
 
 int main(int argc, char *argv[]) {
+    /* Enable ANSI virtual terminal processing on Windows 10+ */
+    HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    GetConsoleMode(hout, &mode);
+    SetConsoleMode(hout, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+
     FILE *in = stdin;
     if (argc > 1) {
         in = fopen(argv[1], "r");
