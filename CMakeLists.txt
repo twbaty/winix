@@ -211,6 +211,11 @@ add_executable(who       src/coreutils/who.c)
 target_link_libraries(who wtsapi32)
 add_executable(users     src/coreutils/users.c)
 target_link_libraries(users wtsapi32)
+add_executable(chgrp     src/coreutils/chgrp.c)
+target_link_libraries(chgrp advapi32)
+add_executable(install_cmd src/coreutils/install.c)
+set_target_properties(install_cmd PROPERTIES OUTPUT_NAME "install")
+target_link_libraries(install_cmd advapi32)
 
 # Install all targets to C:\Winix\bin (or --prefix override)/bin
 install(TARGETS
@@ -235,5 +240,6 @@ install(TARGETS
     unlink link sync pathchk base32 shred dd nice nohup
     groups who users
     csplit pr stdbuf b2sum
+    chgrp install_cmd
     DESTINATION bin
 )
