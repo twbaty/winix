@@ -46,7 +46,19 @@ static bool is_quoted(const std::string& s) {
 }
 
 static std::string unquote(const std::string& s) {
-    return is_quoted(s) ? s.substr(1, s.size()-2) : s;
+    // Fast path: fully quoted token
+    if (is_quoted(s)) return s.substr(1, s.size()-2);
+    // Handle mixed tokens like "path with spaces"/rest or prefix"quoted"suffix
+    if (s.find('"') == std::string::npos && s.find('\'') == std::string::npos)
+        return s;
+    std::string out;
+    bool in_s = false, in_d = false;
+    for (char c : s) {
+        if (c == '\'' && !in_d) { in_s = !in_s; continue; }
+        if (c == '"'  && !in_s) { in_d = !in_d; continue; }
+        out += c;
+    }
+    return out;
 }
 
 // --------------------------------------------------
@@ -434,7 +446,13 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                     size_t j = i + 1;
                     if (j >= line.size() || line[j]=='/' || line[j]=='\\' ||
                         std::isspace((unsigned char)line[j])) {
-                        out += user_home();
+                        std::string home = user_home();
+                        // If home contains spaces and we're not inside quotes,
+                        // wrap it so shell_tokens doesn't split on the space.
+                        if (home.find(' ') != std::string::npos && !in_d && !in_s)
+                            out += '"' + home + '"';
+                        else
+                            out += home;
                         continue;
                     }
                 }
