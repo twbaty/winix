@@ -73,6 +73,45 @@ static std::vector<std::string> path_command_matches(const std::string& prefix) 
         }
     }
 
+    // 3. Explicit probe via SearchPathA for the exact typed name.
+    //    Catches App Execution Aliases (Store apps, WindowsApps stubs) that
+    //    don't enumerate via directory_iterator due to reparse point handling.
+    if (!prefix.empty()) {
+        char found[MAX_PATH] = {};
+        std::string exact = prefix + ".exe";
+        if (SearchPathA(NULL, exact.c_str(), NULL, MAX_PATH, found, NULL) > 0) {
+            std::string full(found);
+            auto sep = full.find_last_of("/\\");
+            std::string stem = (sep != std::string::npos) ? full.substr(sep + 1) : full;
+            auto dot = stem.rfind('.');
+            if (dot != std::string::npos) stem = stem.substr(0, dot);
+            out.push_back(stem);
+        }
+    }
+
+    // 4. Scan WindowsApps explicitly using FindFirstFileA (bypasses the
+    //    reparse-point issue that causes directory_iterator to skip stubs).
+    {
+        char winapps[MAX_PATH] = {};
+        if (ExpandEnvironmentStringsA(
+                "%LOCALAPPDATA%\\Microsoft\\WindowsApps", winapps, MAX_PATH) > 0) {
+            std::string pattern = std::string(winapps) + "\\" +
+                                  (prefix.empty() ? "*" : prefix + "*") + ".exe";
+            WIN32_FIND_DATAA fd;
+            HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+            if (h != INVALID_HANDLE_VALUE) {
+                do {
+                    std::string name(fd.cFileName);
+                    auto dot = name.rfind('.');
+                    if (dot != std::string::npos) name = name.substr(0, dot);
+                    if (prefix.empty() || starts_with_ci(name, prefix))
+                        out.push_back(name);
+                } while (FindNextFileA(h, &fd));
+                FindClose(h);
+            }
+        }
+    }
+
     return out;
 }
 
