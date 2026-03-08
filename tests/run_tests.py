@@ -33,6 +33,10 @@ if not os.path.isdir(BUILD_DIR):
     print(f"ERROR: build directory not found: {BUILD_DIR}")
     sys.exit(1)
 
+# Read version from VERSION file so tests never need updating on version bumps
+_version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION')
+WINIX_VERSION = open(_version_file).read().strip() if os.path.exists(_version_file) else ''
+
 # ── Framework ─────────────────────────────────────────────────────────────────
 
 _passed = 0
@@ -530,7 +534,7 @@ section('ver')
 out, _, code = run('ver')
 expect_exit('ver exits 0', code)
 expect_contains('ver shows Winix', out, 'Winix')
-expect_contains('ver shows version number', out, '3.4')
+expect_contains('ver shows version number', out, WINIX_VERSION)
 
 out, _, code = run('ver', '--version')
 expect_exit('ver --version exits 0', code)

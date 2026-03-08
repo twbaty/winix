@@ -4,9 +4,11 @@ project(Winix C CXX)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
-# Single source of truth for version — edit VERSION file only
+# Single source of truth for version — edit VERSION file only.
+# configure_file makes CMake re-run configure automatically when VERSION changes.
 file(READ "${CMAKE_SOURCE_DIR}/VERSION" WINIX_VERSION)
 string(STRIP "${WINIX_VERSION}" WINIX_VERSION)
+configure_file("${CMAKE_SOURCE_DIR}/VERSION" "${CMAKE_BINARY_DIR}/VERSION.stamp" COPYONLY)
 add_compile_definitions(WINIX_VERSION="${WINIX_VERSION}")
 
 # Default install location — override with cmake --install build --prefix <path>
