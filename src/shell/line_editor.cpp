@@ -21,6 +21,26 @@ static size_t visible_len(const std::string& s) {
     return n;
 }
 
+// ANSI color codes for completion candidates.
+static const char* candidate_color(const std::string& m) {
+    // Directory — trailing backslash or forward slash
+    if (!m.empty() && (m.back() == '\\' || m.back() == '/'))
+        return "\x1b[1;34m";   // bold blue
+    // Script
+    if (m.size() > 3) {
+        std::string ext = m.substr(m.size() - 3);
+        for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
+        if (ext == ".sh") return "\x1b[1;32m";  // bold green
+    }
+    // Executable stem — no dot in the name (stripped .exe)
+    auto slash = m.find_last_of("/\\");
+    std::string base = (slash != std::string::npos) ? m.substr(slash + 1) : m;
+    if (base.find('.') == std::string::npos)
+        return "\x1b[1;32m";   // bold green
+    // Regular file — no color
+    return nullptr;
+}
+
 // Longest common prefix of a list of strings.
 static std::string common_prefix(const std::vector<std::string>& v) {
     if (v.empty()) return {};
@@ -268,8 +288,13 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
                 } else {
                     // Already at common prefix — show all candidates.
                     std::cout << '\n';
-                    for (auto& m : tab_matches)
-                        std::cout << m << "  ";
+                    for (auto& m : tab_matches) {
+                        const char* col = candidate_color(m);
+                        if (col) std::cout << col;
+                        std::cout << m;
+                        if (col) std::cout << "\x1b[0m";
+                        std::cout << "  ";
+                    }
                     std::cout << '\n' << prompt_str << buf;
                     size_t back = buf.size() - cursor;
                     if (back > 0) std::cout << "\x1b[" << back << "D";
