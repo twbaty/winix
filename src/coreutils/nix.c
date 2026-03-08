@@ -39,7 +39,7 @@
 #include <conio.h>
 #include <windows.h>
 
-#define VERSION       "nix 1.2 (Winix 1.0)"
+#define VERSION       "nix 1.2 (Winix 3.4)"
 #define MAX_PATH_LEN  MAX_PATH
 #define LINE_CAP_INIT 64
 #define UNDO_MAX      512
