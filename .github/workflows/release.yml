@@ -56,7 +56,20 @@ jobs:
       - name: Get version from tag
         id: version
         shell: bash
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "VERSION_NUM=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Update README badge
+        shell: bash
+        run: |
+          VERSION_NUM="${{ steps.version.outputs.VERSION_NUM }}"
+          sed -i "s|version-[0-9][0-9.]*-blue|version-${VERSION_NUM}-blue|" README.md
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || git commit -m "chore: update README badge to ${VERSION_NUM} [skip ci]"
+          git push origin HEAD:main
 
       - name: Create release zip
         shell: pwsh
@@ -69,6 +82,20 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: Winix ${{ steps.version.outputs.VERSION }}
           files: ${{ env.ZIP_NAME }}
           fail_on_unmatched_files: true
           generate_release_notes: false
+          body: |
+            ## Install
+
+            1. Download **${{ env.ZIP_NAME }}** below
+            2. Extract anywhere
+            3. Right-click **install.bat** → Run as administrator
+            4. Open any terminal and type `winix`
+
+            No MinGW, CMake, or Git required — just the zip.
+
+            ---
+
+            See [NEXT.md](https://github.com/twbaty/winix/blob/main/NEXT.md) for full changelog.

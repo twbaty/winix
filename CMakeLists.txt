@@ -4,6 +4,11 @@ project(Winix C CXX)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
+# Single source of truth for version — edit VERSION file only
+file(READ "${CMAKE_SOURCE_DIR}/VERSION" WINIX_VERSION)
+string(STRIP "${WINIX_VERSION}" WINIX_VERSION)
+add_compile_definitions(WINIX_VERSION="${WINIX_VERSION}")
+
 # Default install location — override with cmake --install build --prefix <path>
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "C:/Winix" CACHE PATH "Winix install root" FORCE)

@@ -2,7 +2,10 @@
 #include <string.h>
 #include <windows.h>
 
-#define WINIX_VERSION "3.4"
+/* WINIX_VERSION is injected by CMake from the VERSION file */
+#ifndef WINIX_VERSION
+#define WINIX_VERSION "unknown"
+#endif
 
 static void get_real_version(DWORD *major, DWORD *minor, DWORD *build) {
     *major = 0; *minor = 0; *build = 0;
