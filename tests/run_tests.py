@@ -1795,7 +1795,7 @@ def _wlint_tree():
 
 # version / help
 out, err, rc = run('wlint', '--version')
-check('wlint --version', 'wlint' in out and '1.7' in out)
+check('wlint --version', 'wlint' in out and '1.8' in out)
 
 out, err, rc = run('wlint', '--help')
 check('wlint --help exit 0', rc == 0)
