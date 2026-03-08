@@ -23,8 +23,10 @@ jobs:
           cppcheck \
             --error-exitcode=1 \
             --enable=warning,portability,performance \
+            --suppressions-list=.cppcheck \
             --suppress=missingIncludeSystem \
             --suppress=unusedFunction \
+            --suppress=normalCheckLevelMaxBranches \
             --platform=win64 \
             --std=c99 \
             --inline-suppr \
@@ -32,6 +34,7 @@ jobs:
             src/coreutils/ src/common/
         # missingIncludeSystem: windows.h and friends not present on Linux — expected
         # unusedFunction: many utilities define static helpers used only in one path
+        # normalCheckLevelMaxBranches: informational only, not a defect
 
   build:
     name: Build (Windows / MinGW-w64)

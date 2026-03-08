@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Package (Windows / MinGW-w64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 + MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            make
+
+      - name: Configure (CMake)
+        shell: msys2 {0}
+        run: |
+          cmake -G "MSYS Makefiles" \
+                -B build \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="$(pwd)/staging" \
+                .
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build -j$(nproc)
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+          python tests/run_tests.py --build-dir build
+
+      - name: Stage install layout
+        shell: msys2 {0}
+        run: |
+          cmake --install build --prefix "$(pwd)/staging"
+          cp install.bat   staging/install.bat
+          cp uninstall.bat staging/uninstall.bat
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Create release zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $zipName = "winix-${version}-windows-x64.zip"
+          Compress-Archive -Path staging\* -DestinationPath $zipName
+          echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          fail_on_unmatched_files: true
+          generate_release_notes: false

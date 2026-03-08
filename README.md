@@ -12,45 +12,89 @@
 
 ---
 
-## Project Overview
-Mission
-Winix is an open-source initiative to build a native, fast, Unix-like command environment for Windows — delivering the familiarity and power of GNU utilities without relying on compatibility layers like MSYS, MinGW, or WSL.
-Our mission is simple:
-Bring the clarity and strength of Linux command-line tooling to Windows — natively, cleanly, and permanently.
-________________________________________
-Purpose & Direction
-Winix aims to:
-- Provide a modular suite of native Windows command-line utilities written in C.
-- Deliver a modern C++ shell that behaves like Bash but integrates cleanly with Windows internals.
-- Maintain behavioral compatibility with GNU utilities where appropriate, while using completely independent, clean-room implementations.
-- Follow a Unix-style directory structure under C:\Winix:
-  - `/usr/bin` – core utilities
-  - `/usr/lib` – shared libraries
-  - `/etc` – configuration
-  - `/var` – logs, runtime data
+## Quick Install (Recommended)
 
-> The end goal: a self-contained, first-class CLI ecosystem that feels like Unix but runs purely on Windows.
-________________________________________
-Guiding Principles
-1.	Native First: All binaries are compiled for Windows — no MSYS, no WSL.
-2.	Behavioral Parity, Not Code Parity: GNU defines the behavioral baseline, not the implementation.
-3.	Simplicity Over Cleverness: Readable, maintainable code is the goal.
-4.	Open Collaboration, Single Direction: Contributions are welcome — divergence is not.
-5.	Transparency & Longevity: Everything is open-source (MIT License) and designed to outlive its creators.
-________________________________________
-Governance & Collaboration
-- Core Team: Defines architecture, approves merges, and maintains project integrity.
-- Contributors: Submit code, tests, or documentation aligned with the unified roadmap.
-- RFC Model: Major feature changes or design shifts require an open proposal and discussion before approval.
-All contributions must align with the project’s primary goal — a cohesive, native Unix-like experience for Windows users.
-________________________________________
-Initial Technical Direction
-Layer	Language	Description
-Core Utilities	C	Standalone executables mirroring essential GNU tools (ls, cp, mv, rm, cat, etc.)
-Shell	C++	Interactive REPL with parsing, execution, redirection, and environment management
-Shared Library	C	Common argument parsing, error handling, and I/O routines
-Build System	CMake	Unified cross-platform build and packaging framework
-________________________________________
+**No build tools required — just download and run.**
+
+1. Go to [Releases](https://github.com/twbaty/winix/releases/latest)
+2. Download `winix-vX.X-windows-x64.zip`
+3. Extract the zip to any folder
+4. Right-click `install.bat` → **Run as administrator**
+
+That's it. Winix will be available from any terminal immediately.
+
+### What the installer does
+- Copies `winix.exe` to `C:\Winix\`
+- Copies all coreutils (`ls`, `grep`, `gzip`, etc.) to `C:\Winix\bin\`
+- Adds both to the **system PATH**
+- Creates a **Start Menu** shortcut
+- Adds an **"Open Winix here"** right-click context menu for Explorer
+- Associates **`.sh` files** to run with Winix
+- Adds a **Windows Terminal** profile (if installed)
+
+### Uninstall
+Right-click `uninstall.bat` → **Run as administrator**
+
+---
+
+## What is Winix?
+
+Winix is a native Windows Unix shell and coreutils suite — no WSL, no MSYS, no compatibility layers. Just fast, self-contained `.exe` files that behave like their Linux counterparts.
+
+**The shell (`winix.exe`):**
+- Bash-compatible syntax: pipes, redirection, variables, functions, arrays
+- Tab completion, command history, PS1 prompts
+- Shell scripting: `if/elif/else`, `for`, `while`, `case`, `select`, `read`
+- Built-in `man CMD` (shows `--help` through `less`)
+
+**130+ coreutils**, including:
+
+| Category | Commands |
+|----------|----------|
+| File ops | `ls` `cp` `mv` `rm` `mkdir` `rmdir` `touch` `find` `ln` `chmod` `chown` |
+| Text | `cat` `grep` `sed` `awk` `sort` `uniq` `wc` `head` `tail` `cut` `tr` `diff` |
+| Archive | `gzip` `gunzip` |
+| Hashing | `md5sum` `sha256sum` `sha512sum` `sha1sum` `sha224sum` `sha384sum` `b2sum` |
+| System | `ps` `kill` `uname` `uptime` `who` `whoami` `id` `groups` |
+| Dev | `bc` `awk` `xxd` `hexdump` `od` `strings` `expr` `dd` |
+| Winix-native | `nix` (editor) `wlint` (lint) `wsim` (similarity) |
+
+---
+
+## Build from Source
+
+Requires: [MinGW-w64](https://www.mingw-w64.org/) and [CMake 3.20+](https://cmake.org/)
+
+```bat
+git clone https://github.com/twbaty/winix.git
+cd winix
+build.bat
+install.bat   (run as Administrator)
+```
+
+---
+
+## Project Overview
+
+Winix aims to:
+- Provide a modular suite of native Windows command-line utilities written in C
+- Deliver a modern C++ shell that behaves like Bash but integrates cleanly with Windows internals
+- Maintain behavioral compatibility with GNU utilities where appropriate, using completely independent, clean-room implementations
+- Follow a Unix-style directory structure under `C:\Winix`
+
+**Guiding Principles:**
+1. **Native First** — All binaries are compiled for Windows; no MSYS, no WSL
+2. **Behavioral Parity, Not Code Parity** — GNU defines the behavioral baseline, not the implementation
+3. **Self-Contained** — No runtime dependencies; everything ships in the zip
+4. **Simplicity Over Cleverness** — Readable, maintainable code is the goal
+5. **Open Source** — MIT License, designed to outlive its creators
+
+| Layer | Language | Description |
+|-------|----------|-------------|
+| Core Utilities | C | Standalone executables mirroring essential GNU tools |
+| Shell | C++ | Interactive REPL with parsing, execution, redirection, and environment management |
+| Shared Library | C | Common argument parsing, error handling, and I/O routines |
+| Build System | CMake | Unified build and packaging framework |
 
 ---
 
