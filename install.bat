@@ -17,20 +17,32 @@ if errorlevel 1 (
 
 set INSTALL_PREFIX=C:\Winix
 
-:: --- Build check ---
-if not exist "build\winix.exe" (
-    echo [ERROR] Build output not found. Run build.bat first.
-    pause
-    exit /b 1
-)
-
 :: ==========================================================
-:: 1. cmake --install
+:: 1. Copy files — detect zip layout vs dev build layout
 :: ==========================================================
 echo [1/5] Installing Winix to %INSTALL_PREFIX% ...
-cmake --install build --prefix "%INSTALL_PREFIX%"
-if errorlevel 1 (
-    echo [FAILED] cmake install failed.
+
+if exist "winix.exe" (
+    :: ---- ZIP / pre-built layout: winix.exe is right here ----
+    if not exist "%INSTALL_PREFIX%" mkdir "%INSTALL_PREFIX%"
+    if not exist "%INSTALL_PREFIX%\bin" mkdir "%INSTALL_PREFIX%\bin"
+    copy /y "winix.exe" "%INSTALL_PREFIX%\winix.exe" >nul
+    if exist "bin\" (
+        xcopy /y /q "bin\*" "%INSTALL_PREFIX%\bin\" >nul
+    )
+    echo [FILES] Copied from zip layout.
+) else if exist "build\winix.exe" (
+    :: ---- Developer build: use cmake --install ----
+    cmake --install build --prefix "%INSTALL_PREFIX%"
+    if errorlevel 1 (
+        echo [FAILED] cmake install failed.
+        pause
+        exit /b 1
+    )
+    echo [FILES] Installed from build directory.
+) else (
+    echo [ERROR] Cannot find winix.exe — download the zip from:
+    echo         https://github.com/twbaty/winix/releases/latest
     pause
     exit /b 1
 )
