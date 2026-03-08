@@ -120,6 +120,7 @@
 | **3.0** | Done | GNU coreutils parity sprint: `sha224sum` ✅ SHA-224; `sha384sum` ✅ SHA-384; `unlink` ✅ raw delete; `link` ✅ hard link; `sync` ✅ flush buffers; `pathchk` ✅ validate filenames; `base32` ✅ RFC 4648; `shred` ✅ secure overwrite (`-n/-z/-u/-v`); `dd` ✅ block copy (`if/of/bs/count/skip/seek/conv`); `nice` ✅ priority classes; `nohup` ✅ hangup-immune; `groups` ✅ group memberships; `who` ✅ logged-on sessions; `users` ✅ logged-on names |
 | **3.1** | Done | GNU coreutils final niche tools: `csplit` ✅ — context split on regex/line patterns (`-f/-n/-b/-k/-z`); `pr` ✅ — paginate/columnate for printing (`-N cols/-l/-w/-h/-t/-d/-o/-m`); `stdbuf` ✅ — buffering wrapper (passthrough with Windows caveat note); `b2sum` ✅ — BLAKE2b checksums (pure C RFC 7693, `-l BITS`, check mode, `--tag`) |
 | **3.2** | Done | Shebang script execution ✅ — `./foo.sh` and `./foo` run in-process; shebang `#!/usr/bin/env winix` (or `sh`/`bash`) uses built-in interpreter; foreign shebangs (`python3`, `node`, etc.) spawn the interpreter from PATH; `name.sh` without `./` searches PATH only (Linux behaviour); no shebang defaults to winix |
+| **3.3** | Done | Shell arrays ✅ (`arr=(a b c)`, `${arr[@]}`, `${arr[N]}`, `${#arr[@]}`); `select` statement ✅; `$*` vs `$@` distinction ✅ (positional param quoting fixed); `man` builtin ✅ (passthrough to `--help \| less`); `winix.exe` moved to `C:\Winix\` root ✅ |
 
 ---
 
@@ -141,8 +142,8 @@
 - [ ] `man` — full man pages for all Winix commands (NAME/SYNOPSIS/DESCRIPTION/OPTIONS); currently passthrough to `--help`
 
 ### Quality
-- [ ] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar
-- [ ] `wlint` v1.8 — `--age DAYS` filter (flag files not modified in N days)
+- [x] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar
+- [x] `wlint` v1.8 — `--age DAYS` filter (flag files not modified in N days)
 - [ ] More cppcheck suppressions / fix any new warnings from v3.0/v3.1 batch
 
 ---
