@@ -137,8 +137,15 @@
 - [x] `$*` vs `$@` correct distinction inside double quotes
 - [ ] Process substitution `<(cmd)` and `>(cmd)`
 
+### Engineering Philosophy
+> **Winix-first** — unless a battle-hardened standard library demonstrably does it better
+> (30 years of edge cases, security fixes, platform testing).  In that case, bundle the
+> library and move on.  Save Winix-first energy for tools that are genuinely new or where
+> a custom approach adds real value (wlint, wsim, nix, wzip).
+
 ### Bigger Additions
-- [ ] `gzip`/`gunzip` — DEFLATE compression (or delegate to Windows `Compress-Archive`)
+- [ ] `gzip`/`gunzip` — bundle zlib (RFC 1951/1952, battle-hardened, zlib license); full flag support (`-1`–`-9`, `-d`, `-k`, `-c`, `-v`, `-l`, `-t`)
+- [ ] `wzip`/`wunzip` — Winix-native best-compression tool; evaluate zstd single-file amalgamation (near-LZMA ratio, trivially bundled, `.wz` format)
 - [ ] `man` — full man pages for all Winix commands (NAME/SYNOPSIS/DESCRIPTION/OPTIONS); currently passthrough to `--help`
 
 ### Quality
