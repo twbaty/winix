@@ -20,8 +20,12 @@
 👉 **[Download Latest Release](https://github.com/twbaty/winix/releases/latest)** (look for `winix-vX.X-windows-x64.zip` under Assets)
 
 1. Download `winix-vX.X-windows-x64.zip` from the link above
-3. Extract the zip to any folder
-4. Right-click `install.bat` → **Run as administrator**
+2. Extract the zip to any folder
+3. Right-click `install.bat` → **Run as administrator**
+
+> **Windows SmartScreen warning?** Click **"More info"** → **"Run anyway"**.
+> Winix is open source and built transparently by [GitHub Actions CI](https://github.com/twbaty/winix/actions).
+> It is not yet code-signed — this will be resolved in a future release.
 
 That's it. Winix will be available from any terminal immediately.
 
