@@ -1406,15 +1406,27 @@ static bool handle_builtin(
             std::cerr << "Usage: man <command>\n";
             return true;
         }
-        // Resolve to full path in Winix bin dir so CMD shell finds it
+        // Capture --help output, then feed directly to less stdin.
+        // Using _popen for both avoids any CMD quoting / temp-file issues.
         fs::path exe = fs::path(paths.bin_dir) / (cmd + ".exe");
         std::string invoke = fs::exists(exe)
-            ? ("\"" + exe.string() + "\"")
-            : cmd;
+            ? ("\"" + exe.string() + "\"") : cmd;
+        std::string help_cmd = invoke + " --help 2>&1";
+        FILE* fp = _popen(help_cmd.c_str(), "r");
+        if (!fp) { std::cerr << "man: cannot run " << cmd << "\n"; return true; }
+        std::string help_text;
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), fp)) help_text += buf;
+        _pclose(fp);
+        if (help_text.empty()) {
+            std::cerr << "man: no help available for '" << cmd << "'\n";
+            return true;
+        }
         fs::path less_exe = fs::path(paths.bin_dir) / "less.exe";
-        std::string manline = invoke + " --help 2>&1 | \""
-                              + less_exe.string() + "\"";
-        system(manline.c_str());
+        std::string less_cmd = "\"" + less_exe.string() + "\"";
+        FILE* lp = _popen(less_cmd.c_str(), "w");
+        if (lp) { fputs(help_text.c_str(), lp); _pclose(lp); }
+        else     { std::cout << help_text; }
         return true;
     }
 

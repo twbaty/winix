@@ -217,9 +217,11 @@ add_executable(install_cmd src/coreutils/install.c)
 set_target_properties(install_cmd PROPERTIES OUTPUT_NAME "install")
 target_link_libraries(install_cmd advapi32)
 
-# Install all targets to C:\Winix\bin (or --prefix override)/bin
+# winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
+install(TARGETS winix DESTINATION .)
+
+# All coreutils go to C:\Winix\bin
 install(TARGETS
-    winix
     echo pwd ls cat mv rm mkdir rmdir touch head tail
     date whoami sleep cp chmod chown more less clear
     stat wc du df sort uniq grep tee alias export history

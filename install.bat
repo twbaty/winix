@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 :: ==========================================================
 :: Winix Installer — Run as Administrator
-:: Installs all binaries to C:\Winix\bin and adds to PATH
+:: Installs winix.exe to C:\Winix\ and coreutils to C:\Winix\bin\
 :: ==========================================================
 
 :: --- Admin check ---
@@ -27,7 +27,7 @@ if not exist "build\winix.exe" (
 :: ==========================================================
 :: 1. cmake --install
 :: ==========================================================
-echo [1/5] Installing Winix binaries to %INSTALL_PREFIX%\bin ...
+echo [1/5] Installing Winix to %INSTALL_PREFIX% ...
 cmake --install build --prefix "%INSTALL_PREFIX%"
 if errorlevel 1 (
     echo [FAILED] cmake install failed.
@@ -37,22 +37,27 @@ if errorlevel 1 (
 echo.
 
 :: ==========================================================
-:: 2. Add C:\Winix\bin to the system PATH
+:: 2. Add C:\Winix and C:\Winix\bin to the system PATH
 :: ==========================================================
 echo [2/5] Checking system PATH...
 powershell -NoProfile -Command ^
     "$p = [Environment]::GetEnvironmentVariable('Path','Machine');" ^
+    "$changed = $false;" ^
+    "if ($p -notlike '*%INSTALL_PREFIX%;*' -and $p -notlike '*%INSTALL_PREFIX%') {" ^
+    "    $p = $p + ';%INSTALL_PREFIX%';" ^
+    "    $changed = $true;" ^
+    "    Write-Host '[PATH] Added %INSTALL_PREFIX% to system PATH.';" ^
+    "} else { Write-Host '[PATH] %INSTALL_PREFIX% already in system PATH.'; };" ^
     "if ($p -notlike '*%INSTALL_PREFIX%\bin*') {" ^
-    "    [Environment]::SetEnvironmentVariable('Path', $p + ';%INSTALL_PREFIX%\bin', 'Machine');" ^
+    "    $p = $p + ';%INSTALL_PREFIX%\bin';" ^
+    "    $changed = $true;" ^
     "    Write-Host '[PATH] Added %INSTALL_PREFIX%\bin to system PATH.';" ^
-    "} else {" ^
-    "    Write-Host '[PATH] %INSTALL_PREFIX%\bin already in system PATH.';" ^
-    "}"
+    "} else { Write-Host '[PATH] %INSTALL_PREFIX%\bin already in system PATH.'; };" ^
+    "if ($changed) { [Environment]::SetEnvironmentVariable('Path', $p, 'Machine'); }"
 echo.
 
 :: ==========================================================
 :: 3. Start Menu shortcut
-::    Lets the user pin Winix to the Taskbar via right-click.
 :: ==========================================================
 echo [3/5] Creating Start Menu shortcut...
 powershell -NoProfile -Command ^
@@ -60,7 +65,7 @@ powershell -NoProfile -Command ^
     "$dir = '%ProgramData%\Microsoft\Windows\Start Menu\Programs\Winix';" ^
     "New-Item -ItemType Directory -Force $dir | Out-Null;" ^
     "$lnk = $ws.CreateShortcut($dir + '\Winix.lnk');" ^
-    "$lnk.TargetPath      = '%INSTALL_PREFIX%\bin\winix.exe';" ^
+    "$lnk.TargetPath      = '%INSTALL_PREFIX%\winix.exe';" ^
     "$lnk.WorkingDirectory= '%USERPROFILE%';" ^
     "$lnk.Description     = 'Winix Unix Shell for Windows';" ^
     "$lnk.Save();" ^
@@ -69,37 +74,33 @@ echo.
 
 :: ==========================================================
 :: 4. "Open Winix here" Explorer context menu
-::    Right-click a folder  → "Open Winix here"
-::    Right-click folder BG → "Open Winix here"
 :: ==========================================================
 echo [4/5] Registering "Open Winix here" context menu...
 
-:: On a folder icon
 reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"          /ve /d "Open Winix here"                                                    /f >nul
-reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"          /v Icon /t REG_SZ /d "%INSTALL_PREFIX%\bin\winix.exe"                       /f >nul
-reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere\command"  /ve /d "\"%INSTALL_PREFIX%\bin\winix.exe\" -C \"%%1\""                      /f >nul
+reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"          /v Icon /t REG_SZ /d "%INSTALL_PREFIX%\winix.exe"                           /f >nul
+reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere\command"  /ve /d "\"%INSTALL_PREFIX%\winix.exe\" -C \"%%1\""                          /f >nul
 
-:: In the background of an open folder window
 reg add "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere"          /ve /d "Open Winix here"                                         /f >nul
-reg add "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere"          /v Icon /t REG_SZ /d "%INSTALL_PREFIX%\bin\winix.exe"            /f >nul
-reg add "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere\command"  /ve /d "\"%INSTALL_PREFIX%\bin\winix.exe\" -C \"%%V\""            /f >nul
+reg add "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere"          /v Icon /t REG_SZ /d "%INSTALL_PREFIX%\winix.exe"                /f >nul
+reg add "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere\command"  /ve /d "\"%INSTALL_PREFIX%\winix.exe\" -C \"%%V\""               /f >nul
 
 echo [CONTEXT] Done.
 echo.
 
 :: ==========================================================
-:: 5. .sh file association — double-click runs with winix.exe
+:: 5. .sh file association
 :: ==========================================================
 echo [5/6] Registering .sh file association...
 reg add "HKLM\SOFTWARE\Classes\.sh"                               /ve /d "WinixScript"                                          /f >nul
 reg add "HKLM\SOFTWARE\Classes\WinixScript"                       /ve /d "Winix Shell Script"                                   /f >nul
-reg add "HKLM\SOFTWARE\Classes\WinixScript\DefaultIcon"           /ve /d "%INSTALL_PREFIX%\bin\winix.exe,0"                     /f >nul
-reg add "HKLM\SOFTWARE\Classes\WinixScript\shell\open\command"    /ve /d "\"%INSTALL_PREFIX%\bin\winix.exe\" \"%%1\""           /f >nul
+reg add "HKLM\SOFTWARE\Classes\WinixScript\DefaultIcon"           /ve /d "%INSTALL_PREFIX%\winix.exe,0"                         /f >nul
+reg add "HKLM\SOFTWARE\Classes\WinixScript\shell\open\command"    /ve /d "\"%INSTALL_PREFIX%\winix.exe\" \"%%1\""               /f >nul
 echo [SH] Done. Double-clicking .sh files will now run them with Winix.
 echo.
 
 :: ==========================================================
-:: 6. Windows Terminal profile (optional — skipped if WT not installed)
+:: 6. Windows Terminal profile
 :: ==========================================================
 echo [6/6] Adding Windows Terminal profile...
 powershell -NoProfile -Command ^
@@ -117,9 +118,9 @@ powershell -NoProfile -Command ^
     "$prof = [PSCustomObject]@{" ^
     "  guid             = $guid;" ^
     "  name             = 'Winix';" ^
-    "  commandline      = 'C:\Winix\bin\winix.exe';" ^
+    "  commandline      = 'C:\Winix\winix.exe';" ^
     "  startingDirectory= '%USERPROFILE%';" ^
-    "  icon             = 'C:\Winix\bin\winix.exe';" ^
+    "  icon             = 'C:\Winix\winix.exe';" ^
     "  colorScheme      = 'One Half Dark';" ^
     "  hidden           = $false" ^
     "};" ^
@@ -134,10 +135,11 @@ echo.
 echo =========================================================
 echo  Winix installed successfully!
 echo.
-echo  * Binaries : %INSTALL_PREFIX%\bin
+echo  * Shell     : %INSTALL_PREFIX%\winix.exe
+echo  * Coreutils : %INSTALL_PREFIX%\bin
 echo  * To launch : type  winix  in any terminal
 echo  * Start Menu: Search "Winix" — right-click to Pin to Taskbar
-echo  * Explorer  : Right-click any folder → "Open Winix here"
+echo  * Explorer  : Right-click any folder -> "Open Winix here"
 echo  * .sh files : double-click to execute with Winix
 echo  * To remove : run uninstall.bat as Administrator
 echo =========================================================

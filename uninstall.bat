@@ -56,18 +56,18 @@ if exist "!SM_DIR!" (
 )
 
 :: ==========================================================
-:: 3. Remove C:\Winix\bin from system PATH
+:: 3. Remove C:\Winix and C:\Winix\bin from system PATH
 :: ==========================================================
-echo [4/5] Removing %INSTALL_PREFIX%\bin from system PATH...
+echo [4/5] Removing %INSTALL_PREFIX% and %INSTALL_PREFIX%\bin from system PATH...
 powershell -NoProfile -Command ^
     "$p = [Environment]::GetEnvironmentVariable('Path','Machine');" ^
-    "$parts = $p -split ';' | Where-Object { $_ -ne '%INSTALL_PREFIX%\bin' -and $_ -ne '' };" ^
+    "$parts = $p -split ';' | Where-Object { $_ -ne '%INSTALL_PREFIX%' -and $_ -ne '%INSTALL_PREFIX%\bin' -and $_ -ne '' };" ^
     "$newp = $parts -join ';';" ^
     "if ($newp -ne $p) {" ^
     "    [Environment]::SetEnvironmentVariable('Path', $newp, 'Machine');" ^
-    "    Write-Host '[PATH] Removed %INSTALL_PREFIX%\bin from system PATH.';" ^
+    "    Write-Host '[PATH] Removed Winix entries from system PATH.';" ^
     "} else {" ^
-    "    Write-Host '[PATH] Entry not found in PATH, skipping.';" ^
+    "    Write-Host '[PATH] Entries not found in PATH, skipping.';" ^
     "}"
 
 :: ==========================================================
