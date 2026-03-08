@@ -1149,7 +1149,7 @@ static int block_depth_change(const std::string& line) {
     auto toks = shell_tokens(t);
     if (toks.empty()) return 0;
     const auto& kw = toks[0];
-    if (kw == "if" || kw == "for" || kw == "while" || kw == "case") return 1;
+    if (kw == "if" || kw == "for" || kw == "while" || kw == "case" || kw == "select") return 1;
     if (kw == "fi" || kw == "done" || kw == "esac")                 return -1;
     if (kw == "{")                                    return 1;
     if (kw == "}")                                    return -1;
@@ -1280,6 +1280,18 @@ static void print_help() {
         {"true",    "",                "exit 0"},
         {"false",   "",                "exit 1"},
     }) row(c);
+
+    section("SHELL SCRIPTING");
+    std::cout << "    " << DIM
+              << "if COND; then ...  conditional (elif/else/fi)\n"
+              << "    for VAR in LIST    iterate over words (done)\n"
+              << "    while COND         loop while condition is true (done)\n"
+              << "    select VAR in LIST interactive numbered menu (done)\n"
+              << "    case WORD in       pattern matching (esac)\n"
+              << "    arr=(a b c)        array assignment\n"
+              << "    ${arr[@]}          expand all array elements\n"
+              << "    ${#arr[@]}         array element count\n"
+              << RST;
 
     section("PIPING, CHAINING & REDIRECTION");
     std::cout << "    " << DIM
@@ -2059,6 +2071,54 @@ static int script_exec_lines(const std::vector<std::string>& lines,
                 std::string ec = expand_vars(expand_aliases_once(cond, aliases), last_exit);
                 int rc = run_command_line(ec, paths, aliases, hist, cfg, last_exit);
                 if (rc != 0) break;
+                ScriptState inner;
+                last_exit = script_exec_lines(body, paths, aliases, hist, cfg, last_exit, inner);
+                if (inner.do_break) break;
+                if (inner.do_return) { ss = inner; break; }
+            }
+            i = (done_idx < lines.size()) ? done_idx + 1 : lines.size();
+            continue;
+        }
+
+        // select VAR in item1 item2 ...; do ... done
+        if (toks[0] == "select") {
+            std::string var = (toks.size() >= 2) ? toks[1] : "";
+            std::vector<std::string> items;
+            bool in_list = false;
+            for (size_t j = 2; j < toks.size(); ++j) {
+                if (toks[j] == "in")                   { in_list = true; continue; }
+                if (toks[j] == "do" || toks[j] == ";") continue;
+                if (in_list) {
+                    std::string expanded = expand_vars(toks[j], last_exit);
+                    std::istringstream wss(expanded);
+                    std::string word;
+                    while (wss >> word) items.push_back(word);
+                }
+            }
+
+            size_t body_start = i + 1;
+            if (body_start < lines.size() && trim(lines[body_start]) == "do")
+                body_start++;
+            std::vector<std::string> body;
+            size_t done_idx = collect_until_closed(lines, body_start, body);
+
+            // PS3 is the select prompt (bash convention); default "#? "
+            auto ps3_it = g_shell_vars.find("PS3");
+            std::string ps3 = (ps3_it != g_shell_vars.end()) ? ps3_it->second : "#? ";
+
+            for (;;) {
+                for (size_t k = 0; k < items.size(); ++k)
+                    std::cerr << (k + 1) << ") " << items[k] << "\n";
+                std::cerr << ps3 << std::flush;
+                std::string reply;
+                if (!std::getline(std::cin, reply)) break; // EOF
+                g_shell_vars["REPLY"] = reply;
+                char* endp;
+                long n = strtol(reply.c_str(), &endp, 10);
+                if (endp > reply.c_str() && n >= 1 && (size_t)n <= items.size())
+                    g_shell_vars[var] = items[(size_t)(n - 1)];
+                else
+                    g_shell_vars[var] = "";
                 ScriptState inner;
                 last_exit = script_exec_lines(body, paths, aliases, hist, cfg, last_exit, inner);
                 if (inner.do_break) break;
