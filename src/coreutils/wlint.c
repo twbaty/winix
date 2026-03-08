@@ -56,7 +56,7 @@
 #include <io.h>
 #include <ctype.h>
 
-#define WLINT_VERSION  "1.7"
+#define WLINT_VERSION  "1.8"
 #define SCHEMA_VERSION "1.0"
 #define SHA256_BYTES   32
 #define SHA256_HEX     65        /* 64 hex digits + NUL */
@@ -127,6 +127,7 @@ typedef struct {
     char       *scan_json_out;  /* --scan-json FILE */
     char       *log_out;        /* --log FILE       */
     int         threads;        /* --threads N (default 2) */
+    int         age_days;       /* --age N: flag files not modified in N days */
 } Opts;
 
 /* ── Globals ─────────────────────────────────────────────────── */
@@ -138,6 +139,7 @@ static FileVec   g_files;
 static FileVec   g_empty_files;
 static FileVec   g_empty_dirs;
 static FileVec   g_temp_files;
+static FileVec   g_stale_files;
 static DupSetVec g_dupsets;
 static Opts      g_opts;
 
@@ -590,6 +592,19 @@ static void scan_path(const wchar_t *dir, int depth) {
                         fvec_push(&g_temp_files,
                                   file_new(pu, size, fd.ftLastWriteTime));
                 }
+                if (g_opts.age_days > 0) {
+                    FILETIME now_ft;
+                    GetSystemTimeAsFileTime(&now_ft);
+                    ULONGLONG now_u  = ((ULONGLONG)now_ft.dwHighDateTime << 32) |
+                                       now_ft.dwLowDateTime;
+                    ULONGLONG file_u = ((ULONGLONG)fd.ftLastWriteTime.dwHighDateTime << 32) |
+                                       fd.ftLastWriteTime.dwLowDateTime;
+                    /* 100-ns intervals per day = 864000000000 */
+                    int64_t age = (int64_t)((now_u - file_u) / 864000000000ULL);
+                    if (age >= g_opts.age_days && pu)
+                        fvec_push(&g_stale_files,
+                                  file_new(pu, size, fd.ftLastWriteTime));
+                }
             }
             free(pu);
         }
@@ -936,10 +951,23 @@ static void output_pretty(void) {
         printf("\n");
     }
 
+    if (g_opts.age_days > 0 && g_stale_files.count > 0) {
+        printf("%s[STALE FILES]%s  (not modified in %d+ days)\n",
+               cc(C_YEL), cr(), g_opts.age_days);
+        for (size_t i = 0; i < g_stale_files.count; i++) {
+            char tsz[64], tmt[32];
+            fmt_size(g_stale_files.items[i]->size, tsz, sizeof(tsz));
+            fmt_mtime(g_stale_files.items[i]->mtime, tmt, sizeof(tmt));
+            printf("  %s  %s  %s\n", tsz, tmt, g_stale_files.items[i]->path);
+        }
+        printf("\n");
+    }
+
     int lint_found = (g_dupsets.count > 0) ||
                      (g_opts.do_empty &&
                       (g_empty_files.count > 0 || g_empty_dirs.count > 0)) ||
-                     (g_opts.do_temp && g_temp_files.count > 0);
+                     (g_opts.do_temp && g_temp_files.count > 0) ||
+                     (g_opts.age_days > 0 && g_stale_files.count > 0);
 
     if (!lint_found) {
         printf("%s[CLEAN]%s  No lint found.\n", cc(C_GRN), cr());
@@ -957,6 +985,8 @@ static void output_pretty(void) {
     }
     if (g_opts.do_temp)
         printf("  Temp/junk files:  %zu\n", g_temp_files.count);
+    if (g_opts.age_days > 0)
+        printf("  Stale files:      %zu  (>= %d days)\n", g_stale_files.count, g_opts.age_days);
     if (g_warnings > 0)
         printf("  Warnings:         %zu (unreadable files, see stderr)\n", g_warnings);
 
@@ -1551,6 +1581,7 @@ static void usage(const char *prog) {
         "      --max-size BYTES  skip files larger than BYTES\n"
         "      --ext .EXT,...    include only these extensions (e.g. .jpg,.pdf)\n"
         "      --threads N       parallel hash threads (default: 2, max: 64)\n"
+        "      --age N           flag files not modified in N or more days\n"
         "      --stats           show performance statistics\n"
         "  -v  --verbose         show progress\n"
         "      --no-color        disable ANSI colors\n"
@@ -1620,6 +1651,10 @@ int main(int argc, char *argv[]) {
             if (g_opts.threads > 64) g_opts.threads = 64;
         }
         else if (!strcmp(a, "--stats"))                        { g_opts.do_stats = 1; }
+        else if (!strcmp(a, "--age") && i + 1 < argc) {
+            g_opts.age_days = atoi(argv[++i]);
+            if (g_opts.age_days < 1) g_opts.age_days = 1;
+        }
         else if (a[0] == '-') {
             fprintf(stderr, "wlint: unknown option: %s\n", a);
             usage(argv[0]); free(paths); return 2;
@@ -1772,6 +1807,7 @@ int main(int argc, char *argv[]) {
     fvec_free(&g_empty_files);
     fvec_free(&g_empty_dirs);
     fvec_free(&g_temp_files);
+    fvec_free(&g_stale_files);
     for (size_t i = 0; i < g_dupsets.count; i++) free(g_dupsets.items[i].files);
     free(g_dupsets.items);
     for (int i = 0; i < g_opts.ninclude; i++) free(g_opts.include_pats[i]);
