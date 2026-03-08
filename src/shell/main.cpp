@@ -1406,8 +1406,14 @@ static bool handle_builtin(
             std::cerr << "Usage: man <command>\n";
             return true;
         }
-        // Run CMD --help and pipe through less
-        std::string manline = cmd + " --help 2>&1 | less";
+        // Resolve to full path in Winix bin dir so CMD shell finds it
+        fs::path exe = fs::path(paths.bin_dir) / (cmd + ".exe");
+        std::string invoke = fs::exists(exe)
+            ? ("\"" + exe.string() + "\"")
+            : cmd;
+        fs::path less_exe = fs::path(paths.bin_dir) / "less.exe";
+        std::string manline = invoke + " --help 2>&1 | \""
+                              + less_exe.string() + "\"";
         system(manline.c_str());
         return true;
     }
