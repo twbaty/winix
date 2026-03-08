@@ -9,7 +9,29 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "C:/Winix" CACHE PATH "Winix install root" FORCE)
 endif()
 
-include_directories(src/include src/common src/shell)
+include_directories(src/include src/common src/shell src/third_party/zlib)
+
+# ------------------------------------------------------------
+# zlib (bundled, static — used by gzip/gunzip)
+# ------------------------------------------------------------
+add_library(winix_zlib STATIC
+    src/third_party/zlib/adler32.c
+    src/third_party/zlib/compress.c
+    src/third_party/zlib/crc32.c
+    src/third_party/zlib/deflate.c
+    src/third_party/zlib/gzclose.c
+    src/third_party/zlib/gzlib.c
+    src/third_party/zlib/gzread.c
+    src/third_party/zlib/gzwrite.c
+    src/third_party/zlib/infback.c
+    src/third_party/zlib/inffast.c
+    src/third_party/zlib/inflate.c
+    src/third_party/zlib/inftrees.c
+    src/third_party/zlib/trees.c
+    src/third_party/zlib/uncompr.c
+    src/third_party/zlib/zutil.c
+)
+target_compile_options(winix_zlib PRIVATE -w) # suppress zlib's own warnings
 
 # ------------------------------------------------------------
 # winixcommon (shared C library)
@@ -216,6 +238,10 @@ target_link_libraries(chgrp advapi32)
 add_executable(install_cmd src/coreutils/install.c)
 set_target_properties(install_cmd PROPERTIES OUTPUT_NAME "install")
 target_link_libraries(install_cmd advapi32)
+add_executable(gzip      src/coreutils/gzip.c)
+target_link_libraries(gzip winix_zlib)
+add_executable(gunzip    src/coreutils/gzip.c)   # same source, argv[0] detects gunzip
+target_link_libraries(gunzip winix_zlib)
 
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)
@@ -243,5 +269,6 @@ install(TARGETS
     groups who users
     csplit pr stdbuf b2sum
     chgrp install_cmd
+    gzip gunzip
     DESTINATION bin
 )

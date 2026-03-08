@@ -1,6 +1,6 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 3.2
-**Date:** 2026-03-07
+**Version:** 3.4
+**Date:** 2026-03-08
 
 ---
 
@@ -121,6 +121,7 @@
 | **3.1** | Done | GNU coreutils final niche tools: `csplit` ✅ — context split on regex/line patterns (`-f/-n/-b/-k/-z`); `pr` ✅ — paginate/columnate for printing (`-N cols/-l/-w/-h/-t/-d/-o/-m`); `stdbuf` ✅ — buffering wrapper (passthrough with Windows caveat note); `b2sum` ✅ — BLAKE2b checksums (pure C RFC 7693, `-l BITS`, check mode, `--tag`) |
 | **3.2** | Done | Shebang script execution ✅ — `./foo.sh` and `./foo` run in-process; shebang `#!/usr/bin/env winix` (or `sh`/`bash`) uses built-in interpreter; foreign shebangs (`python3`, `node`, etc.) spawn the interpreter from PATH; `name.sh` without `./` searches PATH only (Linux behaviour); no shebang defaults to winix |
 | **3.3** | Done | Shell arrays ✅ (`arr=(a b c)`, `${arr[@]}`, `${arr[N]}`, `${#arr[@]}`); `select` statement ✅; `$*` vs `$@` distinction ✅ (positional param quoting fixed); `man` builtin ✅ (passthrough to `--help \| less`); `winix.exe` moved to `C:\Winix\` root ✅ |
+| **3.4** | Done | `gzip`/`gunzip` ✅ — bundled zlib 1.3.1, full RFC 1952 support, flags `-1`–`-9`/`-d`/`-k`/`-c`/`-f`/`-v`/`-l`/`-t`, stdin/stdout pipe, argv[0] detection |
 
 ---
 
@@ -144,7 +145,7 @@
 > a custom approach adds real value (wlint, wsim, nix, wzip).
 
 ### Bigger Additions
-- [ ] `gzip`/`gunzip` — bundle zlib (RFC 1951/1952, battle-hardened, zlib license); full flag support (`-1`–`-9`, `-d`, `-k`, `-c`, `-v`, `-l`, `-t`)
+- [x] `gzip`/`gunzip` — bundle zlib (RFC 1951/1952, battle-hardened, zlib license); full flag support (`-1`–`-9`, `-d`, `-k`, `-c`, `-v`, `-l`, `-t`)
 - [ ] `wzip`/`wunzip` — Winix-native best-compression tool; evaluate zstd single-file amalgamation (near-LZMA ratio, trivially bundled, `.wz` format)
 - [ ] `man` — full man pages for all Winix commands (NAME/SYNOPSIS/DESCRIPTION/OPTIONS); currently passthrough to `--help`
 
