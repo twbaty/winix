@@ -60,16 +60,17 @@ jobs:
           echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           echo "VERSION_NUM=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Update README badge
+      - name: Verify VERSION file matches tag
         shell: bash
         run: |
-          VERSION_NUM="${{ steps.version.outputs.VERSION_NUM }}"
-          sed -i "s|version-[0-9][0-9.]*-blue|version-${VERSION_NUM}-blue|" README.md
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git diff --cached --quiet || git commit -m "chore: update README badge to ${VERSION_NUM} [skip ci]"
-          git push origin HEAD:main
+          TAG_VER="${{ steps.version.outputs.VERSION_NUM }}"
+          FILE_VER="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$TAG_VER" != "$FILE_VER" ]; then
+            echo "ERROR: git tag v${TAG_VER} does not match VERSION file (${FILE_VER})"
+            echo "Update the VERSION file before tagging a release."
+            exit 1
+          fi
+          echo "Version check passed: ${FILE_VER}"
 
       - name: Create release zip
         shell: pwsh
