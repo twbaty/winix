@@ -1113,8 +1113,15 @@ static int handle_key(Editor *e, int ch) {
         }
         return 0;
 
-    case 24: /* Ctrl+X — save + quit */
-        if (e->modified && e->filename[0]) editor_save(e);
+    case 24: /* Ctrl+X — save + quit (prompts if modified, like nano) */
+        if (e->modified) {
+            char resp[4];
+            prompt_in_status("Unsaved changes. Save? (y/n/ESC): ",
+                             resp, sizeof(resp));
+            if (!resp[0]) break; /* ESC — stay */
+            if ((resp[0] == 'y' || resp[0] == 'Y') && e->filename[0])
+                editor_save(e);
+        }
         return 0;
 
     case 23: /* Ctrl+W — find */
