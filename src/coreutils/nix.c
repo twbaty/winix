@@ -10,6 +10,7 @@
  *   Ctrl+S  19  Save file
  *   Ctrl+Q  17  Quit (prompts if modified)
  *   Ctrl+X  24  Save + quit
+ *   Ctrl+G   7  Go to line N
  *   Ctrl+W  23  Find (prompts for pattern)
  *   Ctrl+N  14  Find next (repeats last pattern)
  *   Ctrl+R  18  Find + replace
@@ -38,7 +39,7 @@
 #include <conio.h>
 #include <windows.h>
 
-#define VERSION       "nix 1.1 (Winix 1.0)"
+#define VERSION       "nix 1.2 (Winix 1.0)"
 #define MAX_PATH_LEN  MAX_PATH
 #define LINE_CAP_INIT 64
 #define UNDO_MAX      512
@@ -438,11 +439,20 @@ static int editor_save(Editor *e) {
 
 /* ── Viewport scrolling ─────────────────────────────────────────────────── */
 
+/* Width of line-number gutter: right-aligned digits + one trailing space. */
+static int gutter_width(Editor *e) {
+    int n = e->nlines, d = 1;
+    while (n >= 10) { d++; n /= 10; }
+    return d + 1; /* digits + trailing space */
+}
+
 static void scroll_view(Editor *e) {
-    int rows    = term_rows();
-    int cols    = term_cols();
-    int content = rows - 2;
+    int rows     = term_rows();
+    int cols     = term_cols();
+    int content  = rows - 2;
     if (content < 1) content = 1;
+    int vis_cols = cols - gutter_width(e);
+    if (vis_cols < 1) vis_cols = 1;
 
     if (e->cy < e->top_row)
         e->top_row = e->cy;
@@ -451,8 +461,8 @@ static void scroll_view(Editor *e) {
 
     if (e->cx < e->left_col)
         e->left_col = e->cx;
-    if (e->cx >= e->left_col + cols)
-        e->left_col = e->cx - cols + 1;
+    if (e->cx >= e->left_col + vis_cols)
+        e->left_col = e->cx - vis_cols + 1;
     if (e->left_col < 0)
         e->left_col = 0;
 }
@@ -828,16 +838,24 @@ static void draw(Editor *e) {
     printf("\033[0m");
 
     /* ── Content rows (1 .. rows-2) ── */
+    int gutter   = gutter_width(e);
+    int vis_cols = cols - gutter;
+    if (vis_cols < 1) vis_cols = 1;
     int blk = hl_block_state(e, e->top_row);
     for (int r = 0; r < content; r++) {
         move_cursor(0, r + 1);
         int li = e->top_row + r;
         if (li < e->nlines) {
+            /* Line number gutter: right-aligned, dim */
+            printf("\033[2m%*d \033[0m", gutter - 1, li + 1);
             Line *ln    = &e->lines[li];
             int   start = e->left_col < ln->len ? e->left_col : ln->len;
             int   vis   = ln->len - start;
-            if (vis > cols) vis = cols;
+            if (vis > vis_cols) vis = vis_cols;
             blk = draw_line_hl(ln->d, ln->len, start, vis, e->lang, blk);
+        } else {
+            printf("\033[2m%*s~\033[0m", gutter - 1, "");
+            blk = 0;
         }
         printf("\033[K");
     }
@@ -850,7 +868,7 @@ static void draw(Editor *e) {
         e->msg[0] = '\0';
     } else {
         const char *hints =
-            "  ^S:Save  ^Q:Quit  ^W:Find  ^N:Next  ^R:Repl  ^Z:Undo  ^K:Cut  ^U:Paste";
+            "  ^S:Save  ^Q:Quit  ^W:Find  ^G:Goto  ^R:Repl  ^Z:Undo  ^K:Cut  ^U:Paste";
         char right[64];
         snprintf(right, sizeof(right), "Ln:%d Col:%d  ",
                  e->cy + 1, e->cx + 1);
@@ -866,7 +884,7 @@ static void draw(Editor *e) {
     printf("\033[0m");
 
     /* ── Place cursor ── */
-    move_cursor(e->cx - e->left_col, e->cy - e->top_row + 1);
+    move_cursor(gutter + e->cx - e->left_col, e->cy - e->top_row + 1);
     show_cursor();
     fflush(stdout);
 }
@@ -1114,6 +1132,19 @@ static int handle_key(Editor *e, int ch) {
     case 26: /* Ctrl+Z — undo */
         editor_apply_undo(e);
         break;
+
+    case 7: { /* Ctrl+G — go to line */
+        char buf[32];
+        if (prompt_in_status("Go to line: ", buf, sizeof(buf)) && buf[0]) {
+            int target = atoi(buf);
+            if (target < 1) target = 1;
+            if (target > e->nlines) target = e->nlines;
+            e->cy = target - 1;
+            e->cx = 0;
+            snprintf(e->msg, sizeof(e->msg), "Line %d of %d", target, e->nlines);
+        }
+        break;
+    }
 
     case 11: { /* Ctrl+K — cut line (consecutive presses accumulate) */
         Line *cur = &e->lines[e->cy];
