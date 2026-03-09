@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 :: ==========================================================
 :: Winix Installer — Run as Administrator

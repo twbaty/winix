@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 :: ==========================================================
 :: Winix Uninstaller — Run as Administrator
