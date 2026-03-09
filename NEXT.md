@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 3.6
+**Version:** 4.0
 **Date:** 2026-03-08
 
 ---
@@ -124,6 +124,7 @@
 | **3.4** | Done | `gzip`/`gunzip` ✅ — bundled zlib 1.3.1, full RFC 1952 support, flags `-1`–`-9`/`-d`/`-k`/`-c`/`-f`/`-v`/`-l`/`-t`, stdin/stdout pipe, argv[0] detection |
 | **3.5** | Done | GNU compat sprint: `grep` ✅ regex (`-E`/`-G`/`-F`/`-i`/`-v`/`-w`/`-x`/`-o`/`-c`/`-n`/`-l`/`-r`/`-m`/`--color`); `sort` ✅ (`-n`/`-k`/`-t`/`-s` stable merge sort); `tail` ✅ (`-f`/`-F`/`-c`/`+N`/`-q`/`-v`); `less`/`more` ✅ ANSI passthrough fix |
 | **3.6** | Done | Shell scripting sprint: process substitution ✅ `<(cmd)`/`>(cmd)`; brace expansion ✅ `{a,b,c}`/`{1..5}`/nested/step; `getopts` ✅ POSIX option parsing; `trap EXIT` ✅ cleanup handlers; `printf` ✅ promoted to in-process builtin |
+| **4.0** | Done | Release milestone: `wzip`/`wunzip` ✅ zstd 1.5.7 native compression (`.wz` format); `man` pages ✅ structured docs for 20 commands + upgraded builtin; cppcheck ✅ zero warnings with suppression file; install verified ✅ clean layout at `C:\Winix\` |
 
 ---
 
@@ -131,25 +132,21 @@
 
 ### Next Up (v3.7 targets)
 
-#### ~~`wzip` / `wunzip`~~ ✅ Done
-- Bundled zstd 1.5.7 single-file amalgamation; `.wz` format with Winix header (magic, version, mtime, orig filename)
-- Full flags: `-d/-k/-c/-f/-v/-t/-r/-1`–`-19`; stdin/stdout pipe; argv[0] detection; 13 tests passing
+## 🎉 v4.0 — Feature Complete
 
-#### `man` — full man pages
-- Replace current `cmd --help | less` passthrough with structured pages
-- Format: NAME / SYNOPSIS / DESCRIPTION / OPTIONS / EXAMPLES / SEE ALSO
-- Storage: `docs/man/` — one `.txt` file per command, loaded by `man` builtin
-- Priority: cover the 20 most-used commands first (ls, cat, grep, find, sed, awk, sort, wc, cut, tr, head, tail, diff, gzip, nix, wlint, wsim, wzip, printf, echo)
-- `man -k KEYWORD` — search descriptions (builds on `apropos`)
+Winix has reached its planned feature set. All roadmap items are done.
 
-### Engineering Philosophy
-> **Winix-first** — unless a battle-hardened standard library demonstrably does it better
-> (30 years of edge cases, security fixes, platform testing).  In that case, bundle the
-> library and move on.  Save Winix-first energy for tools that are genuinely new or where
-> a custom approach adds real value (wlint, wsim, nix, wzip).
+### What's in v4.0
+- **wzip / wunzip** — Winix-native zstd compression, `.wz` format
+- **man pages** — 20 structured pages for top commands; `man` builtin upgraded
+- **cppcheck** — zero warnings, documented suppression file
+- **Install verified** — `C:\Winix\winix.exe`, `bin\`, `man\` all correct
 
-### Quality
-- [ ] More cppcheck suppressions / fix any new warnings from v3.0/v3.1 batch
+### Going Forward
+This is a stable, feature-complete release. Future work (if any) would be:
+- Expand man pages to remaining commands
+- `man -k KEYWORD` search (builds on `apropos`)
+- Additional wlint / wsim improvements as needs arise
 
 ---
 
