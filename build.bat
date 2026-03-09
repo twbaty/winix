@@ -69,7 +69,7 @@ echo.
 :: ==========================================================
 :: Restore real console modes (prevents arrow-key corruption)
 :: ==========================================================
-:: Do NOT restore OUT mode — it breaks ANSI colors
+:: Do NOT restore OUT mode - it breaks ANSI colors
 :: if defined ORIG_OUT_MODE (
 ::     powershell -nop -c "Set-ConsoleMode (Get-StdHandle -11) $env:ORIG_OUT_MODE" >nul 2>&1
 :: )

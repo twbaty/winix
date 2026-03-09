@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: ==========================================================
-:: Winix Installer — Run as Administrator
+:: Winix Installer - Run as Administrator
 :: Installs winix.exe to C:\Winix\ and coreutils to C:\Winix\bin\
 :: ==========================================================
 
@@ -19,7 +19,7 @@ if errorlevel 1 (
 set INSTALL_PREFIX=C:\Winix
 
 :: ==========================================================
-:: 1. Copy files — detect zip layout vs dev build layout
+:: 1. Copy files - detect zip layout vs dev build layout
 :: ==========================================================
 echo [1/5] Installing Winix to %INSTALL_PREFIX% ...
 
@@ -42,7 +42,7 @@ if exist "winix.exe" (
     )
     echo [FILES] Installed from build directory.
 ) else (
-    echo [ERROR] Cannot find winix.exe — download the zip from:
+    echo [ERROR] Cannot find winix.exe - download the zip from:
     echo         https://github.com/twbaty/winix/releases/latest
     pause
     exit /b 1
@@ -82,7 +82,7 @@ powershell -NoProfile -Command ^
     "$lnk.WorkingDirectory= '%USERPROFILE%';" ^
     "$lnk.Description     = 'Winix Unix Shell for Windows';" ^
     "$lnk.Save();" ^
-    "Write-Host '[SHORTCUT] Start Menu shortcut created — right-click it to Pin to Taskbar.'"
+    "Write-Host '[SHORTCUT] Start Menu shortcut created - right-click it to Pin to Taskbar.'"
 echo.
 
 :: ==========================================================
@@ -124,7 +124,7 @@ powershell -NoProfile -Command ^
     ");" ^
     "$wtPath = $null; $wtJson = $null;" ^
     "foreach ($p in $wtPaths) { if (Test-Path $p) { $wtPath = $p; $wtJson = Get-Content $p -Raw | ConvertFrom-Json; break } };" ^
-    "if ($wtPath -eq $null) { Write-Host '[WT] Windows Terminal not found — skipping.'; exit 0 };" ^
+    "if ($wtPath -eq $null) { Write-Host '[WT] Windows Terminal not found - skipping.'; exit 0 };" ^
     "$guid = '{b5e89994-a1b8-4e6f-8e37-5e3e4e4e4e4e}';" ^
     "$exists = $wtJson.profiles.list | Where-Object { $_.guid -eq $guid };" ^
     "if ($exists) { Write-Host '[WT] Winix profile already present.'; exit 0 };" ^
@@ -151,7 +151,7 @@ echo.
 echo  * Shell     : %INSTALL_PREFIX%\winix.exe
 echo  * Coreutils : %INSTALL_PREFIX%\bin
 echo  * To launch : type  winix  in any terminal
-echo  * Start Menu: Search "Winix" — right-click to Pin to Taskbar
+echo  * Start Menu: Search "Winix" - right-click to Pin to Taskbar
 echo  * Explorer  : Right-click any folder -> "Open Winix here"
 echo  * .sh files : double-click to execute with Winix
 echo  * To remove : run uninstall.bat as Administrator

@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: ==========================================================
-:: Winix Uninstaller — Run as Administrator
+:: Winix Uninstaller - Run as Administrator
 :: ==========================================================
 
 :: --- Admin check ---
