@@ -1986,6 +1986,152 @@ static bool handle_builtin(
         return true;
     }
 
+    // printf FORMAT [ARG...]
+    if (starts("printf ") || match("printf")) {
+        auto toks = shell_tokens(line);
+        if (toks.size() >= 2 && (toks[1] == "--help")) {
+            std::cout << "Usage: printf FORMAT [ARG...]\n";
+            std::cout << "Format and print data.\n";
+            std::cout << "Supports: \\n \\t \\r \\a \\b \\f \\v \\\\ \\0NNN\n";
+            std::cout << "          %s %d %i %u %o %x %X %f %e %E %g %G %c %b %%\n";
+            return true;
+        }
+        if (toks.size() < 2) {
+            std::cerr << "printf: missing format string\n";
+            g_builtin_exit = 1;
+            return true;
+        }
+
+        // Print string with escape expansion (used by %b specifier)
+        auto print_escaped = [](const char* s) {
+            for (; *s; s++) {
+                if (*s != '\\') { putchar(*s); continue; }
+                s++;
+                switch (*s) {
+                    case 'n':  putchar('\n'); break;
+                    case 't':  putchar('\t'); break;
+                    case 'r':  putchar('\r'); break;
+                    case 'a':  putchar('\a'); break;
+                    case 'b':  putchar('\b'); break;
+                    case 'f':  putchar('\f'); break;
+                    case 'v':  putchar('\v'); break;
+                    case '\\': putchar('\\'); break;
+                    case '0': {
+                        unsigned int val = 0;
+                        for (int i = 0; i < 3 && s[1] >= '0' && s[1] <= '7'; i++)
+                            val = val * 8 + (*++s - '0');
+                        putchar((char)val);
+                        break;
+                    }
+                    case '\0': putchar('\\'); s--; break;
+                    default:   putchar('\\'); putchar(*s); break;
+                }
+            }
+        };
+
+        // Unquote all tokens (shell_tokens keeps quotes in the strings)
+        std::string fmt = unquote(toks[1]);
+        std::vector<std::string> args;
+        for (size_t ti = 2; ti < toks.size(); ++ti)
+            args.push_back(unquote(toks[ti]));
+        size_t argi = 0;
+
+        // Repeat format until all args consumed (GNU behavior).
+        // Stop early if a pass consumed no args (no format specs → only one pass).
+        do {
+            size_t prev_argi = argi;
+            for (const char* p = fmt.c_str(); *p; p++) {
+                if (*p == '\\') {
+                    p++;
+                    switch (*p) {
+                        case 'n':  putchar('\n'); break;
+                        case 't':  putchar('\t'); break;
+                        case 'r':  putchar('\r'); break;
+                        case 'a':  putchar('\a'); break;
+                        case 'b':  putchar('\b'); break;
+                        case 'f':  putchar('\f'); break;
+                        case 'v':  putchar('\v'); break;
+                        case '\\': putchar('\\'); break;
+                        case '0': {
+                            unsigned int val = 0;
+                            for (int i = 0; i < 3 && p[1] >= '0' && p[1] <= '7'; i++)
+                                val = val * 8 + (*++p - '0');
+                            putchar((char)val);
+                            break;
+                        }
+                        case '\0': putchar('\\'); p--; break;
+                        default:   putchar('\\'); putchar(*p); break;
+                    }
+                } else if (*p == '%') {
+                    p++;
+                    if (*p == '%') { putchar('%'); continue; }
+
+                    char spec[64] = "%";
+                    int  si = 1;
+                    // Flags
+                    while (*p == '-' || *p == '+' || *p == ' ' || *p == '0' || *p == '#') {
+                        if (si < 60) spec[si++] = *p;
+                        p++;
+                    }
+                    // Width
+                    while (*p >= '0' && *p <= '9') {
+                        if (si < 60) spec[si++] = *p;
+                        p++;
+                    }
+                    // Precision
+                    if (*p == '.') {
+                        if (si < 60) spec[si++] = *p++;
+                        while (*p >= '0' && *p <= '9') {
+                            if (si < 60) spec[si++] = *p;
+                            p++;
+                        }
+                    }
+                    char conv = *p;
+                    if (si < 62) { spec[si++] = conv; spec[si] = '\0'; }
+
+                    const char* arg = (argi < args.size()) ? args[argi++].c_str() : "";
+
+                    switch (conv) {
+                        case 's':
+                            printf(spec, arg); // NOLINT
+                            break;
+                        case 'd': case 'i':
+                            printf(spec, (int)strtol(arg, nullptr, 0)); // NOLINT
+                            break;
+                        case 'u':
+                            printf(spec, (unsigned int)strtoul(arg, nullptr, 0)); // NOLINT
+                            break;
+                        case 'o':
+                            printf(spec, (unsigned int)strtoul(arg, nullptr, 0)); // NOLINT
+                            break;
+                        case 'x': case 'X':
+                            printf(spec, (unsigned int)strtoul(arg, nullptr, 0)); // NOLINT
+                            break;
+                        case 'f': case 'e': case 'E': case 'g': case 'G':
+                            printf(spec, strtod(arg, nullptr)); // NOLINT
+                            break;
+                        case 'c':
+                            putchar(arg[0]);
+                            break;
+                        case 'b':
+                            print_escaped(arg);
+                            break;
+                        default:
+                            putchar('%');
+                            putchar(conv);
+                            break;
+                    }
+                } else {
+                    putchar(*p);
+                }
+            }
+            if (argi == prev_argi) break; // no args consumed in this pass — stop
+        } while (argi < args.size());
+
+        fflush(stdout);
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));

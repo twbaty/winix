@@ -3095,6 +3095,29 @@ with tempfile.TemporaryDirectory() as d:
     out, _, rc = run('winix', s)
     check('trap list shows registered trap', 'EXIT' in out)
 
+# ── printf builtin ────────────────────────────────────────────────────────────
+
+with tempfile.TemporaryDirectory() as d:
+    def pf(script_body):
+        s = os.path.join(d, 'pf_tmp.sh')
+        with open(s, 'w') as f:
+            f.write(script_body + '\n')
+        out, _, rc = run('winix', s)
+        return out.replace('\r\n', '\n')
+
+    check('printf builtin literal',         pf("printf hello")          == 'hello')
+    check('printf builtin newline escape',  pf(r"printf 'hello\n'")     == 'hello\n')
+    check('printf builtin %s string',       pf(r"printf '%s\n' world")  == 'world\n')
+    check('printf builtin %d integer',      pf(r"printf '%d\n' 42")     == '42\n')
+    check('printf builtin %05d zero-pad',   pf(r"printf '%05d\n' 42")   == '00042\n')
+    check('printf builtin %x hex',          pf(r"printf '%x\n' 255")    == 'ff\n')
+    check('printf builtin %f float',        pf(r"printf '%.2f\n' 3.14159") == '3.14\n')
+    check('printf builtin %% literal pct',  pf(r"printf '100%%\n'")     == '100%\n')
+    check('printf builtin cycling',         pf(r"printf '%s\n' a b c")  == 'a\nb\nc\n')
+    check('printf builtin no trailing NL',  pf(r"printf '%s' hi")       == 'hi')
+    check('printf builtin tab escape',      pf("printf 'a\\tb\\n'")     == 'a\tb\n')
+    check('printf builtin %b expand',       pf(r"printf '%b\n' 'x\ty'") == 'x\ty\n')
+
 # ── process substitution ──────────────────────────────────────────────────────
 
 with tempfile.TemporaryDirectory() as d:
