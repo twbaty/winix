@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 3.5
+**Version:** 3.6
 **Date:** 2026-03-08
 
 ---
@@ -123,25 +123,27 @@
 | **3.3** | Done | Shell arrays ✅ (`arr=(a b c)`, `${arr[@]}`, `${arr[N]}`, `${#arr[@]}`); `select` statement ✅; `$*` vs `$@` distinction ✅ (positional param quoting fixed); `man` builtin ✅ (passthrough to `--help \| less`); `winix.exe` moved to `C:\Winix\` root ✅ |
 | **3.4** | Done | `gzip`/`gunzip` ✅ — bundled zlib 1.3.1, full RFC 1952 support, flags `-1`–`-9`/`-d`/`-k`/`-c`/`-f`/`-v`/`-l`/`-t`, stdin/stdout pipe, argv[0] detection |
 | **3.5** | Done | GNU compat sprint: `grep` ✅ regex (`-E`/`-G`/`-F`/`-i`/`-v`/`-w`/`-x`/`-o`/`-c`/`-n`/`-l`/`-r`/`-m`/`--color`); `sort` ✅ (`-n`/`-k`/`-t`/`-s` stable merge sort); `tail` ✅ (`-f`/`-F`/`-c`/`+N`/`-q`/`-v`); `less`/`more` ✅ ANSI passthrough fix |
+| **3.6** | Done | Shell scripting sprint: process substitution ✅ `<(cmd)`/`>(cmd)`; brace expansion ✅ `{a,b,c}`/`{1..5}`/nested/step; `getopts` ✅ POSIX option parsing; `trap EXIT` ✅ cleanup handlers; `printf` ✅ promoted to in-process builtin |
 
 ---
 
 ## 🗺️ Forward Roadmap
 
-### Next Up
-- [x] Tests for v3.0/v3.1 batch (`dd`, `base32`, `shred`, `nice`, `nohup`, `who`, `groups`, `csplit`, `pr`, `b2sum`, etc.)
-- [x] `chgrp` — change group (Windows ACL stub, maps to chown pattern)
-- [x] `install` — copy files + set permissions in one step
+### Next Up (v3.7 targets)
 
-### Shell Features
-- [x] Shell arrays (`arr=(a b c)`, `${arr[@]}`, `${#arr[@]}`)
-- [x] `select` statement (menu loop)
-- [x] `$*` vs `$@` correct distinction inside double quotes
-- [x] Process substitution `<(cmd)` and `>(cmd)`
-- [x] Brace expansion `{a,b,c}` and `{1..5}` — word-level expansion before globbing
-- [x] `getopts` builtin — POSIX option parsing for scripts (`getopts "abc:" OPT`)
-- [x] `trap EXIT` — register cleanup handler to run on script exit (EXIT pseudosignal only)
-- [x] `printf` builtin — promote existing `printf.exe` to an in-process builtin (speed/portability)
+#### `wzip` / `wunzip` — Winix-native compression tool
+- Bundle **zstd** single-file amalgamation (`zstd.h` + `zstd.c`, ~80 KB, MIT license)
+- `.wz` format: zstd frames with a Winix header (magic, version, original filename, mtime)
+- `wzip [OPTIONS] FILE...` — compress to `FILE.wz`; `-o FILE` for named output; `-k` keep original; `-1`–`-19` compression level; `-v` verbose; `-r` recursive; stdin/stdout pipe mode
+- `wunzip [OPTIONS] FILE.wz...` — decompress; `-k` keep archive; `-t` test integrity; `-v` verbose; argv[0] detection
+- Rationale: zstd gives near-LZMA ratios at much higher speed; trivial to bundle; `.wz` gives Winix its own native format alongside `gzip`
+
+#### `man` — full man pages
+- Replace current `cmd --help | less` passthrough with structured pages
+- Format: NAME / SYNOPSIS / DESCRIPTION / OPTIONS / EXAMPLES / SEE ALSO
+- Storage: `docs/man/` — one `.txt` file per command, loaded by `man` builtin
+- Priority: cover the 20 most-used commands first (ls, cat, grep, find, sed, awk, sort, wc, cut, tr, head, tail, diff, gzip, nix, wlint, wsim, wzip, printf, echo)
+- `man -k KEYWORD` — search descriptions (builds on `apropos`)
 
 ### Engineering Philosophy
 > **Winix-first** — unless a battle-hardened standard library demonstrably does it better
@@ -149,14 +151,7 @@
 > library and move on.  Save Winix-first energy for tools that are genuinely new or where
 > a custom approach adds real value (wlint, wsim, nix, wzip).
 
-### Bigger Additions
-- [x] `gzip`/`gunzip` — bundle zlib (RFC 1951/1952, battle-hardened, zlib license); full flag support (`-1`–`-9`, `-d`, `-k`, `-c`, `-v`, `-l`, `-t`)
-- [ ] `wzip`/`wunzip` — Winix-native best-compression tool; evaluate zstd single-file amalgamation (near-LZMA ratio, trivially bundled, `.wz` format)
-- [ ] `man` — full man pages for all Winix commands (NAME/SYNOPSIS/DESCRIPTION/OPTIONS); currently passthrough to `--help`
-
 ### Quality
-- [x] `nix` v1.2 — line number display (`Ctrl+G` goto line), column indicator in status bar
-- [x] `wlint` v1.8 — `--age DAYS` filter (flag files not modified in N days)
 - [ ] More cppcheck suppressions / fix any new warnings from v3.0/v3.1 batch
 
 ---
