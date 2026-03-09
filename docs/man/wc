@@ -1,0 +1,66 @@
+NAME
+    wc - print newline, word, and byte counts for each file
+
+SYNOPSIS
+    wc [OPTION]... [FILE]...
+
+DESCRIPTION
+    Print newline, word, and byte counts for each FILE, and a total line
+    if more than one FILE is specified. With no FILE, or when FILE is
+    '-', read standard input.
+
+    A word is defined as a non-zero-length sequence of characters
+    delimited by white space.
+
+    Without options, wc prints three counts: newlines, words, and bytes
+    (in that order).
+
+OPTIONS
+    -c, --bytes
+        Print the byte count.
+
+    -m, --chars
+        Print the character count.
+
+    -l, --lines
+        Print the newline count.
+
+    -w, --words
+        Print the word count.
+
+    -L, --max-line-length
+        Print the length of the longest line.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    wc file.txt
+        Print line, word, and byte counts for file.txt.
+
+    wc -l *.c
+        Count lines in each .c file with a total.
+
+    wc -w essay.txt
+        Count words in a document.
+
+    wc -c image.png
+        Print size in bytes.
+
+    cat file.txt | wc -l
+        Count lines from stdin.
+
+    wc -L file.txt
+        Find the longest line length.
+
+OUTPUT FORMAT
+    Output columns are right-justified and separated by spaces. If only
+    one count is selected, only that count is printed. The filename
+    follows the counts; the special name '-' is shown for stdin.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

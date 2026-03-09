@@ -1,0 +1,92 @@
+NAME
+    gzip - compress or expand files
+
+SYNOPSIS
+    gzip [OPTION]... [FILE]...
+    gunzip [OPTION]... [FILE]...
+    zcat [OPTION]... [FILE]...
+
+DESCRIPTION
+    gzip reduces the size of files using Lempel-Ziv coding (LZ77). By
+    default, each file is replaced by a compressed version with the
+    extension '.gz', preserving ownership, mode, and timestamps.
+
+    gunzip decompresses files. It is equivalent to gzip -d. zcat is
+    equivalent to gunzip -c.
+
+    When no FILE is given, or FILE is '-', read from standard input and
+    write to standard output.
+
+OPTIONS
+    -c, --stdout, --to-stdout
+        Write output to standard output; keep original files unchanged.
+
+    -d, --decompress, --uncompress
+        Decompress the given files.
+
+    -f, --force
+        Force compression or decompression even if the output file
+        already exists or if the file has multiple hard links.
+
+    -k, --keep
+        Keep (do not delete) input files after compression.
+
+    -l, --list
+        For each compressed file, list compressed and uncompressed sizes,
+        compression ratio, and uncompressed file name.
+
+    -n, --no-name
+        Do not save or restore the original file name and timestamp.
+
+    -N, --name
+        Save the original file name and timestamp (default).
+
+    -q, --quiet
+        Suppress all warnings.
+
+    -r, --recursive
+        Traverse directory structure; compress all files found.
+
+    -t, --test
+        Test the compressed file integrity.
+
+    -v, --verbose
+        Verbose; display compression ratio for each file.
+
+    -1, --fast
+        Compress faster (less compression, level 1).
+
+    -9, --best
+        Compress better (slower, level 9). Default is -6.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    gzip file.txt
+        Compress file.txt to file.txt.gz; remove original.
+
+    gzip -k file.txt
+        Compress but keep original file.
+
+    gzip -d file.txt.gz
+        Decompress file.txt.gz.
+
+    gzip -c file.txt > file.txt.gz
+        Compress to stdout.
+
+    gunzip -c archive.gz | grep error
+        Decompress to stdout and pipe to grep.
+
+    gzip -r logs/
+        Recursively compress all files in logs/.
+
+    gzip -l *.gz
+        List compression statistics for all .gz files.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

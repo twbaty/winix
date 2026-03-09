@@ -1,0 +1,84 @@
+NAME
+    awk - pattern scanning and processing language
+
+SYNOPSIS
+    awk [OPTION]... PROGRAM [FILE]...
+    awk [OPTION]... -f PROGRAM-FILE [FILE]...
+
+DESCRIPTION
+    awk scans each input FILE (or stdin) line by line and, for each line,
+    tests whether it matches any of a set of patterns. For each matched
+    pattern, the associated action is executed.
+
+    A PROGRAM is a sequence of pattern-action pairs:
+        pattern { action }
+    If pattern is omitted, the action executes for every line.
+    If action is omitted, matching lines are printed.
+
+    Special patterns:
+        BEGIN   Action executed before any input is read.
+        END     Action executed after all input is consumed.
+
+OPTIONS
+    -F FS, --field-separator=FS
+        Use FS as the input field separator (default: whitespace).
+
+    -v VAR=VALUE, --assign=VAR=VALUE
+        Assign VALUE to variable VAR before program execution.
+
+    -f FILE, --file=FILE
+        Read awk program from FILE instead of command line.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+BUILT-IN VARIABLES
+    FS      Input field separator (default: space/tab runs).
+    OFS     Output field separator (default: ' ').
+    RS      Input record separator (default: newline).
+    ORS     Output record separator (default: newline).
+    NR      Current record (line) number across all files.
+    NF      Number of fields in current record.
+    FNR     Record number within current file.
+    FILENAME  Name of current input file.
+
+BUILT-IN FUNCTIONS
+    print [EXPR,...]      Print to stdout.
+    printf FORMAT, ...    Formatted output.
+    length([STR])         String length or length of $0.
+    substr(STR, M [, N])  Substring starting at M, length N.
+    index(STR, SUB)       Position of SUB in STR (1-based), 0 if absent.
+    split(STR, ARR [, FS]) Split STR into array ARR; return count.
+    sub(RE, REP [, STR])  Replace first match of RE with REP.
+    gsub(RE, REP [, STR]) Replace all matches of RE with REP.
+    match(STR, RE)        Set RSTART/RLENGTH; return start pos or 0.
+    tolower(STR)          Return lowercase copy.
+    toupper(STR)          Return uppercase copy.
+    int(EXPR)             Truncate to integer.
+    sqrt(EXPR)            Square root.
+
+EXAMPLES
+    awk '{print $1}' file.txt
+        Print first field of every line.
+
+    awk -F: '{print $1, $3}' /etc/passwd
+        Print username and UID from passwd file.
+
+    awk '/error/ {print NR": "$0}' log.txt
+        Print matching lines with line numbers.
+
+    awk '{sum += $1} END {print sum}' nums.txt
+        Sum the first column.
+
+    awk 'NF > 0' file.txt
+        Remove blank lines.
+
+    awk -v OFS=, '{print $1,$2,$3}' data.txt
+        Reformat fields with comma separator.
+
+EXIT STATUS
+    0   Success.
+    1   Error in program or I/O error.

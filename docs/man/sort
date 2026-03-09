@@ -1,0 +1,96 @@
+NAME
+    sort - sort lines of text files
+
+SYNOPSIS
+    sort [OPTION]... [FILE]...
+
+DESCRIPTION
+    Write sorted concatenation of all FILE(s) to standard output.
+    When no FILE is given, or FILE is '-', read standard input.
+
+    Lines are sorted in the locale's collating sequence by default.
+    Use -n for numeric sort or -k to sort on specific fields.
+
+OPTIONS
+    -b, --ignore-leading-blanks
+        Ignore leading blanks when finding sort keys.
+
+    -d, --dictionary-order
+        Consider only blanks and alphanumeric characters.
+
+    -f, --ignore-case
+        Fold lowercase characters to uppercase for comparison.
+
+    -g, --general-numeric-sort
+        Compare according to general numeric value (handles floats).
+
+    -i, --ignore-nonprinting
+        Consider only printable characters.
+
+    -n, --numeric-sort
+        Compare according to string numerical value.
+
+    -h, --human-numeric-sort
+        Compare human-readable numbers (e.g., 2K, 1G).
+
+    -r, --reverse
+        Reverse the comparison result.
+
+    -s, --stable
+        Stabilize sort; do not sort equal lines relative to each other.
+
+    -t SEP, --field-separator=SEP
+        Use SEP as the field delimiter instead of non-blank-to-blank
+        transition.
+
+    -k POS1[,POS2], --key=POS1[,POS2]
+        Sort via a key starting at POS1. If POS2 is given, the key ends
+        at POS2. Each position is FIELD[.CHAR][FLAGS].
+
+    -u, --unique
+        Output only the first of equal lines.
+
+    -m, --merge
+        Merge already-sorted files; do not sort.
+
+    -c, --check, --check=diagnose-first
+        Check that the input is sorted; do not sort.
+
+    -o FILE, --output=FILE
+        Write result to FILE instead of standard output.
+
+    -z, --zero-terminated
+        Line delimiter is NUL, not newline.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    sort file.txt
+        Sort file alphabetically.
+
+    sort -n numbers.txt
+        Sort numerically.
+
+    sort -rn scores.txt
+        Sort numerically in reverse (largest first).
+
+    sort -t: -k3 -n /etc/passwd
+        Sort passwd by UID (field 3, colon-delimited, numeric).
+
+    sort -u names.txt
+        Sort and remove duplicate lines.
+
+    sort -k2,2 -k1,1 data.txt
+        Sort primarily by field 2, secondarily by field 1.
+
+    sort file1.txt file2.txt | uniq
+        Merge two files and deduplicate.
+
+EXIT STATUS
+    0   Success, or input already sorted (with -c).
+    1   Input not in order (with -c).
+    2   Error occurred.

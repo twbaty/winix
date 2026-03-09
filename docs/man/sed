@@ -1,0 +1,92 @@
+NAME
+    sed - stream editor for filtering and transforming text
+
+SYNOPSIS
+    sed [OPTION]... SCRIPT [FILE]...
+    sed [OPTION]... -e SCRIPT... [FILE]...
+    sed [OPTION]... -f SCRIPT-FILE [FILE]...
+
+DESCRIPTION
+    sed is a stream editor that reads input line by line, applies editing
+    commands, and writes the result to standard output. With no FILE or
+    when FILE is '-', read standard input.
+
+OPTIONS
+    -e SCRIPT, --expression=SCRIPT
+        Add the commands in SCRIPT to the set of commands to execute.
+        Multiple -e options may be given.
+
+    -f FILE, --file=FILE
+        Add the commands contained in FILE to the set of commands.
+
+    -i[SUFFIX], --in-place[=SUFFIX]
+        Edit files in-place. If SUFFIX is provided, a backup is made
+        with that suffix before editing.
+
+    -n, --quiet, --silent
+        Suppress automatic printing of pattern space.
+
+    -E, -r, --regexp-extended
+        Use extended regular expressions (ERE) in the script.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+COMMANDS
+    d       Delete pattern space; start next cycle.
+
+    p       Print pattern space.
+
+    q [N]   Quit with optional exit code N.
+
+    s/RE/REPLACEMENT/[FLAGS]
+        Substitute RE with REPLACEMENT. FLAGS: g (global), i (ignore
+        case), N (substitute Nth occurrence), p (print if substituted).
+
+    y/SRC/DST/
+        Transliterate characters in SRC to corresponding chars in DST.
+
+    a TEXT  Append TEXT after the current line.
+
+    i TEXT  Insert TEXT before the current line.
+
+    c TEXT  Replace the current line with TEXT.
+
+    n       Print pattern space, read next line into pattern space.
+
+    N       Append next line to pattern space with embedded newline.
+
+    =       Print the current input line number.
+
+    r FILE  Append contents of FILE to output.
+
+    { ... } Group commands.
+
+    ADDR    Commands may be prefixed with a line number, a regex
+            /PATTERN/, or a range ADDR1,ADDR2.
+
+EXAMPLES
+    sed 's/foo/bar/' file.txt
+        Replace first 'foo' with 'bar' on each line.
+
+    sed 's/foo/bar/g' file.txt
+        Replace all occurrences of 'foo' with 'bar'.
+
+    sed -n '/error/p' log.txt
+        Print only lines matching 'error'.
+
+    sed '5,10d' file.txt
+        Delete lines 5 through 10.
+
+    sed -i.bak 's/old/new/g' config.txt
+        Edit config.txt in-place, backup to config.txt.bak.
+
+    sed '/^#/d' config.conf
+        Remove comment lines.
+
+EXIT STATUS
+    0   Success.
+    1   Error in usage or in a script.

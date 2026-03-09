@@ -1,0 +1,102 @@
+NAME
+    wsim - Winix file similarity scorer
+
+SYNOPSIS
+    wsim [OPTION]... SCAN-JSON
+
+DESCRIPTION
+    wsim reads a file inventory produced by wlint --scan-json and scores
+    all file pairs for likely similarity. It is designed to surface
+    probable duplicates, renamed originals, and variant copies that
+    share no exact byte-for-byte match and are therefore invisible to
+    wlint's hash-based deduplication.
+
+    wsim is strictly read-only: it never modifies, moves, or deletes
+    any file.
+
+SCORING MODEL
+    Each candidate pair receives a composite score in the range [0, 1]:
+
+        basename similarity   50%  (normalized Levenshtein-based ratio)
+        extension match       15%  (1.0 if extensions are identical)
+        size similarity       25%  (1 - |s1-s2| / max(s1,s2))
+        mtime proximity       10%  (decays exponentially; 0 days = 1.0)
+
+    Pairs with a total score >= --min-score are included in the output.
+
+NAME NORMALIZATION
+    Before basename comparison, filenames are normalized:
+        - Lowercased
+        - Extension stripped
+        - Underscores and hyphens replaced with spaces
+        - Copy markers removed: "(1)", "- copy", "copy of", etc.
+        - Version markers removed: "v2", "final", "draft", etc.
+        - Whitespace collapsed
+
+CANDIDATE REDUCTION (BLOCKING)
+    To keep runtime tractable on large inventories, only pairs that
+    share the same file extension, have sizes within +-20% of each
+    other, and share the same first normalized name token are scored.
+    All other pairs are skipped.
+
+OPTIONS
+    --out FILE
+        Write JSON results to FILE instead of standard output.
+
+    --min-score N
+        Only report pairs with a total score >= N. N is a floating-point
+        value in [0.0, 1.0]. Default: 0.65.
+
+    --csv FILE
+        Write results as CSV to FILE (in addition to JSON output).
+
+    --pretty
+        Pretty-print the JSON output with indentation.
+
+    --recommend-keep
+        Annotate each pair's JSON record with a "keep" field indicating
+        which file to retain (the one with the older mtime, as a
+        heuristic for the "original").
+
+    -v, --verbose
+        Print progress information (files read, pairs scored) to stderr.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+OUTPUT FORMAT (JSON)
+    The output is a JSON array of pair objects. Each object contains:
+        file_a          Path to first file
+        file_b          Path to second file
+        score           Composite similarity score (float)
+        basename_sim    Basename component score
+        ext_match       1 if extensions match, else 0
+        size_sim        Size component score
+        mtime_prox      Mtime component score
+        mtime_days      Absolute mtime difference in days
+        keep            (with --recommend-keep) path to recommended file
+
+EXAMPLES
+    wlint --scan-json inventory.json ~/Documents
+    wsim inventory.json
+        Generate an inventory and score all similar pairs.
+
+    wsim --min-score 0.8 --pretty inventory.json
+        Show only high-confidence pairs with formatted output.
+
+    wsim --csv similar.csv --min-score 0.7 inventory.json
+        Write moderate-confidence pairs to CSV.
+
+    wsim --recommend-keep --out results.json inventory.json
+        Get results with keep recommendations saved to a file.
+
+    wsim -v --min-score 0.9 big_inventory.json
+        Verbose scoring of a large inventory, strict threshold.
+
+EXIT STATUS
+    0   No candidates found above --min-score.
+    1   Candidates found.
+    2   Error (missing or invalid input file, bad arguments, etc.).

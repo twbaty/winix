@@ -1,0 +1,74 @@
+NAME
+    tail - output the last part of files
+
+SYNOPSIS
+    tail [OPTION]... [FILE]...
+
+DESCRIPTION
+    Print the last 10 lines of each FILE to standard output. With more
+    than one FILE, precede each block with a header giving the file name.
+    With no FILE, or when FILE is '-', read standard input.
+
+    The +N form of -n and -c specifies an offset from the start of the
+    file rather than from the end.
+
+OPTIONS
+    -c N, --bytes=N
+        Output the last N bytes. If N begins with '+', output bytes
+        starting from the Nth byte of each file.
+
+    -f, --follow[=HOW]
+        Output appended data as the file grows. HOW is 'descriptor'
+        (default) or 'name' (re-open the file if truncated or renamed).
+        Polls the file and outputs new lines as they appear.
+
+    -F  Same as --follow=name --retry. Retries opening the file if it
+        becomes inaccessible.
+
+    -n N, --lines=N
+        Output the last N lines (default: 10). If N begins with '+',
+        output lines starting from the Nth line.
+
+    --pid=PID
+        With -f, terminate after process PID dies.
+
+    -q, --quiet, --silent
+        Never print file name headers.
+
+    -s SEC, --sleep-interval=SEC
+        With -f, sleep SEC seconds between polls (default: 1.0).
+
+    -v, --verbose
+        Always print file name headers.
+
+    -z, --zero-terminated
+        Line delimiter is NUL, not newline.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    tail file.txt
+        Print last 10 lines of file.txt.
+
+    tail -n 20 file.txt
+        Print last 20 lines.
+
+    tail -f /var/log/app.log
+        Follow a log file, printing new lines as they appear.
+
+    tail -c 512 file.bin
+        Print last 512 bytes.
+
+    tail -n +5 file.txt
+        Print all lines starting from line 5.
+
+    tail -f -n 0 app.log
+        Follow a log file showing only newly appended lines.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

@@ -1,0 +1,79 @@
+NAME
+    tr - translate or delete characters
+
+SYNOPSIS
+    tr [OPTION]... SET1 [SET2]
+
+DESCRIPTION
+    Translate, squeeze, or delete characters from standard input,
+    writing to standard output. tr always reads from stdin and writes
+    to stdout; no file arguments are accepted.
+
+    Characters in SET1 are mapped to the corresponding characters in
+    SET2. If SET2 is shorter than SET1, its last character is repeated
+    to the necessary length.
+
+OPTIONS
+    -c, -C, --complement
+        Use the complement of SET1 (all characters not in SET1).
+
+    -d, --delete
+        Delete characters in SET1; do not translate.
+
+    -s, --squeeze-repeats
+        Replace any sequence of a character listed in SET1 (after
+        translation) with a single occurrence of that character.
+
+    -t, --truncate-set1
+        First truncate SET1 to the length of SET2 before translating.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+CHARACTER SETS
+    Most characters represent themselves. Special notations:
+        \\      Backslash
+        \a      Alert (BEL)
+        \b      Backspace
+        \f      Form feed
+        \n      Newline
+        \r      Carriage return
+        \t      Horizontal tab
+        \v      Vertical tab
+        \NNN    Character with octal value NNN
+        [:alnum:]   All letters and digits
+        [:alpha:]   All letters
+        [:blank:]   Horizontal whitespace (space and tab)
+        [:cntrl:]   All control characters
+        [:digit:]   All digits
+        [:lower:]   All lowercase letters
+        [:print:]   All printable characters
+        [:punct:]   All punctuation characters
+        [:space:]   All horizontal and vertical whitespace
+        [:upper:]   All uppercase letters
+
+EXAMPLES
+    tr 'a-z' 'A-Z'
+        Convert lowercase to uppercase.
+
+    tr -d '\r'
+        Strip carriage returns (Windows to Unix line endings).
+
+    tr -s ' '
+        Collapse multiple spaces into one.
+
+    tr -dc '[:print:]'
+        Delete all non-printable characters.
+
+    tr '[:upper:]' '[:lower:]'
+        Convert uppercase to lowercase.
+
+    echo "hello world" | tr ' ' '\n'
+        Put each word on its own line.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

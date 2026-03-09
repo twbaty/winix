@@ -269,6 +269,9 @@ target_link_libraries(wunzip winix_zstd)
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)
 
+# Man pages — installed to C:\Winix\man\
+install(DIRECTORY docs/man/ DESTINATION man)
+
 # All coreutils go to C:\Winix\bin
 install(TARGETS
     echo pwd ls cat mv rm mkdir rmdir touch head tail

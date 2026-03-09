@@ -1,0 +1,79 @@
+NAME
+    printf - format and print data
+
+SYNOPSIS
+    printf FORMAT [ARGUMENT]...
+
+DESCRIPTION
+    Print ARGUMENT(s) according to FORMAT, to standard output.
+
+    FORMAT is a string that may contain plain text, C-style escape
+    sequences, and format specifications (beginning with '%'). If there
+    are more ARGUMENTs than FORMAT directives, FORMAT is reused until
+    all ARGUMENTs are consumed.
+
+ESCAPE SEQUENCES
+    \\      Literal backslash
+    \a      Alert (BEL)
+    \b      Backspace
+    \c      Produce no further output
+    \e      Escape
+    \f      Form feed
+    \n      Newline
+    \r      Carriage return
+    \t      Horizontal tab
+    \v      Vertical tab
+    \NNN    Character with octal value NNN
+    \xHH    Character with hexadecimal value HH
+    \uHHHH  Unicode character (UTF-8 encoded)
+
+FORMAT DIRECTIVES
+    %%      A literal '%'
+    %d, %i  Decimal integer
+    %u      Unsigned decimal integer
+    %o      Unsigned octal
+    %x, %X  Unsigned hexadecimal (lower/upper case)
+    %e, %E  Floating point in scientific notation
+    %f      Floating point in fixed notation
+    %g, %G  Shortest of %e or %f
+    %s      String
+    %c      Single character (first character of argument)
+    %b      String, interpreting backslash escapes (like echo -e)
+    %q      String quoted for safe reuse as shell input
+
+    Width and precision modifiers are supported between '%' and the
+    conversion character: %-10s (left-align in 10-char field),
+    %08d (zero-pad to width 8), %.5f (5 decimal places).
+
+OPTIONS
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    printf "Hello, %s!\n" "World"
+        Print a formatted greeting.
+
+    printf "%d + %d = %d\n" 2 3 5
+        Print an arithmetic statement.
+
+    printf "%-20s %5d\n" "Item" 42
+        Left-align a string, right-align a number.
+
+    printf "%08.2f\n" 3.14159
+        Zero-padded float with 2 decimal places: 00003.14
+
+    printf "%x\n" 255
+        Print 255 in hexadecimal: ff
+
+    printf "%s\n" apple banana cherry
+        Print each argument on its own line (FORMAT reused).
+
+    printf "%b" "line1\nline2\n"
+        Interpret escapes in a string argument.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

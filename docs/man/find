@@ -1,0 +1,96 @@
+NAME
+    find - search for files in a directory hierarchy
+
+SYNOPSIS
+    find [PATH...] [EXPRESSION]
+
+DESCRIPTION
+    find searches the directory tree rooted at each PATH (default: '.')
+    evaluating the given EXPRESSION from left to right. When no
+    expression is given, -print is implied.
+
+PRIMARIES
+    -name PATTERN
+        Base of filename matches shell glob PATTERN (case-sensitive).
+
+    -iname PATTERN
+        Like -name but case-insensitive.
+
+    -type TYPE
+        File type: f (regular file), d (directory), l (symbolic link).
+
+    -size N[cwbkMG]
+        File uses N units of space. Use +N for greater than, -N for
+        less than. Units: c=bytes, k=KiB, M=MiB, G=GiB.
+
+    -mtime N
+        File's data was last modified N*24 hours ago. +N means more
+        than N days ago; -N means less than N days ago.
+
+    -newer FILE
+        File was modified more recently than FILE.
+
+    -empty
+        File is empty (size 0) or directory has no entries.
+
+    -maxdepth N
+        Descend at most N levels below the start points.
+
+    -mindepth N
+        Do not apply tests to start points; skip N levels.
+
+    -path PATTERN
+        Full path matches PATTERN.
+
+    -prune
+        Do not descend into this directory. Returns true.
+
+    -not EXPR, ! EXPR
+        Negates EXPR.
+
+    EXPR1 -and EXPR2, EXPR1 -a EXPR2
+        EXPR2 is evaluated only if EXPR1 is true (default conjunction).
+
+    EXPR1 -or EXPR2, EXPR1 -o EXPR2
+        EXPR2 is evaluated only if EXPR1 is false.
+
+ACTIONS
+    -print
+        Print the full file name followed by a newline (default).
+
+    -print0
+        Print the full file name followed by a null byte.
+
+    -exec CMD ;
+        Execute CMD for each matched file. {} is replaced by the path.
+        CMD must be terminated by ';' (quoted or escaped).
+
+    -delete
+        Delete matched files. Implies -depth.
+
+OPTIONS
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    find . -name '*.c'
+        Find all C source files under current directory.
+
+    find /tmp -mtime +7 -delete
+        Delete files in /tmp older than 7 days.
+
+    find src -type f -name '*.h' -exec grep -l 'TODO' {} ;
+        Find header files containing TODO.
+
+    find . -type d -empty
+        Find empty directories.
+
+    find . -maxdepth 2 -name 'Makefile'
+        Find Makefiles no deeper than 2 levels.
+
+EXIT STATUS
+    0   All specified paths were successfully processed.
+    1   Error occurred.

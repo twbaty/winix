@@ -1,0 +1,66 @@
+NAME
+    cat - concatenate files and print on the standard output
+
+SYNOPSIS
+    cat [OPTION]... [FILE]...
+
+DESCRIPTION
+    Concatenate FILE(s) to standard output. With no FILE, or when FILE
+    is '-', read standard input.
+
+OPTIONS
+    -A, --show-all
+        Equivalent to -vET.
+
+    -b, --number-nonblank
+        Number nonempty output lines, overrides -n.
+
+    -e  Equivalent to -vE.
+
+    -E, --show-ends
+        Display '$' at the end of each line.
+
+    -n, --number
+        Number all output lines.
+
+    -s, --squeeze-blank
+        Suppress repeated empty output lines.
+
+    -t  Equivalent to -vT.
+
+    -T, --show-tabs
+        Display TAB characters as ^I.
+
+    -u  (ignored; for POSIX compatibility)
+
+    -v, --show-nonprinting
+        Use ^ and M- notation, except for LFD and TAB.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    cat file.txt
+        Print file.txt to stdout.
+
+    cat file1.txt file2.txt
+        Concatenate two files to stdout.
+
+    cat -n script.sh
+        Print script.sh with line numbers.
+
+    cat -A file.txt
+        Show all non-printing characters, line ends, and tabs.
+
+    cat > newfile.txt
+        Read from stdin and write to newfile.txt (Ctrl+D to end).
+
+    cat - file.txt
+        Read stdin first, then file.txt.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

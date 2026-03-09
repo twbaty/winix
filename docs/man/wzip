@@ -1,0 +1,96 @@
+NAME
+    wzip - compress files using the Winix .wz format (zstd backend)
+    wunzip - decompress .wz files (alias for wzip -d)
+
+SYNOPSIS
+    wzip   [OPTION]... [FILE]...
+    wunzip [OPTION]... [FILE]...
+
+DESCRIPTION
+    wzip compresses each FILE into a Winix .wz archive using the zstd
+    compression algorithm. By default, each FILE is replaced with a
+    compressed FILE.wz and the original is removed after a successful
+    write.
+
+    wunzip is the same binary as wzip; when invoked as wunzip (or when
+    argv[0] contains 'wunzip'), -d (decompress) is assumed by default.
+
+    When no FILE is given, or FILE is '-', compress from standard input
+    and write to standard output.
+
+    The .wz format stores a Winix header followed by standard zstd
+    frames. The header preserves the original filename and modification
+    time, enabling faithful restoration. All fields are little-endian.
+
+.WZ FILE FORMAT
+    Offset  Size  Field
+    0-3     4     Magic bytes: "WZ\x01\x00"
+    4-5     2     Format version (uint16, currently 1)
+    6-9     4     Original mtime (uint32 Unix timestamp; 0 if unknown)
+    10      1     Original filename length in bytes (0 = stdin)
+    11+     N     Original filename (no NUL terminator)
+    11+N    ...   One or more standard zstd frames
+
+OPTIONS
+    -d, --decompress
+        Decompress. Default when called as wunzip.
+
+    -k, --keep
+        Keep the original file after compression or decompression.
+        Without this flag the input file is removed on success.
+
+    -c, --stdout
+        Write to standard output and keep the original file.
+
+    -f, --force
+        Force overwrite of an existing output file.
+
+    -v, --verbose
+        Print filename and compression ratio for each file.
+
+    -t, --test
+        Test integrity by decompressing to /dev/null; do not write.
+
+    -r, --recursive
+        Compress (or decompress) all files in each directory argument
+        recursively.
+
+    -1 .. -19
+        Set the zstd compression level. Level 1 is fastest with least
+        compression; level 19 is slowest with best compression.
+        Default is level 3.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    wzip file.txt
+        Compress file.txt to file.txt.wz; remove original.
+
+    wzip -k -9 report.pdf
+        Compress at level 9, keep original.
+
+    wzip -d archive.wz
+        Decompress archive.wz; restore original filename.
+
+    wunzip archive.wz
+        Same as above using the wunzip alias.
+
+    wzip -c file.txt > file.txt.wz
+        Compress to stdout (useful in pipelines).
+
+    wzip -r -v project/
+        Recursively compress all files, showing ratios.
+
+    wzip -t backup.wz
+        Verify integrity of backup.wz without extracting.
+
+    cat file.txt | wzip -c - | wunzip -c - | wc -l
+        Round-trip through stdin/stdout.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

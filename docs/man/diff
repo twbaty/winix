@@ -1,0 +1,97 @@
+NAME
+    diff - compare files line by line
+
+SYNOPSIS
+    diff [OPTION]... FILE1 FILE2
+    diff [OPTION]... --from-file=FILE1 FILES...
+    diff [OPTION]... --to-file=FILE2 FILES...
+
+DESCRIPTION
+    diff compares FILE1 and FILE2 line by line and reports differences.
+    Output describes changes needed to turn FILE1 into FILE2.
+
+    When FILE is '-', read standard input. If FILE1 is a directory and
+    FILE2 is a file (or vice versa), diff compares the file in the
+    directory with the given filename to FILE2.
+
+OPTIONS
+    -u N, --unified[=N]
+        Output N (default 3) lines of unified context. The most common
+        format for patches.
+
+    -c N, --context[=N]
+        Output N (default 3) lines of copied context.
+
+    -e, --ed
+        Output an ed script.
+
+    -n, --rcs
+        Output an RCS format diff.
+
+    -q, --brief
+        Report only whether files differ.
+
+    -s, --report-identical-files
+        Report when two files are the same.
+
+    -i, --ignore-case
+        Ignore case differences in file contents.
+
+    -w, --ignore-all-space
+        Ignore all white space.
+
+    -b, --ignore-space-change
+        Ignore changes in the amount of white space.
+
+    -B, --ignore-blank-lines
+        Ignore changes where all lines are blank.
+
+    --strip-trailing-cr
+        Strip trailing carriage return on input.
+
+    -r, --recursive
+        Recursively compare any subdirectories found.
+
+    -N, --new-file
+        Treat absent files as empty.
+
+    -a, --text
+        Treat all files as text.
+
+    --label LABEL
+        Use LABEL instead of the file name and time in headers.
+
+    -D NAME, --ifdef=NAME
+        Output a merged file with '#ifdef NAME' guards.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+OUTPUT FORMAT (unified)
+    Lines beginning with '---' and '+++' are the file headers.
+    Hunk headers start with '@@'. Lines prefixed with '-' appear only
+    in FILE1; lines prefixed with '+' appear only in FILE2.
+
+EXAMPLES
+    diff old.txt new.txt
+        Show differences in default format.
+
+    diff -u old.c new.c
+        Unified diff suitable for a patch file.
+
+    diff -r dir1/ dir2/
+        Recursively compare two directories.
+
+    diff -q file1 file2
+        Report only whether files are identical.
+
+    diff -i text1.txt text2.txt
+        Case-insensitive comparison.
+
+EXIT STATUS
+    0   Files are identical.
+    1   Files differ.
+    2   Error occurred.

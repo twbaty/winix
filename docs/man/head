@@ -1,0 +1,60 @@
+NAME
+    head - output the first part of files
+
+SYNOPSIS
+    head [OPTION]... [FILE]...
+
+DESCRIPTION
+    Print the first 10 lines of each FILE to standard output. With more
+    than one FILE, precede each output block with a header giving the
+    file name. With no FILE, or when FILE is '-', read standard input.
+
+OPTIONS
+    -c N, --bytes=N
+        Print the first N bytes of each file. If N is prefixed with '-',
+        print all bytes except the last N bytes.
+
+        N may have a suffix: b=512, kB=1000, K=1024, MB=1000*1000,
+        M=1024*1024, GB, G, TB, T.
+
+    -n N, --lines=N
+        Print the first N lines (default: 10). If N is prefixed with
+        '-', print all lines except the last N lines.
+
+    -q, --quiet, --silent
+        Never print file name headers.
+
+    -v, --verbose
+        Always print file name headers.
+
+    -z, --zero-terminated
+        Line delimiter is NUL, not newline.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    head file.txt
+        Print first 10 lines of file.txt.
+
+    head -n 20 file.txt
+        Print first 20 lines.
+
+    head -c 100 file.bin
+        Print first 100 bytes.
+
+    head -n -5 file.txt
+        Print all lines except the last 5.
+
+    head -v file1.txt file2.txt
+        Print first 10 lines of each file with headers.
+
+    head -1 *.txt
+        Print the first line of each .txt file.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

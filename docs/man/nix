@@ -1,0 +1,77 @@
+NAME
+    nix - nano-style text editor for Winix
+
+SYNOPSIS
+    nix [FILE]
+
+DESCRIPTION
+    nix is a simple, keyboard-driven text editor for the Winix shell
+    environment. It follows a nano-style layout: a title bar at the top
+    of the screen, the file contents in the middle, and a status/command
+    bar at the bottom.
+
+    Files are saved with Unix line endings (\n). Carriage returns (\r)
+    are stripped on load. If FILE does not exist, a new empty file is
+    opened.
+
+    nix supports syntax highlighting for C/C++, Shell scripts, Python,
+    and JSON when the file extension is recognized (.c, .cpp, .h, .sh,
+    .py, .json).
+
+    The undo history holds up to 512 operations and covers all edit
+    types: character insertion, deletion, line splitting, line joining,
+    tab insertion, cut, paste, and replace.
+
+SCREEN LAYOUT
+    Row 0        Title bar (filename, modified indicator) — inverse video
+    Rows 1..R-2  File content with cursor
+    Row R-1      Status bar / prompt area — inverse video
+
+KEY BINDINGS
+    Navigation:
+      Arrow keys          Move cursor one character/line
+      Home / Ctrl+A       Move to start of line
+      End  / Ctrl+E       Move to end of line
+      Page Up             Scroll one page up
+      Page Down           Scroll one page down
+      Ctrl+G              Go to a specific line number (prompts)
+
+    Editing:
+      Enter               Split line at cursor
+      Backspace           Delete character to the left; join with
+                          previous line when at column 0
+      Delete              Delete character under cursor; join with next
+                          line when at end of line
+      Tab                 Insert 4 spaces
+      Ctrl+K              Cut current line; repeat to accumulate
+                          multiple lines into the clipboard
+      Ctrl+U              Paste all cut lines above the cursor
+      Ctrl+Z              Undo last operation
+
+    Search and Replace:
+      Ctrl+W              Find — prompt for search pattern
+      Ctrl+N              Find next — repeat last search without prompt
+      Ctrl+R              Find and replace — prompts for pattern and
+                          replacement; interactive y/n/a/ESC loop
+                          (y=replace this, n=skip, a=replace all,
+                          ESC=cancel)
+
+    File Operations:
+      Ctrl+S              Save file (overwrites current file)
+      Ctrl+X              Save and quit
+      Ctrl+Q              Quit (prompts to save if modified)
+      Ctrl+C              Force quit without saving
+
+EXAMPLES
+    nix README.txt
+        Open README.txt for editing.
+
+    nix newfile.py
+        Create and edit a new Python file (syntax highlighting active).
+
+    nix src/main.c
+        Edit a C source file with C syntax highlighting.
+
+EXIT STATUS
+    0   Normal exit (file saved or no changes).
+    1   Error (e.g., file could not be written).

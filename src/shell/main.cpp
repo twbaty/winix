@@ -283,6 +283,7 @@ struct Paths {
 
     std::string bin_dir;        // where winix.exe lives
     std::string coreutils_dir;  // build/coreutils/
+    std::string man_dir;        // structured man pages (bin_dir/man/)
 };
 
 static Paths make_paths() {
@@ -300,6 +301,7 @@ static Paths make_paths() {
 
     p.bin_dir = exe.string();
     p.coreutils_dir = (exe.parent_path() / "coreutils").string();
+    p.man_dir = (exe / "man").string();
 
     return p;
 }
@@ -1613,34 +1615,49 @@ static bool handle_builtin(
     // help
     if (match("help")) { print_help(); return true; }
 
-    // man CMD — display CMD --help paged through less
-    if (starts("man ")) {
-        std::string cmd = trim(line.substr(4));
+    // man CMD — display structured man page (or fall back to CMD --help) via less
+    if (starts("man ") || match("man")) {
+        std::string cmd = starts("man ") ? trim(line.substr(4)) : std::string();
         if (cmd.empty()) {
             std::cerr << "Usage: man <command>\n";
             return true;
         }
-        // Capture --help output, then feed directly to less stdin.
-        // Using _popen for both avoids any CMD quoting / temp-file issues.
-        fs::path exe = fs::path(paths.bin_dir) / (cmd + ".exe");
-        std::string invoke = fs::exists(exe)
-            ? ("\"" + exe.string() + "\"") : cmd;
-        std::string help_cmd = invoke + " --help 2>&1";
-        FILE* fp = _popen(help_cmd.c_str(), "r");
-        if (!fp) { std::cerr << "man: cannot run " << cmd << "\n"; return true; }
-        std::string help_text;
-        char buf[4096];
-        while (fgets(buf, sizeof(buf), fp)) help_text += buf;
-        _pclose(fp);
-        if (help_text.empty()) {
-            std::cerr << "man: no help available for '" << cmd << "'\n";
+
+        std::string page_text;
+
+        // 1. Look for structured page in man_dir/<cmd>
+        fs::path man_page = fs::path(paths.man_dir) / cmd;
+        if (fs::exists(man_page)) {
+            std::ifstream mf(man_page);
+            if (mf) {
+                std::string line2;
+                while (std::getline(mf, line2)) { page_text += line2; page_text += '\n'; }
+            }
+        }
+
+        // 2. Fall back to CMD --help
+        if (page_text.empty()) {
+            fs::path exe_path = fs::path(paths.bin_dir) / (cmd + ".exe");
+            std::string invoke = fs::exists(exe_path)
+                ? ("\"" + exe_path.string() + "\"") : cmd;
+            std::string help_cmd = invoke + " --help 2>&1";
+            FILE* fp = _popen(help_cmd.c_str(), "r");
+            if (!fp) { std::cerr << "man: cannot run " << cmd << "\n"; return true; }
+            char buf[4096];
+            while (fgets(buf, sizeof(buf), fp)) page_text += buf;
+            _pclose(fp);
+        }
+
+        if (page_text.empty()) {
+            std::cerr << "man: no manual entry for '" << cmd << "'\n";
             return true;
         }
+
         fs::path less_exe = fs::path(paths.bin_dir) / "less.exe";
         std::string less_cmd = "\"" + less_exe.string() + "\"";
         FILE* lp = _popen(less_cmd.c_str(), "w");
-        if (lp) { fputs(help_text.c_str(), lp); _pclose(lp); }
-        else     { std::cout << help_text; }
+        if (lp) { fputs(page_text.c_str(), lp); _pclose(lp); }
+        else     { std::cout << page_text; }
         return true;
     }
 

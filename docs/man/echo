@@ -1,0 +1,68 @@
+NAME
+    echo - display a line of text
+
+SYNOPSIS
+    echo [OPTION]... [STRING]...
+
+DESCRIPTION
+    Echo the STRING(s) to standard output, separated by spaces and
+    followed by a newline.
+
+    Note: Many shells provide a built-in echo command. This man page
+    describes the Winix standalone echo utility. Behavior may differ
+    from the shell built-in.
+
+OPTIONS
+    -n  Do not output the trailing newline.
+
+    -e  Enable interpretation of backslash escapes.
+
+    -E  Disable interpretation of backslash escapes (default).
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+ESCAPE SEQUENCES
+    With -e, the following sequences are recognized:
+
+    \\      Backslash
+    \a      Alert (BEL)
+    \b      Backspace
+    \c      Suppress further output (including trailing newline)
+    \e      Escape character
+    \f      Form feed
+    \n      Newline
+    \r      Carriage return
+    \t      Horizontal tab
+    \v      Vertical tab
+    \0NNN   Byte with octal value NNN (0 to 3 digits)
+    \xHH    Byte with hexadecimal value HH
+
+EXAMPLES
+    echo Hello, World!
+        Print a simple greeting.
+
+    echo "Current dir: $(pwd)"
+        Print current directory with command substitution.
+
+    echo -n "Enter name: "
+        Print without trailing newline (for prompts).
+
+    echo -e "Line 1\nLine 2\nLine 3"
+        Print three lines using escape sequences.
+
+    echo -e "\t\tIndented text"
+        Print text indented with two tabs.
+
+    echo "" > file.txt
+        Write a blank line to file.txt.
+
+    echo "result: $((2 + 2))"
+        Print result of arithmetic expansion.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

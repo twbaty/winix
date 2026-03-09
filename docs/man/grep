@@ -1,0 +1,92 @@
+NAME
+    grep - print lines that match patterns
+
+SYNOPSIS
+    grep [OPTION]... PATTERN [FILE]...
+    grep [OPTION]... -e PATTERN... [FILE]...
+
+DESCRIPTION
+    grep searches for PATTERN in each FILE. When FILE is '-' or not
+    given, read standard input. By default, matching lines are printed.
+
+    Pattern matching uses basic regular expressions (BRE) by default,
+    approximated via ECMAScript with necessary conversions. Use -E for
+    extended regular expressions (ERE) or -F for fixed strings.
+
+OPTIONS
+    -E, --extended-regexp
+        Interpret PATTERN as an extended regular expression (ERE).
+
+    -F, --fixed-strings
+        Interpret PATTERN as a fixed string, not a regular expression.
+
+    -G, --basic-regexp
+        Interpret PATTERN as a basic regular expression (default).
+
+    -i, --ignore-case
+        Ignore case distinctions in both PATTERN and input files.
+
+    -v, --invert-match
+        Invert the sense of matching; select non-matching lines.
+
+    -c, --count
+        Print only a count of matching lines per file.
+
+    -n, --line-number
+        Prefix each output line with its line number in the input file.
+
+    -l, --files-with-matches
+        Print the name of each file with a match; stop after first match.
+
+    -o, --only-matching
+        Print only the matched (non-empty) parts of matching lines.
+
+    -q, --quiet, --silent
+        Do not write anything to standard output. Exit 0 if match found.
+
+    -r, --recursive
+        Recursively search each directory listed.
+
+    -R  Like -r but follow all symbolic links.
+
+    -w, --word-regexp
+        Select only lines containing matches that form whole words.
+
+    -x, --line-regexp
+        Select only lines where the whole line matches.
+
+    -m N, --max-count=N
+        Stop reading a file after N matching lines.
+
+    --color[=WHEN]
+        Highlight matching strings. WHEN: 'auto', 'always', 'never'.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    grep 'error' logfile.txt
+        Find lines containing 'error'.
+
+    grep -i 'warning' *.log
+        Case-insensitive search across all .log files.
+
+    grep -rn 'TODO' src/
+        Recursive search with line numbers.
+
+    grep -v '^#' config.txt
+        Show lines that are not comments.
+
+    grep -E '^[0-9]{4}-[0-9]{2}' dates.txt
+        Match lines starting with a date (ERE).
+
+    grep -c 'fail' results.txt
+        Count failing lines.
+
+EXIT STATUS
+    0   Match found.
+    1   No match found.
+    2   Error occurred.

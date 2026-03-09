@@ -1,0 +1,71 @@
+NAME
+    cut - remove sections from each line of files
+
+SYNOPSIS
+    cut OPTION... [FILE]...
+
+DESCRIPTION
+    Print selected parts of lines from each FILE to standard output.
+    With no FILE, or when FILE is '-', read standard input.
+
+    Exactly one of -b, -c, or -f must be specified.
+
+OPTIONS
+    -b LIST, --bytes=LIST
+        Select only the bytes at positions given in LIST.
+
+    -c LIST, --characters=LIST
+        Select only the characters at positions in LIST.
+
+    -d DELIM, --delimiter=DELIM
+        Use DELIM as the field delimiter instead of TAB (used with -f).
+
+    -f LIST, --fields=LIST
+        Select only the fields given in LIST. Lines that do not contain
+        the delimiter are printed unchanged unless -s is also given.
+
+    -s, --only-delimited
+        With -f, do not print lines that do not contain the delimiter.
+
+    --complement
+        Complement the selection; print bytes/chars/fields NOT in LIST.
+
+    --output-delimiter=STRING
+        Use STRING as the output delimiter. Default is the input
+        delimiter (with -f) or no separator (with -bc).
+
+    -z, --zero-terminated
+        Line delimiter is NUL, not newline.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+LIST FORMAT
+    LIST is a comma-separated sequence of ranges. A range is:
+        N       Nth byte/character/field (1-based)
+        N-M     From Nth to Mth
+        N-      From Nth to end of line
+        -M      From first to Mth
+
+EXAMPLES
+    cut -d: -f1 /etc/passwd
+        Extract usernames (first colon-delimited field).
+
+    cut -d, -f1,3 data.csv
+        Extract columns 1 and 3 from CSV.
+
+    cut -c1-10 file.txt
+        Extract first 10 characters of each line.
+
+    cut -d' ' -f2- sentence.txt
+        Print all words after the first.
+
+    cut --complement -d, -f2 data.csv
+        Print all CSV columns except column 2.
+
+EXIT STATUS
+    0   Success.
+    1   Error occurred.

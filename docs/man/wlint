@@ -1,0 +1,122 @@
+NAME
+    wlint - Winix filesystem lint detector
+
+SYNOPSIS
+    wlint [OPTION]... PATH [PATH]...
+
+DESCRIPTION
+    wlint walks one or more directory trees, identifies filesystem
+    problems (duplicate files, empty files, empty directories, temporary
+    junk), and reports findings without taking any destructive action
+    unless --quarantine is explicitly requested.
+
+    Duplicate detection uses a two-phase algorithm: files are first
+    grouped by exact size (O(n log n)), then SHA-256 hashed (via Windows
+    CNG) only within same-size groups. An optional byte-for-byte
+    verification pass (-V) follows hash matching.
+
+    Reparse points (symlinks, junctions, mount points) are never
+    followed. Hidden and system files are included. Access-denied and
+    locked files produce a warning to stderr and are skipped.
+
+    Output is sorted with duplicate groups consuming the most reclaimable
+    space listed first.
+
+    Exit codes reflect lint status rather than program errors:
+        0  Clean scan — no lint found
+        1  Lint found
+        2  Error (bad arguments, I/O failure, etc.)
+
+OPTIONS
+    -e, --empty
+        Report empty files and empty directories.
+
+    -t, --temp
+        Report temporary and junk files. Recognized patterns include
+        .tmp, .bak, .swp, ~ prefix, ~$ prefix, and similar.
+
+    -V, --verify
+        After SHA-256 match, perform a byte-for-byte verification pass
+        before classifying a pair as duplicate.
+
+    -k POLICY, --keep POLICY
+        When reporting duplicates, mark one file per group as the file
+        to keep. POLICY is one of:
+            newest  Keep the file with the highest mtime (default).
+                    Ties broken by lexicographically first path.
+            oldest  Keep the file with the lowest mtime.
+                    Ties broken by lexicographically first path.
+            first   Keep the lexicographically first path (byte order,
+                    case-sensitive).
+
+    --min-size BYTES
+        Skip files smaller than BYTES. Default: 1 (skip zero-byte files
+        for duplicate detection; they are reported separately with -e).
+
+    --json FILE
+        Write the full lint report as JSON to FILE.
+
+    --csv FILE
+        Write the full lint report as CSV to FILE.
+
+    --scan-json FILE
+        Write a complete file inventory (path, size, mtime, SHA-256) as
+        JSON to FILE. This is the input format consumed by wsim.
+
+    --quarantine DIR
+        Move non-kept duplicate files to DIR. Creates DIR if needed.
+        A move manifest (manifest.json) is written into DIR to enable
+        --undo. Does not quarantine files marked as kept.
+
+    --dry-run
+        Show what --quarantine would move without moving any files.
+        Prints each planned move as: SOURCE -> DEST.
+
+    --undo MANIFEST
+        Restore quarantined files from the manifest written by a
+        previous --quarantine run.
+
+    -v, --verbose
+        Print progress information to stderr during the scan.
+
+    --no-color
+        Disable ANSI color output.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    wlint ~/Downloads
+        Find duplicate files in the Downloads folder.
+
+    wlint -e ~/projects
+        Find duplicates and empty files/dirs.
+
+    wlint -t ~/Desktop
+        Find temporary and junk files on the Desktop.
+
+    wlint --json report.json ~/Documents
+        Write a JSON report; print summary to stdout.
+
+    wlint --scan-json inventory.json ~/Data
+        Write a wsim-compatible file inventory.
+
+    wlint --quarantine ~/quarantine --dry-run ~/Photos
+        Preview which duplicate photos would be moved.
+
+    wlint --quarantine ~/quarantine -k oldest ~/Photos
+        Move newer duplicates to quarantine, keeping oldest copies.
+
+    wlint --undo ~/quarantine/manifest.json
+        Restore all files moved by the previous quarantine run.
+
+    wlint -V --csv dups.csv /mnt/backup
+        Byte-verified duplicate report in CSV format.
+
+EXIT STATUS
+    0   No lint found.
+    1   Lint found.
+    2   Error.

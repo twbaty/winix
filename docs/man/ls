@@ -1,0 +1,83 @@
+NAME
+    ls - list directory contents
+
+SYNOPSIS
+    ls [OPTION]... [FILE]...
+
+DESCRIPTION
+    List information about files and directories. When no FILE is given,
+    list the current directory. Entries are sorted alphabetically by
+    default.
+
+OPTIONS
+    -a, --all
+        Do not ignore entries starting with '.'.
+
+    -A, --almost-all
+        Like -a but do not list '.' and '..'.
+
+    -l  Use a long listing format showing permissions, link count, owner,
+        group, size, modification time, and name.
+
+    -h, --human-readable
+        With -l, print sizes in human-readable form (K, M, G, T).
+
+    -s, --size
+        Print the allocated size of each file in blocks.
+
+    -r, --reverse
+        Reverse the sort order.
+
+    -t  Sort by modification time, newest first.
+
+    -S  Sort by file size, largest first.
+
+    -R, --recursive
+        List subdirectories recursively.
+
+    -d, --directory
+        List directories themselves, not their contents.
+
+    -1  List one entry per line.
+
+    -F, --classify
+        Append indicator character (/ for directory, * for executable).
+
+    -i, --inode
+        Print the index number (inode) of each file.
+
+    -n, --numeric-uid-gid
+        Like -l but list numeric user and group IDs.
+
+    -p  Append '/' to directory names.
+
+    --color[=WHEN]
+        Colorize output. WHEN is 'always', 'auto', or 'never'.
+        Default is 'auto'.
+
+    --version
+        Output version information and exit.
+
+    --help
+        Display help and exit.
+
+EXAMPLES
+    ls
+        List files in current directory.
+
+    ls -la
+        Long listing including hidden files.
+
+    ls -lh /var/log
+        Long listing with human-readable sizes.
+
+    ls -lt
+        List sorted by modification time, newest first.
+
+    ls -R src/
+        Recursively list all files under src/.
+
+EXIT STATUS
+    0   Success.
+    1   Minor problems (e.g., a directory could not be accessed).
+    2   Serious trouble.
