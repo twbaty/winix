@@ -2998,6 +2998,21 @@ check('stdbuf true exits 0', rc == 0)
 out, err, rc = run('stdbuf', '-o', 'L', 'false')
 check('stdbuf propagates exit code', rc == 1)
 
+# ── brace expansion ───────────────────────────────────────────────────────────
+
+def brace(cmd): return run_shell(cmd)[0].strip()
+
+check('brace {a,b,c}',            brace('echo {a,b,c}')        == 'a b c')
+check('brace {1..5}',             brace('echo {1..5}')          == '1 2 3 4 5')
+check('brace {01..05} zero-pad',  brace('echo {01..05}')        == '01 02 03 04 05')
+check('brace {a..e} chars',       brace('echo {a..e}')          == 'a b c d e')
+check('brace {3..1} descending',  brace('echo {3..1}')          == '3 2 1')
+check('brace pre{x,y}suf',        brace('echo pre{x,y}suf')     == 'prexsuf preysuf')
+check('brace nested {a,{b,c},d}', brace('echo {a,{b,c},d}')    == 'a b c d')
+check('brace quoted no expand',   brace("echo '{a,b}'")         == '{a,b}')
+check('brace {1..5..2} step',     brace('echo {1..5..2}')       == '1 3 5')
+check('brace {z..x} char desc',   brace('echo {z..x}')          == 'z y x')
+
 # ── process substitution ──────────────────────────────────────────────────────
 
 with tempfile.TemporaryDirectory() as d:

@@ -138,7 +138,7 @@
 - [x] `select` statement (menu loop)
 - [x] `$*` vs `$@` correct distinction inside double quotes
 - [x] Process substitution `<(cmd)` and `>(cmd)`
-- [ ] Brace expansion `{a,b,c}` and `{1..5}` — word-level expansion before globbing
+- [x] Brace expansion `{a,b,c}` and `{1..5}` — word-level expansion before globbing
 - [ ] `getopts` builtin — POSIX option parsing for scripts (`getopts "abc:" OPT`)
 - [ ] `trap EXIT` — register cleanup handler to run on script exit (EXIT pseudosignal only)
 - [ ] `printf` builtin — promote existing `printf.exe` to an in-process builtin (speed/portability)

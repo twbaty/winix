@@ -68,6 +68,119 @@ static bool has_glob(const std::string& s) {
     return s.find('*') != std::string::npos || s.find('?') != std::string::npos;
 }
 
+// --------------------------------------------------
+// Brace expansion  {a,b,c}  {1..5}  {a..z}
+// --------------------------------------------------
+
+// Split brace content on commas at depth 0 (respects nested braces).
+static std::vector<std::string> split_brace_items(const std::string& s) {
+    std::vector<std::string> items;
+    std::string cur;
+    int depth = 0;
+    for (char c : s) {
+        if      (c == '{') { depth++; cur.push_back(c); }
+        else if (c == '}') { depth--; cur.push_back(c); }
+        else if (c == ',' && depth == 0) { items.push_back(cur); cur.clear(); }
+        else                               cur.push_back(c);
+    }
+    items.push_back(cur);
+    return items;
+}
+
+// Recursively expand one token; returns the list of expanded words.
+static std::vector<std::string> brace_expand_token(const std::string& tok) {
+    // Find first unquoted '{' (skip content inside ' or " that shell_tokens kept)
+    size_t open = std::string::npos;
+    { bool qs = false, qd = false;
+      for (size_t i = 0; i < tok.size(); ++i) {
+          char c = tok[i];
+          if      (c == '\'' && !qd) qs = !qs;
+          else if (c == '"'  && !qs) qd = !qd;
+          else if (!qs && !qd && c == '{') { open = i; break; }
+      }
+    }
+    if (open == std::string::npos) return {tok};
+
+    // Find matching '}'
+    size_t close = open + 1;
+    { int depth = 1;
+      while (close < tok.size() && depth > 0) {
+          if      (tok[close] == '{') depth++;
+          else if (tok[close] == '}') { if (--depth == 0) break; }
+          ++close;
+      }
+      if (depth != 0) return {tok}; // unmatched — pass through literally
+    }
+
+    std::string prefix = tok.substr(0, open);
+    std::string inner  = tok.substr(open + 1, close - (open + 1));
+    std::string suffix = tok.substr(close + 1);
+
+    // Sequence form  {from..to}  or  {from..to..step}
+    size_t dotdot = inner.find("..");
+    if (dotdot != std::string::npos) {
+        std::string from_s = inner.substr(0, dotdot);
+        std::string rest_s = inner.substr(dotdot + 2);
+        std::string to_s, step_s;
+        size_t dd2 = rest_s.find("..");
+        if (dd2 != std::string::npos) { to_s = rest_s.substr(0, dd2); step_s = rest_s.substr(dd2 + 2); }
+        else                            to_s = rest_s;
+
+        // Numeric sequence
+        auto is_int = [](const std::string& s) {
+            if (s.empty()) return false;
+            size_t i = (s[0] == '-') ? 1 : 0;
+            return i < s.size() && std::all_of(s.begin()+i, s.end(),
+                       [](unsigned char c){ return std::isdigit(c); });
+        };
+        if (is_int(from_s) && is_int(to_s)) {
+            int fv = std::stoi(from_s), tv = std::stoi(to_s);
+            int sv = step_s.empty() ? 1 : std::abs(std::stoi(step_s));
+            if (sv == 0) sv = 1;
+            bool pad = (from_s.size() > 1 && from_s[0] == '0') ||
+                       (to_s.size()   > 1 && to_s[0]   == '0');
+            int width = pad ? (int)std::max(from_s.size(), to_s.size()) : 0;
+            std::vector<std::string> res;
+            int v = fv;
+            while ((fv <= tv) ? (v <= tv) : (v >= tv)) {
+                std::string ns = std::to_string(std::abs(v));
+                if (width > (int)ns.size()) ns = std::string(width - ns.size(), '0') + ns;
+                if (v < 0) ns = "-" + ns;
+                for (auto& r : brace_expand_token(prefix + ns + suffix)) res.push_back(r);
+                v += (fv <= tv) ? sv : -sv;
+            }
+            return res;
+        }
+
+        // Character sequence {a..z}
+        if (from_s.size() == 1 && to_s.size() == 1 &&
+            std::isalpha((unsigned char)from_s[0]) &&
+            std::isalpha((unsigned char)to_s[0])) {
+            int sv = step_s.empty() ? 1 : std::abs(std::stoi(step_s));
+            if (sv == 0) sv = 1;
+            char fc = from_s[0], tc = to_s[0];
+            std::vector<std::string> res;
+            int v = fc;
+            while ((fc <= tc) ? (v <= tc) : (v >= tc)) {
+                for (auto& r : brace_expand_token(prefix + (char)v + suffix)) res.push_back(r);
+                v += (fc <= tc) ? sv : -sv;
+            }
+            return res;
+        }
+        // Not a valid sequence — fall through to comma check
+    }
+
+    // Comma list  {a,b,c}
+    auto items = split_brace_items(inner);
+    if (items.size() <= 1) return {tok}; // no commas — literal
+
+    std::vector<std::string> res;
+    for (auto& item : items)
+        for (auto& r : brace_expand_token(prefix + item + suffix))
+            res.push_back(r);
+    return res;
+}
+
 // Expand a single glob pattern to matching paths (sorted).
 // Returns empty if no matches; caller passes through literally.
 static std::vector<std::string> glob_one(const std::string& pattern) {
@@ -103,16 +216,19 @@ static std::vector<std::string> glob_one(const std::string& pattern) {
 
 // Expand glob tokens in a token list.
 // Quoted tokens: quotes stripped, no expansion.
-// Unquoted glob tokens: expanded; if no match, left literal.
+// Unquoted tokens: brace-expanded first, then glob-expanded.
 static std::vector<std::string> glob_expand(const std::vector<std::string>& tokens) {
     std::vector<std::string> out;
     out.reserve(tokens.size());
     for (const auto& tok : tokens) {
         if (is_quoted(tok)) { out.push_back(unquote(tok)); continue; }
-        if (!has_glob(tok))  { out.push_back(tok);         continue; }
-        auto matches = glob_one(tok);
-        if (matches.empty()) out.push_back(tok);
-        else for (auto& m : matches) out.push_back(m);
+        // Brace expansion may produce multiple words; glob-expand each
+        for (auto& be : brace_expand_token(tok)) {
+            if (!has_glob(be)) { out.push_back(be); continue; }
+            auto matches = glob_one(be);
+            if (matches.empty()) out.push_back(be);
+            else for (auto& m : matches) out.push_back(m);
+        }
     }
     return out;
 }
