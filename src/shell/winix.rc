@@ -1,0 +1,4 @@
+// Winix shell — application icon resource
+#include <windows.h>
+
+IDI_APPICON ICON "winix.ico"

@@ -65,6 +65,7 @@ add_executable(winix
     src/shell/aliases.cpp
     src/shell/completion.cpp
     src/shell/line_editor.cpp
+    src/shell/winix.rc
 )
 target_link_libraries(winix winixcommon)
 target_link_options(winix PRIVATE -static-libgcc -static-libstdc++
