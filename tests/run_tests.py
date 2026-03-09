@@ -3053,6 +3053,48 @@ check('brace quoted no expand',   brace("echo '{a,b}'")         == '{a,b}')
 check('brace {1..5..2} step',     brace('echo {1..5..2}')       == '1 3 5')
 check('brace {z..x} char desc',   brace('echo {z..x}')          == 'z y x')
 
+# ── trap EXIT ─────────────────────────────────────────────────────────────────
+
+with tempfile.TemporaryDirectory() as d:
+    # Basic trap EXIT runs on normal exit
+    s = os.path.join(d, 'trap1.sh')
+    with open(s, 'w') as f:
+        f.write('trap "echo cleanup" EXIT\necho work\n')
+    out, _, rc = run('winix', s)
+    lines = [l for l in out.strip().splitlines() if l.strip()]
+    check('trap EXIT runs after script', 'cleanup' in out)
+    check('trap EXIT runs after body', lines.index('cleanup') > lines.index('work'))
+
+    # trap EXIT runs on explicit exit
+    s = os.path.join(d, 'trap2.sh')
+    with open(s, 'w') as f:
+        f.write('trap "echo trapped" EXIT\nexit 0\n')
+    out, _, rc = run('winix', s)
+    check('trap EXIT fires on explicit exit', 'trapped' in out)
+
+    # trap - EXIT clears the trap
+    s = os.path.join(d, 'trap3.sh')
+    with open(s, 'w') as f:
+        f.write('trap "echo should-not-run" EXIT\ntrap - EXIT\necho done\n')
+    out, _, rc = run('winix', s)
+    check('trap - EXIT clears trap', 'should-not-run' not in out)
+    check('trap - EXIT script still runs', 'done' in out)
+
+    # exit code preserved when trap is set
+    s = os.path.join(d, 'trap4.sh')
+    with open(s, 'w') as f:
+        f.write('trap "echo bye" EXIT\nexit 42\n')
+    out, _, rc = run('winix', s)
+    check('trap EXIT preserves exit code', rc == 42)
+    check('trap EXIT ran before exit', 'bye' in out)
+
+    # trap with no args lists traps
+    s = os.path.join(d, 'trap5.sh')
+    with open(s, 'w') as f:
+        f.write('trap "echo hi" EXIT\ntrap\n')
+    out, _, rc = run('winix', s)
+    check('trap list shows registered trap', 'EXIT' in out)
+
 # ── process substitution ──────────────────────────────────────────────────────
 
 with tempfile.TemporaryDirectory() as d:

@@ -15,6 +15,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "aliases.hpp"
@@ -441,6 +442,12 @@ static std::vector<LocalFrame> g_local_stack;
 // Exit code set by builtins that need to return non-zero (e.g. getopts, test).
 // Reset to 0 at the start of each handle_builtin call.
 static int g_builtin_exit = 0;
+
+// trap EXIT — command to run when the top-level script exits.
+static std::string g_trap_exit;
+// Context pointers for running the EXIT trap (set when a script is invoked).
+static const Paths* g_trap_paths   = nullptr;
+static Aliases*     g_trap_aliases = nullptr;
 
 // Process substitution temp-file tracking.
 struct ProcSubOut { std::string path; std::string cmd; };
@@ -1946,6 +1953,39 @@ static bool handle_builtin(
         g_builtin_exit = 1; return true;
     }
 
+    // trap [CMD] SIGNAL  — register a command to run on a signal/event.
+    // Only EXIT is supported; SIGINT/SIGTERM etc. are Windows-incompatible.
+    if (starts("trap ") || match("trap")) {
+        auto toks = shell_tokens(line);
+        if (toks.size() == 1) {
+            // trap — list registered traps
+            if (!g_trap_exit.empty())
+                std::cout << "trap -- " << g_trap_exit << " EXIT\n";
+            return true;
+        }
+        if (toks.size() == 2) {
+            // trap - SIGNAL  or  trap CMD (with no signal = EXIT implied? non-standard)
+            // treat as: trap - EXIT  if only one arg and it's a signal name
+            std::string sig = toks[1];
+            if (sig == "EXIT" || sig == "0") { g_trap_exit.clear(); return true; }
+            // else: single-arg form not supported — warn
+            std::cerr << "trap: usage: trap CMD EXIT | trap - EXIT | trap\n";
+            return true;
+        }
+        // trap CMD SIGNAL [SIGNAL...]
+        std::string cmd = toks[1];
+        bool is_clear = (cmd == "-");
+        for (size_t ti = 2; ti < toks.size(); ++ti) {
+            std::string sig = toks[ti];
+            if (sig == "EXIT" || sig == "0") {
+                g_trap_exit = is_clear ? "" : cmd;
+            } else {
+                std::cerr << "trap: " << sig << ": unsupported signal (only EXIT supported)\n";
+            }
+        }
+        return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -2150,10 +2190,27 @@ static int run_command_line(const std::string& raw, const Paths& paths,
                         g_positional.clear();
                         for (size_t pi = 1; pi < toks.size(); ++pi)
                             g_positional.push_back(unquote(toks[pi]));
+
+                        // Set trap context for EXIT trap (save/restore for nested scripts)
+                        const Paths* old_trap_paths   = g_trap_paths;
+                        Aliases*     old_trap_aliases = g_trap_aliases;
+                        g_trap_paths   = &paths;
+                        g_trap_aliases = &aliases;
+
                         ScriptState ss;
                         int rc = script_exec_lines(slines, paths, aliases, hist, cfg, last_exit, ss);
                         if (ss.do_return) rc = ss.return_val;
-                        g_positional = old_pos;
+
+                        // Fire EXIT trap if set
+                        if (!g_trap_exit.empty()) {
+                            std::string tcmd = std::exchange(g_trap_exit, "");
+                            run_command_line(tcmd, paths, aliases, nullptr, nullptr, rc);
+                        }
+
+                        // Restore trap context
+                        g_trap_paths   = old_trap_paths;
+                        g_trap_aliases = old_trap_aliases;
+                        g_positional   = old_pos;
                         return rc;
                     } else {
                         // Find the interpreter executable in PATH
@@ -2223,6 +2280,16 @@ static void flush_proc_subs(const Paths& paths, Aliases& aliases, int last_exit)
     for (auto& p : g_proc_sub_in)
         DeleteFileA(p.c_str());
     g_proc_sub_in.clear();
+}
+
+// Run EXIT trap (if set) then call std::exit.
+// Used by the 'exit' builtin so the trap fires even on explicit exit.
+static void run_exit_trap_and_exit(int code) {
+    if (!g_trap_exit.empty() && g_trap_paths && g_trap_aliases) {
+        std::string cmd = std::exchange(g_trap_exit, ""); // clear first to prevent re-entry
+        run_command_line(cmd, *g_trap_paths, *g_trap_aliases, nullptr, nullptr, code);
+    }
+    std::exit(code);
 }
 
 // --------------------------------------------------
@@ -2364,7 +2431,7 @@ static int script_exec_lines(const std::vector<std::string>& lines,
         }
         if (toks[0] == "exit") {
             int code = (toks.size() > 1) ? std::stoi(toks[1]) : 0;
-            std::exit(code);
+            run_exit_trap_and_exit(code);
         }
 
         // if block
@@ -2822,8 +2889,22 @@ int main(int argc, char* argv[]) {
         setenv_win("WINIX_CASE", cfg2.case_sensitive ? "on" : "off");
         Aliases aliases2;
         aliases2.load(paths2.aliases_file);
+
+        // Set trap context so EXIT trap can fire
+        g_trap_paths   = &paths2;
+        g_trap_aliases = &aliases2;
+
         ScriptState ss;
-        return script_exec_lines(slines, paths2, aliases2, nullptr, &cfg2, 0, ss);
+        int rc2 = script_exec_lines(slines, paths2, aliases2, nullptr, &cfg2, 0, ss);
+        if (ss.do_return) rc2 = ss.return_val;
+
+        // Fire EXIT trap if set
+        if (!g_trap_exit.empty()) {
+            std::string tcmd = std::exchange(g_trap_exit, "");
+            run_command_line(tcmd, paths2, aliases2, nullptr, nullptr, rc2);
+        }
+
+        return rc2;
     }
 
     // Intercept Ctrl+C / Ctrl+Break: kill the foreground child (which is in
