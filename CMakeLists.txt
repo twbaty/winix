@@ -16,7 +16,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "C:/Winix" CACHE PATH "Winix install root" FORCE)
 endif()
 
-include_directories(src/include src/common src/shell src/third_party/zlib)
+include_directories(src/include src/common src/shell src/third_party/zlib src/third_party/zstd)
 
 # ------------------------------------------------------------
 # zlib (bundled, static — used by gzip/gunzip)
@@ -39,6 +39,14 @@ add_library(winix_zlib STATIC
     src/third_party/zlib/zutil.c
 )
 target_compile_options(winix_zlib PRIVATE -w) # suppress zlib's own warnings
+
+# ------------------------------------------------------------
+# zstd (bundled amalgamation — used by wzip/wunzip)
+# ------------------------------------------------------------
+add_library(winix_zstd STATIC
+    src/third_party/zstd/zstd.c
+)
+target_compile_options(winix_zstd PRIVATE -w) # suppress zstd's own warnings
 
 # ------------------------------------------------------------
 # winixcommon (shared C library)
@@ -253,6 +261,10 @@ add_executable(gzip      src/coreutils/gzip.c)
 target_link_libraries(gzip winix_zlib)
 add_executable(gunzip    src/coreutils/gzip.c)   # same source, argv[0] detects gunzip
 target_link_libraries(gunzip winix_zlib)
+add_executable(wzip      src/coreutils/wzip.c)
+target_link_libraries(wzip winix_zstd)
+add_executable(wunzip    src/coreutils/wzip.c)   # same source, argv[0] detects wunzip
+target_link_libraries(wunzip winix_zstd)
 
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)
@@ -281,5 +293,6 @@ install(TARGETS
     csplit pr stdbuf b2sum
     chgrp install_cmd
     gzip gunzip
+    wzip wunzip
     DESTINATION bin
 )

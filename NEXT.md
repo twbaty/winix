@@ -131,12 +131,9 @@
 
 ### Next Up (v3.7 targets)
 
-#### `wzip` / `wunzip` — Winix-native compression tool
-- Bundle **zstd** single-file amalgamation (`zstd.h` + `zstd.c`, ~80 KB, MIT license)
-- `.wz` format: zstd frames with a Winix header (magic, version, original filename, mtime)
-- `wzip [OPTIONS] FILE...` — compress to `FILE.wz`; `-o FILE` for named output; `-k` keep original; `-1`–`-19` compression level; `-v` verbose; `-r` recursive; stdin/stdout pipe mode
-- `wunzip [OPTIONS] FILE.wz...` — decompress; `-k` keep archive; `-t` test integrity; `-v` verbose; argv[0] detection
-- Rationale: zstd gives near-LZMA ratios at much higher speed; trivial to bundle; `.wz` gives Winix its own native format alongside `gzip`
+#### ~~`wzip` / `wunzip`~~ ✅ Done
+- Bundled zstd 1.5.7 single-file amalgamation; `.wz` format with Winix header (magic, version, mtime, orig filename)
+- Full flags: `-d/-k/-c/-f/-v/-t/-r/-1`–`-19`; stdin/stdout pipe; argv[0] detection; 13 tests passing
 
 #### `man` — full man pages
 - Replace current `cmd --help | less` passthrough with structured pages

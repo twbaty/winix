@@ -3151,6 +3151,65 @@ with tempfile.TemporaryDirectory() as d:
     out, _, rc = run('winix', script_ps4)
     check('proc_sub >(cmd) feeds output', out.count('world') >= 1)
 
+# ── wzip / wunzip ─────────────────────────────────────────────────────────────
+
+with tempfile.TemporaryDirectory() as d:
+    # basic round-trip
+    src = os.path.join(d, 'hello.txt')
+    wz  = src + '.wz'
+    with open(src, 'w') as f:
+        f.write('Hello, wzip!\n')
+    out, err, rc = run('wzip', '-k', src)
+    check('wzip creates .wz file', os.path.exists(wz))
+    check('wzip exits 0', rc == 0)
+    check('wzip keeps original with -k', os.path.exists(src))
+
+    out2, err2, rc2 = run('wunzip', '-k', '-f', wz)
+    check('wunzip exits 0', rc2 == 0)
+    restored = os.path.join(d, 'hello.txt')
+    with open(restored) as f:
+        content = f.read()
+    check('wzip round-trip content matches', content == 'Hello, wzip!\n')
+
+    # stdout mode
+    out3, _, rc3 = run('wunzip', '-c', wz)
+    check('wunzip -c stdout mode exits 0', rc3 == 0)
+    check('wunzip -c stdout content correct', 'Hello, wzip!' in out3)
+
+    # test integrity
+    out4, _, rc4 = run('wunzip', '-t', wz)
+    check('wunzip -t integrity test exits 0', rc4 == 0)
+
+    # compression levels
+    src2 = os.path.join(d, 'level.txt')
+    wz2  = src2 + '.wz'
+    with open(src2, 'w') as f:
+        f.write('x' * 1000)
+    out5, _, rc5 = run('wzip', '-1', '-k', src2)
+    check('wzip -1 fast level exits 0', rc5 == 0)
+    check('wzip -1 produces output', os.path.exists(wz2))
+
+    # --version / --help
+    out6, _, rc6 = run('wzip', '--version')
+    check('wzip --version exits 0', rc6 == 0)
+    check('wzip --version mentions zstd', 'zstd' in out6.lower())
+    out7, _, rc7 = run('wzip', '--help')
+    check('wzip --help exits 0', rc7 == 0)
+
+    # wunzip --version
+    out8, _, rc8 = run('wunzip', '--version')
+    check('wunzip --version exits 0', rc8 == 0)
+
+    # stdin/stdout pipe
+    wz_bytes = open(wz, 'rb').read()
+    out9, _, rc9 = run('wunzip', '-c', stdin_text=None)
+    # pipe binary via subprocess directly
+    import subprocess as _sp
+    r9 = _sp.run([exe('wunzip'), '-c'],
+                 input=wz_bytes, capture_output=True)
+    check('wunzip stdin pipe exits 0', r9.returncode == 0)
+    check('wunzip stdin pipe correct output', b'Hello, wzip!' in r9.stdout)
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = _passed + _failed
