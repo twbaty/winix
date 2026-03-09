@@ -2998,6 +2998,46 @@ check('stdbuf true exits 0', rc == 0)
 out, err, rc = run('stdbuf', '-o', 'L', 'false')
 check('stdbuf propagates exit code', rc == 1)
 
+# ── getopts ───────────────────────────────────────────────────────────────────
+
+with tempfile.TemporaryDirectory() as d:
+    # Basic flags
+    s = os.path.join(d, 'go1.sh')
+    with open(s, 'w') as f:
+        f.write('while getopts "abc" opt; do\n  echo "got-$opt"\ndone\n')
+    out, _, rc = run('winix', s, '-a', '-b', '-c')
+    check('getopts basic flags', out.strip() == 'got-a\ngot-b\ngot-c')
+
+    # Flag with argument
+    s = os.path.join(d, 'go2.sh')
+    with open(s, 'w') as f:
+        f.write('while getopts "o:" opt; do\n  echo "out=$OPTARG"\ndone\n')
+    out, _, rc = run('winix', s, '-o', 'file.txt')
+    check('getopts flag with arg', 'out=file.txt' in out)
+
+    # Combined flags (-abc)
+    s = os.path.join(d, 'go3.sh')
+    with open(s, 'w') as f:
+        f.write('while getopts "abc" opt; do\n  echo "$opt"\ndone\n')
+    out, _, rc = run('winix', s, '-ab', '-c')
+    lines = [l for l in out.strip().splitlines() if l.strip()]
+    check('getopts combined flags', lines == ['a', 'b', 'c'])
+
+    # OPTIND tracks correctly
+    s = os.path.join(d, 'go4.sh')
+    with open(s, 'w') as f:
+        f.write('OPTIND=1\nwhile getopts "v:" opt; do\n  echo "$opt=$OPTARG"\ndone\necho "OPTIND=$OPTIND"\n')
+    out, _, rc = run('winix', s, '-v', 'hello')
+    check('getopts OPTIND advances past optarg', 'OPTIND=3' in out)
+    check('getopts optarg value', 'v=hello' in out)
+
+    # Unknown option → ?
+    s = os.path.join(d, 'go5.sh')
+    with open(s, 'w') as f:
+        f.write('while getopts "a" opt; do\n  echo "$opt"\ndone\n')
+    out, err, rc = run('winix', s, '-z')
+    check('getopts unknown option sets ?', '?' in out)
+
 # ── brace expansion ───────────────────────────────────────────────────────────
 
 def brace(cmd): return run_shell(cmd)[0].strip()

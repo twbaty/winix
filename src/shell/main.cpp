@@ -438,6 +438,10 @@ struct LocalFrame {
 };
 static std::vector<LocalFrame> g_local_stack;
 
+// Exit code set by builtins that need to return non-zero (e.g. getopts, test).
+// Reset to 0 at the start of each handle_builtin call.
+static int g_builtin_exit = 0;
+
 // Process substitution temp-file tracking.
 struct ProcSubOut { std::string path; std::string cmd; };
 static std::vector<std::string> g_proc_sub_in;   // <(cmd) temp files (delete after cmd)
@@ -1543,6 +1547,7 @@ static bool handle_builtin(
     History& hist,
     Config& cfg
 ) {
+    g_builtin_exit = 0;
     auto line = trim(raw);
     if (line.empty()) return true;
 
@@ -1829,6 +1834,118 @@ static bool handle_builtin(
         return true;
     }
 
+    // getopts OPTSTRING VAR [ARGS...]
+    // POSIX option parser for shell scripts.
+    // Sets VAR to the next option char; sets OPTARG for options requiring an arg.
+    // Returns 0 while options remain, 1 when done.
+    // OPTIND tracks current position (1-based); _GETOPTS_SUB tracks pos within arg.
+    if (starts("getopts ")) {
+        auto toks = shell_tokens(line);
+        if (toks.size() < 3) {
+            std::cerr << "getopts: usage: getopts OPTSTRING VAR [ARGS...]\n";
+            g_builtin_exit = 2; return true;
+        }
+        std::string optstring = toks[1];
+        std::string varname   = toks[2];
+
+        // Explicit args override positional params
+        std::vector<std::string> args;
+        if (toks.size() > 3) {
+            for (size_t i = 3; i < toks.size(); ++i) args.push_back(toks[i]);
+        } else {
+            args = g_positional;
+        }
+
+        bool silent = (!optstring.empty() && optstring[0] == ':');
+        if (silent) optstring = optstring.substr(1);
+
+        // OPTIND is 1-based index into args; _GETOPTS_SUB is offset within current arg
+        int optind = 1, sub = 0;
+        { auto it = g_shell_vars.find("OPTIND");
+          if (it != g_shell_vars.end() && !it->second.empty())
+              optind = std::stoi(it->second); }
+        { auto it = g_shell_vars.find("_GETOPTS_SUB");
+          if (it != g_shell_vars.end() && !it->second.empty())
+              sub = std::stoi(it->second); }
+
+        // Skip to next arg if sub == 0 (fresh start on new arg)
+        // args is 0-indexed; optind is 1-based
+        while (optind <= (int)args.size()) {
+            const std::string& arg = args[optind - 1];
+
+            // "--" ends option processing
+            if (arg == "--") { optind++; break; }
+
+            // Non-option arg or empty arg ends option processing
+            if (arg.empty() || arg[0] != '-' || arg == "-") break;
+
+            // sub == 0 means start of a new -xyz arg; begin at char 1 (past '-')
+            if (sub == 0) sub = 1;
+
+            if (sub >= (int)arg.size()) { // exhausted this arg; move on
+                optind++; sub = 0; continue;
+            }
+
+            char opt = arg[sub++];
+
+            // Look up option in optstring
+            size_t pos = optstring.find(opt);
+            if (pos == std::string::npos) {
+                // Unknown option
+                if (!silent)
+                    std::cerr << "winix: illegal option -- " << opt << "\n";
+                g_shell_vars[varname] = "?";
+                if (silent) g_shell_vars["OPTARG"] = std::string(1, opt);
+                else        g_shell_vars.erase("OPTARG");
+            } else {
+                g_shell_vars[varname] = std::string(1, opt);
+                bool needs_arg = (pos + 1 < optstring.size() && optstring[pos + 1] == ':');
+                if (needs_arg) {
+                    std::string optarg;
+                    if (sub < (int)arg.size()) {
+                        // Rest of current arg is the option argument
+                        optarg = arg.substr(sub);
+                        sub = (int)arg.size();
+                    } else {
+                        // Next arg is the option argument
+                        optind++; sub = 0;
+                        if (optind <= (int)args.size()) {
+                            optarg = args[optind - 1];
+                            optind++; // advance past the consumed optarg
+                        } else {
+                            if (silent) {
+                                g_shell_vars[varname] = ":";
+                                g_shell_vars["OPTARG"] = std::string(1, opt);
+                            } else {
+                                std::cerr << "winix: option requires an argument -- " << opt << "\n";
+                                g_shell_vars[varname] = "?";
+                                g_shell_vars.erase("OPTARG");
+                            }
+                            g_shell_vars["OPTIND"] = std::to_string(optind);
+                            g_shell_vars["_GETOPTS_SUB"] = "0";
+                            g_builtin_exit = 1; return true;
+                        }
+                    }
+                    g_shell_vars["OPTARG"] = optarg;
+                } else {
+                    g_shell_vars.erase("OPTARG");
+                }
+            }
+
+            // Advance to next arg if we've consumed all chars in this one
+            if (sub >= (int)arg.size()) { optind++; sub = 0; }
+            g_shell_vars["OPTIND"] = std::to_string(optind);
+            g_shell_vars["_GETOPTS_SUB"] = std::to_string(sub);
+            g_builtin_exit = 0; return true; // found an option → return 0
+        }
+
+        // No more options
+        g_shell_vars[varname] = "?";
+        g_shell_vars["OPTIND"] = std::to_string(optind);
+        g_shell_vars["_GETOPTS_SUB"] = "0";
+        g_builtin_exit = 1; return true;
+    }
+
     // alias name="value"
     if (starts("alias ")) {
         auto spec = trim(line.substr(6));
@@ -1955,7 +2072,7 @@ static int run_command_line(const std::string& raw, const Paths& paths,
     History& href = hist ? *hist : s_dummy_hist;
     Config&  cref = cfg  ? *cfg  : s_dummy_cfg;
     if (handle_builtin(line, aliases, paths, href, cref))
-        return 0;
+        return g_builtin_exit;
 
     // Script invocation: ./foo.sh, ./foo, ../foo.sh, or name.sh searched in PATH
     {
@@ -2849,6 +2966,7 @@ int main(int argc, char* argv[]) {
 
         // Single builtin — handle before chain splitting
         if (handle_builtin(expanded, aliases, paths, hist, cfg)) {
+            last_exit = g_builtin_exit;
             if (ll != "history") {
                 hist.add(original);
                 hist.save(paths.history_file);
