@@ -46,6 +46,7 @@ static bool opt_brief     = false;   /* -q */
 static char *normalize_ws(char *dst, const char *src) {
     const char *s = src;
     char *d = dst;
+    *d = '\0';
 
     if (opt_ignore_all_space) {
         /* Remove every whitespace character */
@@ -77,6 +78,7 @@ static char *normalize_ws(char *dst, const char *src) {
         while (*s) *d++ = *s++;
     }
     *d = '\0';
+    // cppcheck-suppress uninitvar
     return dst;
 }
 
