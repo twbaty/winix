@@ -2661,7 +2661,10 @@ static int script_exec_lines(const std::vector<std::string>& lines,
                 if (toks[j] == "in")             { in_list = true; continue; }
                 if (toks[j] == "do" || toks[j] == ";") continue;
                 if (in_list) {
-                    std::string expanded = expand_vars(toks[j], last_exit);
+                    std::string tok = toks[j];
+                    if (!tok.empty() && tok.back() == ';') tok.pop_back();
+                    if (tok.empty() || tok == "do") continue;
+                    std::string expanded = expand_vars(tok, last_exit);
                     // Quote-aware word-split: handles "$@" → multiple quoted words,
                     // plain expansion → whitespace split, "quoted val" → single word.
                     for (auto& w : shell_tokens(expanded))
