@@ -825,19 +825,19 @@ int main(int argc, char *argv[]) {
         gkeep = (int *)calloc((size_t)ngroups, sizeof(int));
         if (gkeep) {
             for (int g = 0; g < ngroups; g++) {
-                int best = 0;
+                int best_idx = 0;
                 for (int fi = 1; fi < gsizes[g]; fi++) {
-                    FileEntry *ca = &g_files[gmembers[g][best]];
+                    FileEntry *ca = &g_files[gmembers[g][best_idx]];
                     FileEntry *cb = &g_files[gmembers[g][fi]];
                     if (strcmp(g_opts.recommend_keep, "newest") == 0) {
-                        if (strcmp(cb->mtime, ca->mtime) > 0) best = fi;
+                        if (strcmp(cb->mtime, ca->mtime) > 0) best_idx = fi;
                     } else if (strcmp(g_opts.recommend_keep, "oldest") == 0) {
-                        if (strcmp(cb->mtime, ca->mtime) < 0) best = fi;
+                        if (strcmp(cb->mtime, ca->mtime) < 0) best_idx = fi;
                     } else if (strcmp(g_opts.recommend_keep, "path-shortest") == 0) {
-                        if (strlen(cb->path) < strlen(ca->path)) best = fi;
+                        if (strlen(cb->path) < strlen(ca->path)) best_idx = fi;
                     }
                 }
-                gkeep[g] = best;
+                gkeep[g] = best_idx;
             }
         }
     }

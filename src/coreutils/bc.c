@@ -266,10 +266,10 @@ static double parse_primary(P *p) {
         if (p->tok == T_LPAREN) {
             next(p);
             /* Collect up to 2 args */
-            double a1 = 0.0, a2 = 0.0; int nargs = 0;
+            double a1 = 0.0;
             if (p->tok != T_RPAREN) {
-                a1 = parse_expr(p); nargs = 1;
-                if (p->tok == T_COMMA) { next(p); a2 = parse_expr(p); nargs = 2; }
+                a1 = parse_expr(p);
+                if (p->tok == T_COMMA) { next(p); parse_expr(p); }
             }
             if (p->tok == T_RPAREN) next(p);
 
@@ -436,13 +436,12 @@ static void parse_stmts(P *p) {
             parse_block(p);
             skip_sep(p);
             if (p->tok == T_ELSE) { next(p); skip_sep(p); /* skip else branch */
-                int depth = 0;
                 if (p->tok == T_LBRACE) {
-                    next(p); depth=1;
+                    int depth = 1; next(p);
                     while (depth>0 && p->tok!=T_EOF) {
                         if (p->tok==T_LBRACE) depth++;
                         else if (p->tok==T_RBRACE) depth--;
-                        if (depth>0) next(p); else next(p);
+                        next(p);
                     }
                 } else {
                     while (p->tok!=T_NEWLINE && p->tok!=T_SEMI && p->tok!=T_EOF)
@@ -451,9 +450,8 @@ static void parse_stmts(P *p) {
             }
         } else {
             /* skip then-branch */
-            int depth = 0;
             if (p->tok == T_LBRACE) {
-                next(p); depth=1;
+                int depth = 1; next(p);
                 while (depth>0 && p->tok!=T_EOF) {
                     if (p->tok==T_LBRACE) depth++;
                     else if (p->tok==T_RBRACE) depth--;

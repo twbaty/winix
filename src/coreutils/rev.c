@@ -49,7 +49,7 @@ static int rev_stream(FILE *f) {
         fwrite(buf, 1, rev_len, stdout);
         if (has_nl) putchar('\n');
     }
-    return 0;
+    return ferror(stdout) ? 1 : 0;
 }
 
 int main(int argc, char *argv[]) {

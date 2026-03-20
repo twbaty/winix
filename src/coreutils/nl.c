@@ -120,7 +120,7 @@ static int nl_stream(FILE *f, long *line_num) {
         }
         fputs(buf, stdout);
     }
-    return 0;
+    return ferror(stdout) ? 1 : 0;
 }
 
 int main(int argc, char *argv[]) {

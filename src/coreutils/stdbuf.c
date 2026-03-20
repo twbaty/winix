@@ -56,7 +56,6 @@ int main(int argc, char *argv[]) {
                         "stdbuf: the command will run with default buffering.\n");
                     warned = 1;
                 }
-                p = val + strlen(val) - 1;
                 break;
             } else {
                 fprintf(stderr, "stdbuf: invalid option -- '%c'\n", *p); return 125;

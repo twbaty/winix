@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
     if (!ibuf) { fprintf(stderr, "dd: out of memory\n"); return 1; }
 
     int64_t blocks_in = 0, blocks_out = 0;
-    int64_t bytes_in  = 0, bytes_out  = 0;
+    int64_t bytes_out = 0;
     int ret = 0;
     DWORD t0 = GetTickCount();
 
@@ -202,7 +202,6 @@ int main(int argc, char *argv[]) {
             }
             break;
         }
-        bytes_in += (int64_t)n;
         blocks_in++;
 
         /* conv transformations */

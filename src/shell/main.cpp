@@ -662,7 +662,12 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 size_t j=i+1;
                 while (j<line.size() && line[j] != '%') ++j;
                 if (j < line.size()) {
-                    out += getenv_win(line.substr(i+1, j-(i+1)));
+                    std::string val = getenv_win(line.substr(i+1, j-(i+1)));
+                    if (!in_d && (val.find(';') != std::string::npos ||
+                                  val.find(' ') != std::string::npos))
+                        out += '"' + val + '"';
+                    else
+                        out += val;
                     i=j;
                     continue;
                 }
@@ -834,7 +839,14 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
 
                     // Plain ${VAR}
                     auto it = g_shell_vars.find(inner);
-                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(inner);
+                    {
+                        std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(inner);
+                        if (!in_d && (val.find(';') != std::string::npos ||
+                                      val.find(' ') != std::string::npos))
+                            out += '"' + val + '"';
+                        else
+                            out += val;
+                    }
                     continue;
                 }
             }
@@ -848,7 +860,12 @@ static std::string expand_vars(const std::string& line, int last_exit = 0) {
                 if (j > i+1) {
                     std::string name = line.substr(i+1, j-(i+1));
                     auto it = g_shell_vars.find(name);
-                    out += (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                    std::string val = (it != g_shell_vars.end()) ? it->second : getenv_win(name);
+                    if (!in_d && (val.find(';') != std::string::npos ||
+                                  val.find(' ') != std::string::npos))
+                        out += '"' + val + '"';
+                    else
+                        out += val;
                     i=j-1;
                     continue;
                 }

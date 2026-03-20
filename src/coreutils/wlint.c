@@ -603,7 +603,7 @@ static void scan_path(const wchar_t *dir, int depth) {
                                        fd.ftLastWriteTime.dwLowDateTime;
                     /* 100-ns intervals per day = 864000000000 */
                     int64_t age = (int64_t)((now_u - file_u) / 864000000000ULL);
-                    if (age >= g_opts.age_days && pu)
+                    if (age >= g_opts.age_days)
                         fvec_push(&g_stale_files,
                                   file_new(pu, size, fd.ftLastWriteTime));
                 }

@@ -51,7 +51,7 @@ static std::vector<std::string> path_command_matches(const std::string& prefix) 
         std::string exe_dir(exe_path);
         auto sep = exe_dir.find_last_of("/\\");
         if (sep != std::string::npos)
-            exe_dir = exe_dir.substr(0, sep);
+            exe_dir.resize(sep);
         scan_dir_for_exes(exe_dir, prefix, out);
     }
 
@@ -84,7 +84,7 @@ static std::vector<std::string> path_command_matches(const std::string& prefix) 
             auto sep = full.find_last_of("/\\");
             std::string stem = (sep != std::string::npos) ? full.substr(sep + 1) : full;
             auto dot = stem.rfind('.');
-            if (dot != std::string::npos) stem = stem.substr(0, dot);
+            if (dot != std::string::npos) stem.resize(dot);
             out.push_back(stem);
         }
     }
@@ -103,7 +103,7 @@ static std::vector<std::string> path_command_matches(const std::string& prefix) 
                 do {
                     std::string name(fd.cFileName);
                     auto dot = name.rfind('.');
-                    if (dot != std::string::npos) name = name.substr(0, dot);
+                    if (dot != std::string::npos) name.resize(dot);
                     if (prefix.empty() || starts_with_ci(name, prefix))
                         out.push_back(name);
                 } while (FindNextFileA(h, &fd));

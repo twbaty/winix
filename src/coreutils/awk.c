@@ -635,7 +635,7 @@ static Val call_builtin(const char *name, Val *args, int nargs) {
     }
     if (!strcmp(name,"split")) {
         if (nargs<2) return z;
-        Val sv=A(0); const char *s=val_str(&sv);
+        (void)A(0);
         /* get array name from the expression that produced A(1) - workaround:
            since we can't get the array name here, caller passes it differently.
            This function is handled specially in parse_primary. */

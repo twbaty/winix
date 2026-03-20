@@ -135,7 +135,7 @@ static char *canonical_path(const char *path) {
     wchar_t wpath[4096];
     MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, 4096);
 
-    DWORD flags = g_must_exist ? FILE_FLAG_BACKUP_SEMANTICS : FILE_FLAG_BACKUP_SEMANTICS;
+    DWORD flags = g_must_exist ? FILE_FLAG_BACKUP_SEMANTICS : (FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
     HANDLE h = CreateFileW(wpath,
         0,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,

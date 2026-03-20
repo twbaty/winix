@@ -167,7 +167,7 @@ static bool read_lines_from_file(FILE *f, bool zero_term, Lines *la)
             buf = tmp;
         }
         buf[len] = '\0';
-        if (!zero_term && len > 0 && buf[len-1] == '\r')
+        if (!zero_term && buf[len-1] == '\r')
             buf[--len] = '\0';
         char *copy = strdup(buf);
         if (!copy) { free(buf); fprintf(stderr, "shuf: out of memory\n"); return false; }

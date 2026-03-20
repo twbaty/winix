@@ -126,8 +126,7 @@ static int do_check(const char *listfile) {
         /* BSD tag format: SHA1 (file) = hash */
         if (!strncmp(p,"SHA1 (",6)) {
             char *fn=p+6, *cp=strchr(fn,')'); if (!cp) continue;
-            *cp='\0'; char *hp=cp+2+2; /* ") = " */
-            hp=strstr(cp+1,"= "); if (!hp) continue; hp+=2;
+            *cp='\0'; char *hp=strstr(cp+1,"= "); if (!hp) continue; hp+=2;
             char expected[41]; strncpy(expected,hp,40); expected[40]='\0';
             FILE *f=fopen(fn,"rb"); if (!f){fprintf(stderr,"sha1sum: %s: FAILED open\n",fn);bad++;continue;}
             uint8_t dig[20]; char got[41]; hash_file(f,dig); fclose(f); hex(dig,20,got);

@@ -48,7 +48,7 @@ static std::string common_prefix(const std::vector<std::string>& v) {
     for (size_t i = 1; i < v.size(); ++i) {
         size_t j = 0;
         while (j < pfx.size() && j < v[i].size() && pfx[j] == v[i][j]) ++j;
-        pfx = pfx.substr(0, j);
+        pfx.resize(j);
         if (pfx.empty()) break;
     }
     return pfx;

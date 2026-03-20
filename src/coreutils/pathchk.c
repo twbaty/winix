@@ -75,7 +75,7 @@ static int check_name(const char *name) {
         char saved = 0;
         if (slash) { saved = *slash; *slash = '\0'; }
 
-        if (*comp) {
+        {
             /* Check reserved Windows names */
             if (is_reserved_name(comp)) {
                 fprintf(stderr, "pathchk: '%s': reserved name '%s'\n", name, comp); ok = 0;

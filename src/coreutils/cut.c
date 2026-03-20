@@ -231,7 +231,7 @@ static int process_stream(FILE *f, CutMode mode, char delim, bool suppress)
         else
             process_field_line(line, len, delim, suppress);
     }
-    return 0;
+    return ferror(stdout) ? 1 : 0;
 }
 
 /* ------------------------------------------------------------------ */
