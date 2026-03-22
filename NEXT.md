@@ -147,6 +147,9 @@ This is a stable, feature-complete release. Future work (if any) would be:
 - Expand man pages to remaining commands
 - `man -k KEYWORD` search (builds on `apropos`)
 - Additional wlint / wsim improvements as needs arise
+- **install.bat uses `copy /y` / `xcopy /y` — overwrites existing files but does not remove
+  stale coreutils if a binary is ever dropped from a release. Fix if a coreutil is ever removed:
+  wipe `C:\Winix\bin\` before copying, or diff against a manifest.**
 
 ---
 
