@@ -68,8 +68,7 @@ add_executable(winix
     src/shell/winix.rc
 )
 target_link_libraries(winix winixcommon)
-target_link_options(winix PRIVATE -static-libgcc -static-libstdc++
-    -Wl,-Bstatic -lpthread -Wl,-Bdynamic)
+target_link_options(winix PRIVATE -static -static-libgcc -static-libstdc++)
 
 # ------------------------------------------------------------
 # Coreutils (your existing config preserved)
