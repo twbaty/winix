@@ -267,6 +267,9 @@ target_link_libraries(wzip winix_zstd)
 add_executable(wunzip    src/coreutils/wzip.c)   # same source, argv[0] detects wunzip
 target_link_libraries(wunzip winix_zstd)
 
+add_executable(wfetch    src/coreutils/wfetch.c)
+target_link_libraries(wfetch advapi32)
+
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)
 
@@ -298,5 +301,6 @@ install(TARGETS
     chgrp install_cmd
     gzip gunzip
     wzip wunzip
+    wfetch
     DESTINATION bin
 )
