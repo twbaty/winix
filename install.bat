@@ -115,7 +115,7 @@ echo.
 :: ==========================================================
 :: 6. Windows Terminal profile
 :: ==========================================================
-echo [6/6] Adding Windows Terminal profile...
+echo [6/7] Adding Windows Terminal profile...
 powershell -NoProfile -Command ^
     "$wtPaths = @(" ^
     "  \"$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json\"," ^
@@ -140,6 +140,20 @@ powershell -NoProfile -Command ^
     "$wtJson.profiles.list += $prof;" ^
     "$wtJson | ConvertTo-Json -Depth 20 | Set-Content $wtPath -Encoding UTF8;" ^
     "Write-Host '[WT] Winix profile added. Restart Windows Terminal to see it.'"
+echo.
+
+:: ==========================================================
+:: 7. Windows Defender exclusions
+:: ==========================================================
+echo [7/7] Adding Windows Defender exclusions...
+powershell -NoProfile -Command ^
+    "try {" ^
+    "  Add-MpPreference -ExclusionPath '%INSTALL_PREFIX%' -ErrorAction Stop;" ^
+    "  Add-MpPreference -ExclusionPath '%INSTALL_PREFIX%\bin' -ErrorAction Stop;" ^
+    "  Write-Host '[DEFENDER] Exclusions added for %INSTALL_PREFIX% and %INSTALL_PREFIX%\bin.';" ^
+    "} catch {" ^
+    "  Write-Host '[DEFENDER] Could not add exclusions (Defender may not be active - that is OK).';" ^
+    "}"
 echo.
 
 :: ==========================================================

@@ -1254,7 +1254,17 @@ static DWORD run_segment(const std::string& seg, const Paths& paths,
         }
     }
 
-    // Fallback: system PATH via cmd.exe
+    // Fallback: try system PATH directly — spawn_direct avoids cmd.exe overhead
+    {
+        char buf[MAX_PATH] = {};
+        if (SearchPathA(NULL, (cmd + ".exe").c_str(), NULL, MAX_PATH, buf, NULL) > 0) {
+            code = spawn_direct(std::string(buf), rest_args, !bg, h_in, h_out, h_err, out_hproc, out_pid);
+            close_redirs();
+            return code;
+        }
+    }
+
+    // Last resort: cmd.exe /C — handles .bat, .cmd, and anything else Windows knows about
     code = spawn_cmd(clean, !bg, h_in, h_out, h_err, out_hproc, out_pid);
     close_redirs();
     return code;
