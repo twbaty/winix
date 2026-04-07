@@ -225,9 +225,10 @@ static std::vector<std::string> glob_expand(const std::vector<std::string>& toke
         if (is_quoted(tok)) { out.push_back(unquote(tok)); continue; }
         // Brace expansion may produce multiple words; glob-expand each
         for (auto& be : brace_expand_token(tok)) {
-            if (!has_glob(be)) { out.push_back(be); continue; }
-            auto matches = glob_one(be);
-            if (matches.empty()) out.push_back(be);
+            std::string actual = unquote(be); // strip any shell quotes (e.g. --flag="value")
+            if (!has_glob(actual)) { out.push_back(actual); continue; }
+            auto matches = glob_one(actual);
+            if (matches.empty()) out.push_back(actual);
             else for (auto& m : matches) out.push_back(m);
         }
     }
@@ -981,6 +982,8 @@ static DWORD spawn_cmd(const std::string& command, bool wait,
     }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
+    { DWORD _m; if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &_m))
+          FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
 
@@ -1031,6 +1034,12 @@ static DWORD spawn_direct(const std::string& exe_path,
     }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
+    // Flush stale console input events that the child may have left behind.
+    // Some runtimes (e.g. GHC/Haskell used by pandoc) inject synthetic events
+    // into the console input buffer, which would cause the shell to re-execute
+    // the last command.  Only flush when stdin is a real console (not a pipe).
+    { DWORD _m; if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &_m))
+          FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
 
