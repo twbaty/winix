@@ -23,6 +23,61 @@ _Changes in development, not yet in a formal release._
 
 ---
 
+## [4.1.2] – 2026-04-06
+### Added
+- Windows Defender exclusion added during install to reduce launch latency.
+
+### Changed
+- External commands found on the system PATH now bypass `cmd.exe` and are
+  spawned directly via `spawn_direct`, eliminating the overhead of a `cmd.exe /C`
+  wrapper for every non-builtin command.
+
+---
+
+## [4.1.1] – 2026-03-26
+### Fixed
+- Statically linked the MinGW runtime into `winix.exe`, eliminating the
+  `libwinpthread-1.dll` dependency and making the binary fully self-contained.
+
+---
+
+## [4.1.0] – 2026-03-26
+### Added
+- `wfetch` — neofetch-style system information display (OS, CPU, RAM, shell,
+  uptime, Winix version).
+
+---
+
+## [4.0.2] – 2026-03-21
+### Fixed
+- Trailing semicolons in `for`-loop item lists were incorrectly included in the
+  last element; they are now stripped.
+- Variables whose values contain `;` or spaces (e.g. PATH-style vars) are now
+  automatically quoted on expansion to prevent word-splitting.
+
+---
+
+## [4.0.1] – 2026-03-09
+### Added
+- `winix.exe` now embeds a custom `>_` icon resource.
+
+### Fixed
+- `install.bat` / helper scripts: replaced em-dashes with hyphens to fix
+  execution in non-UTF-8 environments.
+- `install.bat`: `cd` to the script's own directory so "Run as Administrator"
+  right-click works from any location.
+
+---
+
+## [4.0] – 2026-03-08
+### Added
+- `wzip` / `wunzip` — Winix-native zstd compression tool (`.wz` format).
+- Man page system: structured man pages under `bin/man/`; `man <cmd>` builtin
+  renders them through `less`.
+- Zero-warning cppcheck pass with documented suppressions.
+
+---
+
 ## [0.8] – 2026-02-28
 ### Added
 - Shell redirection: `>`, `>>`, `<`, `2>` via inheritable Windows handles
