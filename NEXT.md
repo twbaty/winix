@@ -1,11 +1,13 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 4.0
-**Date:** 2026-03-08
+**Version:** 4.1.3
+**Date:** 2026-04-06
 
 ---
 
 ## 🔥 Immediate Next Steps
 - [x] Fix argument passing for external commands
+- [x] Fix mixed-quoted arg passing (`--flag="value"`) to external commands (4.1.3)
+- [x] Fix command re-execution loop caused by stale console input buffer after child exit (4.1.3)
 - [x] Implement simple command history (↑ / ↓ arrow recall)
 - [x] Add input sanitization to `cat`, `ls`, `mv`, `pwd`, `echo`
 - [x] Add basic error codes and uniform exit messages (0/1)

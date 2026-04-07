@@ -10,6 +10,19 @@ _Changes in development, not yet in a formal release._
 
 ---
 
+## [4.1.3] – 2026-04-06
+### Fixed
+- **Argument quoting**: mixed-quoted args like `--flag="value"` were passed to
+  child processes with literal quote characters in the value. `glob_expand` now
+  calls `unquote()` on all tokens, not just fully-quoted ones, so the child
+  receives the correct unquoted string.
+- **Command re-execution loop**: certain child process runtimes (e.g. GHC/Haskell,
+  used by pandoc) leave synthetic KEY_EVENTS in the Windows console input buffer
+  on exit. Winix now calls `FlushConsoleInputBuffer` after each synchronous child
+  exits, preventing the shell from re-executing the last command in a loop.
+
+---
+
 ## [0.8] – 2026-02-28
 ### Added
 - Shell redirection: `>`, `>>`, `<`, `2>` via inheritable Windows handles
