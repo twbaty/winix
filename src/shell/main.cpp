@@ -1651,6 +1651,12 @@ static bool handle_builtin(
     // help
     if (match("help")) { print_help(); return true; }
 
+    // ver / ver --version
+    if (match("ver") || match("ver --version") || match("ver -v")) {
+        std::cout << "Winix Shell " << WINIX_VERSION << "\n";
+        return true;
+    }
+
     // man CMD — display structured man page (or fall back to CMD --help) via less
     if (starts("man ") || match("man")) {
         std::string cmd = starts("man ") ? trim(line.substr(4)) : std::string();
