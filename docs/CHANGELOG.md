@@ -10,6 +10,14 @@ _Changes in development, not yet in a formal release._
 
 ---
 
+## [4.1.4] – 2026-04-08
+### Fixed
+- **`ver` builtin**: `ver` was falling through to the Windows system `ver` command
+  and displaying the Windows version instead of the Winix version. It is now
+  handled as a shell builtin and outputs `Winix Shell <version>`.
+
+---
+
 ## [4.1.3] – 2026-04-06
 ### Fixed
 - **Argument quoting**: mixed-quoted args like `--flag="value"` were passed to

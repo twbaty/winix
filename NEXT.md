@@ -1,6 +1,6 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 4.1.3
-**Date:** 2026-04-06
+**Version:** 4.1.4
+**Date:** 2026-04-08
 
 ---
 
