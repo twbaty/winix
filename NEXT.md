@@ -1,6 +1,6 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 4.1.4
-**Date:** 2026-04-08
+**Version:** 4.1.5
+**Date:** 2026-04-22
 
 ---
 
@@ -127,6 +127,7 @@
 | **3.5** | Done | GNU compat sprint: `grep` ✅ regex (`-E`/`-G`/`-F`/`-i`/`-v`/`-w`/`-x`/`-o`/`-c`/`-n`/`-l`/`-r`/`-m`/`--color`); `sort` ✅ (`-n`/`-k`/`-t`/`-s` stable merge sort); `tail` ✅ (`-f`/`-F`/`-c`/`+N`/`-q`/`-v`); `less`/`more` ✅ ANSI passthrough fix |
 | **3.6** | Done | Shell scripting sprint: process substitution ✅ `<(cmd)`/`>(cmd)`; brace expansion ✅ `{a,b,c}`/`{1..5}`/nested/step; `getopts` ✅ POSIX option parsing; `trap EXIT` ✅ cleanup handlers; `printf` ✅ promoted to in-process builtin |
 | **4.0** | Done | Release milestone: `wzip`/`wunzip` ✅ zstd 1.5.7 native compression (`.wz` format); `man` pages ✅ structured docs for 20 commands + upgraded builtin; cppcheck ✅ zero warnings with suppression file; install verified ✅ clean layout at `C:\Winix\` |
+| **4.1.5** | Done | Fix line-editor redraw corruption when pasting long paths that wrap across terminal rows ✅ |
 
 ---
 
@@ -149,6 +150,7 @@ This is a stable, feature-complete release. Future work (if any) would be:
 - Expand man pages to remaining commands
 - `man -k KEYWORD` search (builds on `apropos`)
 - Additional wlint / wsim improvements as needs arise
+- **`sudo` builtin** — Win11 24H2+: delegate to `System32\sudo.exe` (same-terminal inline elevation); older Windows: `ShellExecuteEx runas` fallback (new elevated window). Bundle `gsudo` for same-terminal experience on all Windows versions.
 - **install.bat uses `copy /y` / `xcopy /y` — overwrites existing files but does not remove
   stale coreutils if a binary is ever dropped from a release. Fix if a coreutil is ever removed:
   wipe `C:\Winix\bin\` before copying, or diff against a manifest.**

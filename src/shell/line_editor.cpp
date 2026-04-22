@@ -107,7 +107,23 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
     bool        cmd_cache_valid = false;
 
     // Redraws the current line in-place with fish-style command colorization.
+    // Handles prompts+buffers that wrap across multiple terminal rows.
     auto redraw = [&]() {
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO csbi{};
+        int cols = 80;
+        if (GetConsoleScreenBufferInfo(hOut, &csbi) && csbi.dwSize.X > 0)
+            cols = csbi.dwSize.X;
+
+        size_t plen = visible_len(prompt_str);
+
+        // Move back to the start of the prompt row before redrawing.
+        // Without this, \r only goes to col 0 of the current wrapped row.
+        int cur_row = (int)((plen + cursor) / cols);
+        if (cur_row > 0)
+            std::cout << "\x1b[" << cur_row << "A";
+        std::cout << '\r';
+
         // Split buf into first-word + rest.
         size_t sp = buf.find(' ');
         std::string first = buf.empty() ? "" :
@@ -124,16 +140,24 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
             }
         }
 
-        std::cout << '\r' << prompt_str;
+        std::cout << prompt_str;
         if (!first.empty() && cmd_cache_valid)
             std::cout << "\x1b[1;32m" << first << "\x1b[0m";
         else
             std::cout << first;
         std::cout << rest << "\x1b[K";
 
-        size_t back = buf.size() - cursor;
-        if (back > 0)
-            std::cout << "\x1b[" << back << "D";
+        // Move cursor to the correct position within a potentially wrapped line.
+        int end_row    = (int)((plen + buf.size()) / cols);
+        int target_row = (int)((plen + cursor) / cols);
+        int target_col = (int)((plen + cursor) % cols);
+        int rows_up    = end_row - target_row;
+        if (rows_up > 0)
+            std::cout << "\x1b[" << rows_up << "A";
+        std::cout << '\r';
+        if (target_col > 0)
+            std::cout << "\x1b[" << target_col << "C";
+
         std::cout.flush();
     };
 
