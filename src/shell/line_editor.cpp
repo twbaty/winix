@@ -311,9 +311,23 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
         if (vk == VK_TAB) {
             if (!completer_) continue;
 
+            // Detect unclosed double-quote to the left of the cursor so we can
+            // correctly find the word boundary and decide whether to add quotes.
+            bool   in_quote      = false;
+            size_t open_quote_at = 0;
+            for (size_t i = 0; i < cursor; ++i) {
+                if (buf[i] == '"') { in_quote = !in_quote; open_quote_at = i; }
+            }
+
             // Find the start of the word the cursor is currently inside.
-            size_t word_start = cursor;
-            while (word_start > 0 && buf[word_start - 1] != ' ') --word_start;
+            // Inside an open quote the word starts right after the '"'.
+            size_t word_start;
+            if (in_quote) {
+                word_start = open_quote_at + 1;
+            } else {
+                word_start = cursor;
+                while (word_start > 0 && buf[word_start - 1] != ' ') --word_start;
+            }
             std::string current_word = buf.substr(word_start, cursor - word_start);
 
             // Build match list once per Tab sequence.
@@ -324,17 +338,27 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
             if (!tab_active) continue;
 
             if (tab_matches.size() == 1) {
-                // Single match: replace the current word with it.
-                buf    = buf.substr(0, word_start) + tab_matches[0] + buf.substr(cursor);
-                cursor = word_start + tab_matches[0].size();
+                // Single match: replace the current word.
+                // Wrap in quotes when the path has spaces and we're not already
+                // inside an open quote; close the existing quote if we are.
+                std::string ins = tab_matches[0];
+                if (ins.find(' ') != std::string::npos)
+                    ins = in_quote ? ins + "\"" : "\"" + ins + "\"";
+                buf    = buf.substr(0, word_start) + ins + buf.substr(cursor);
+                cursor = word_start + ins.size();
                 redraw();
                 tab_active = false;
             } else {
                 std::string pfx = common_prefix(tab_matches);
                 if (pfx.size() > current_word.size()) {
                     // Extend to common prefix.
-                    buf    = buf.substr(0, word_start) + pfx + buf.substr(cursor);
-                    cursor = word_start + pfx.size();
+                    // Open a quote when the prefix contains spaces so the shell
+                    // won't word-split the partial path on Enter.
+                    std::string ins = pfx;
+                    if (!in_quote && ins.find(' ') != std::string::npos)
+                        ins = "\"" + ins;
+                    buf    = buf.substr(0, word_start) + ins + buf.substr(cursor);
+                    cursor = word_start + ins.size();
                     redraw();
                 } else {
                     // Already at common prefix — show all candidates.

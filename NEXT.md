@@ -1,5 +1,5 @@
 # ✅ Winix — NEXT Development Steps
-**Version:** 4.1.5
+**Version:** 4.1.6
 **Date:** 2026-04-22
 
 ---
@@ -128,6 +128,7 @@
 | **3.6** | Done | Shell scripting sprint: process substitution ✅ `<(cmd)`/`>(cmd)`; brace expansion ✅ `{a,b,c}`/`{1..5}`/nested/step; `getopts` ✅ POSIX option parsing; `trap EXIT` ✅ cleanup handlers; `printf` ✅ promoted to in-process builtin |
 | **4.0** | Done | Release milestone: `wzip`/`wunzip` ✅ zstd 1.5.7 native compression (`.wz` format); `man` pages ✅ structured docs for 20 commands + upgraded builtin; cppcheck ✅ zero warnings with suppression file; install verified ✅ clean layout at `C:\Winix\` |
 | **4.1.5** | Done | Fix line-editor redraw corruption when pasting long paths that wrap across terminal rows ✅ |
+| **4.1.6** | Done | Fix tab completion failing to quote folder names that contain spaces ✅ |
 
 ---
 

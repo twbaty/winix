@@ -10,6 +10,25 @@ _Changes in development, not yet in a formal release._
 
 ---
 
+## [4.1.6] – 2026-04-30
+### Fixed
+- **Tab completion with spaces in path**: completing a folder whose name contains
+  spaces (e.g. `@Working on it`) inserted the raw path into the buffer, causing
+  the shell to word-split it on Enter. Completions that contain spaces are now
+  automatically wrapped in double quotes. The word-boundary scanner also handles
+  an already-open quote, so Tab continues to work correctly inside a partial
+  quoted path.
+
+---
+
+## [4.1.5] – 2026-04-22
+### Fixed
+- **Line-editor redraw corruption**: pasting a long path that wrapped across
+  terminal rows left stale characters on screen. The redraw routine now clears
+  to end-of-line at each wrapped row before repainting.
+
+---
+
 ## [4.1.4] – 2026-04-08
 ### Fixed
 - **`ver` builtin**: `ver` was falling through to the Windows system `ver` command
