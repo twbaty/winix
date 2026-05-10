@@ -9,6 +9,8 @@
 
 > The Unix Windows should have had.
 
+**Winix** is a free, open-source Windows shell and GNU coreutils suite — bringing `bash`-style scripting and 130+ Unix command-line tools (`ls`, `grep`, `sed`, `awk`, `cat`, `find`, and more) natively to Windows, with no WSL, no MSYS, and no compatibility layers required.
+
 > On Linux and missing Windows commands? Check out the companion project: [Doshell](https://github.com/twbaty/doshell) — DOS-style aliases for Linux.
 
 ---

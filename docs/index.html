@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Winix — free, open-source Windows shell and GNU coreutils suite. Bash-style scripting and 130+ Unix tools natively on Windows. No WSL, no MSYS required.">
+  <title>Winix — The Unix Windows Should Have Had</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 3rem;
+      color: #f0f6fc;
+      letter-spacing: -1px;
+    }
+
+    header .tagline {
+      font-size: 1.25rem;
+      color: #8b949e;
+      margin-top: 0.5rem;
+    }
+
+    header .cta {
+      margin-top: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.6rem 1.4rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: #238636;
+      color: #fff;
+      border: 1px solid #2ea043;
+    }
+    .btn-primary:hover { background: #2ea043; text-decoration: none; }
+
+    .btn-secondary {
+      background: transparent;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+    }
+    .btn-secondary:hover { background: #21262d; text-decoration: none; }
+
+    .badges {
+      margin-top: 1.25rem;
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }
+
+    section { margin-bottom: 3rem; }
+
+    h2 {
+      font-size: 1.6rem;
+      color: #f0f6fc;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 0.4rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .intro {
+      font-size: 1.1rem;
+      color: #8b949e;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+
+    .feature-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+
+    .feature-card h3 {
+      color: #58a6ff;
+      margin-bottom: 0.5rem;
+      font-size: 1rem;
+    }
+
+    .feature-card p {
+      font-size: 0.9rem;
+      color: #8b949e;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      background: #161b22;
+      color: #8b949e;
+      border-bottom: 1px solid #30363d;
+    }
+
+    td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid #21262d;
+      color: #c9d1d9;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.85rem;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .install-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+
+    .install-box ol {
+      padding-left: 1.25rem;
+      color: #c9d1d9;
+    }
+
+    .install-box li { margin-bottom: 0.5rem; }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      background: #21262d;
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.875em;
+      color: #e6edf3;
+    }
+
+    pre {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.875rem;
+      color: #e6edf3;
+    }
+
+    .principles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .principle {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+    }
+
+    .principle strong { color: #58a6ff; display: block; margin-bottom: 0.25rem; }
+
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      border-top: 1px solid #30363d;
+      color: #8b949e;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Winix</h1>
+  <p class="tagline">The Unix Windows should have had.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/twbaty/winix/releases/latest">Download Latest Release</a>
+    <a class="btn btn-secondary" href="https://github.com/twbaty/winix">View on GitHub</a>
+  </div>
+  <div class="badges">
+    <img src="https://img.shields.io/github/v/release/twbaty/winix?label=version&color=blue" alt="Version">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+    <img src="https://img.shields.io/badge/platform-Windows-0078D4" alt="Windows">
+    <img src="https://img.shields.io/badge/language-C%2FC%2B%2B-orange" alt="C/C++">
+    <img src="https://github.com/twbaty/winix/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </div>
+</header>
+
+<main>
+
+  <p class="intro">
+    Winix is a free, open-source <strong>Windows shell</strong> and <strong>GNU coreutils suite</strong> —
+    bringing bash-style scripting and 130+ Unix command-line tools natively to Windows.
+    No WSL. No MSYS. No compatibility layers. Just fast, self-contained <code>.exe</code> files.
+  </p>
+
+  <section>
+    <h2>Features</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>Bash-Compatible Shell</h3>
+        <p>Pipes, redirection, variables, functions, arrays, <code>if/for/while/case</code>, tab completion, command history, and PS1 prompts.</p>
+      </div>
+      <div class="feature-card">
+        <h3>130+ Coreutils</h3>
+        <p>Native Windows <code>.exe</code> equivalents of <code>ls</code>, <code>grep</code>, <code>sed</code>, <code>awk</code>, <code>find</code>, <code>cat</code>, <code>diff</code>, and many more.</p>
+      </div>
+      <div class="feature-card">
+        <h3>No Dependencies</h3>
+        <p>Self-contained binaries. No runtime installs, no WSL, no MSYS2, no Cygwin required.</p>
+      </div>
+      <div class="feature-card">
+        <h3>One-Click Install</h3>
+        <p>Download the zip, right-click <code>install.bat</code> as Administrator — done. Adds to PATH, Start Menu, and Windows Terminal.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Winix-Native Tools</h3>
+        <p><code>nix</code> (nano-style editor), <code>wlint</code> (code linter), <code>wsim</code> (similarity scorer) — purpose-built for Windows.</p>
+      </div>
+      <div class="feature-card">
+        <h3>MIT Licensed</h3>
+        <p>Clean-room implementations. Open source, auditable, and designed to outlive its creators.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Included Commands</h2>
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Commands</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>File ops</td><td>ls, cp, mv, rm, mkdir, rmdir, touch, find, ln, chmod, chown</td></tr>
+        <tr><td>Text</td><td>cat, grep, sed, awk, sort, uniq, wc, head, tail, cut, tr, diff</td></tr>
+        <tr><td>Archive</td><td>gzip, gunzip</td></tr>
+        <tr><td>Hashing</td><td>md5sum, sha256sum, sha512sum, sha1sum, sha224sum, sha384sum, b2sum</td></tr>
+        <tr><td>System</td><td>ps, kill, uname, uptime, who, whoami, id, groups</td></tr>
+        <tr><td>Dev</td><td>bc, awk, xxd, hexdump, od, strings, expr, dd</td></tr>
+        <tr><td>Winix-native</td><td>nix (editor), wlint (lint), wsim (similarity)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Quick Install</h2>
+    <div class="install-box">
+      <ol>
+        <li>Download <code>winix-vX.X-windows-x64.zip</code> from the <a href="https://github.com/twbaty/winix/releases/latest">latest release</a>.</li>
+        <li>Extract the zip to any folder.</li>
+        <li>Right-click <code>install.bat</code> → <strong>Run as administrator</strong>.</li>
+      </ol>
+      <p style="margin-top:1rem; color:#8b949e; font-size:0.9rem;">
+        Windows SmartScreen warning? Click <strong>"More info"</strong> → <strong>"Run anyway"</strong>.
+        Winix is open source and built transparently by GitHub Actions CI.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Build from Source</h2>
+    <p style="margin-bottom:0.75rem;">Requires <a href="https://www.mingw-w64.org/">MinGW-w64</a> and <a href="https://cmake.org/">CMake 3.20+</a>.</p>
+    <pre>git clone https://github.com/twbaty/winix.git
+cd winix
+build.bat
+install.bat   # run as Administrator</pre>
+  </section>
+
+  <section>
+    <h2>Guiding Principles</h2>
+    <div class="principles">
+      <div class="principle"><strong>Native First</strong>All binaries compiled for Windows — no MSYS, no WSL.</div>
+      <div class="principle"><strong>Behavioral Parity</strong>GNU defines the behavioral baseline, not the implementation.</div>
+      <div class="principle"><strong>Self-Contained</strong>No runtime dependencies — everything ships in the zip.</div>
+      <div class="principle"><strong>Simplicity</strong>Readable, maintainable code over clever hacks.</div>
+      <div class="principle"><strong>Open Source</strong>MIT License, designed to outlive its creators.</div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Copyright &copy; 2025 <a href="https://github.com/twbaty">twbaty</a> &mdash; <a href="https://github.com/twbaty/winix/blob/main/LICENSE">MIT License</a></p>
+  <p style="margin-top:0.5rem;"><a href="https://github.com/twbaty/winix">github.com/twbaty/winix</a></p>
+</footer>
+
+</body>
+</html>
