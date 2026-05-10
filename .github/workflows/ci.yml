@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install cppcheck
         run: sudo apt-get install -y cppcheck
@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up MSYS2 + MinGW-w64
         uses: msys2/setup-msys2@v2
@@ -105,7 +105,7 @@ jobs:
           python tests/run_tests.py --build-dir build --verbose
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winix-windows-x64
           path: build/*.exe
