@@ -240,9 +240,31 @@ int main(int argc, char *argv[]) {
                 }
                 list_directory(path);
             } else {
-                const char *color = entry_color(path, path, &st);
-                if (color) printf("%s%s%s\n", color, path, ANSI_RESET);
-                else        printf("%s\n", path);
+                const char *name = path;
+                const char *color = entry_color(path, name, &st);
+                if (long_list) {
+                    char type  = '-';
+                    char write = (st.st_mode & _S_IWRITE) ? 'w' : '-';
+                    char perm[5];
+                    snprintf(perm, sizeof(perm), "%cr%c-", type, write);
+
+                    char timebuf[20];
+                    struct tm *tm = localtime(&st.st_mtime);
+                    strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", tm);
+
+                    if (human_readable) {
+                        char szstr[16];
+                        fmt_size((long long)st.st_size, szstr, sizeof(szstr));
+                        printf("%s  %8s  %s  ", perm, szstr, timebuf);
+                    } else {
+                        printf("%s  %8lld  %s  ", perm, (long long)st.st_size, timebuf);
+                    }
+                    if (color) printf("%s%s%s\n", color, name, ANSI_RESET);
+                    else        printf("%s\n", name);
+                } else {
+                    if (color) printf("%s%s%s\n", color, name, ANSI_RESET);
+                    else        printf("%s\n", name);
+                }
             }
             listed = true;
         } else {
