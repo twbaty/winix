@@ -3137,7 +3137,7 @@ int main(int argc, char* argv[]) {
     aliases.load(paths.aliases_file);
 
     LineEditor editor(
-        [&](const std::string& partial){ return completion_matches(partial, aliases); },
+        [&](const std::string& partial, const std::string& line_prefix){ return completion_matches(partial, aliases, line_prefix); },
         &hist.entries
     );
 

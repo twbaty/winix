@@ -5,7 +5,9 @@
 #include <vector>
 
 // Same signature as declared in completion.hpp, duplicated here to keep this header standalone.
-using CompletionFunc = std::function<std::vector<std::string>(const std::string& partial)>;
+// line_prefix is everything in the buffer to the left of the word being completed.
+using CompletionFunc = std::function<std::vector<std::string>(const std::string& partial,
+                                                              const std::string& line_prefix)>;
 
 class LineEditor {
 public:

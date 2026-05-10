@@ -116,16 +116,18 @@ static std::vector<std::string> path_command_matches(const std::string& prefix) 
 }
 
 // Returns filesystem entries that match the partial path prefix.
-static std::vector<std::string> filesystem_matches(const std::string& partial) {
+// When dirs_only is true, only directories are returned.
+static std::vector<std::string> filesystem_matches(const std::string& partial,
+                                                   bool dirs_only = false) {
     std::string dir_str;
     std::string file_prefix;
 
     auto sep = partial.find_last_of("/\\");
     if (sep == std::string::npos) {
-        dir_str     = "";          // search current directory
+        dir_str     = "";
         file_prefix = partial;
     } else {
-        dir_str     = partial.substr(0, sep + 1);   // include trailing separator
+        dir_str     = partial.substr(0, sep + 1);
         file_prefix = partial.substr(sep + 1);
     }
 
@@ -135,11 +137,13 @@ static std::vector<std::string> filesystem_matches(const std::string& partial) {
     std::error_code ec;
     for (auto& entry : fs::directory_iterator(dir, ec)) {
         if (ec) break;
+        std::error_code ec2;
+        bool is_dir = entry.is_directory(ec2);
+        if (dirs_only && !is_dir) continue;
         std::string name = entry.path().filename().string();
         if (file_prefix.empty() || starts_with_ci(name, file_prefix)) {
             std::string completion = dir_str + name;
-            if (entry.is_directory(ec))
-                completion += "\\";
+            if (is_dir) completion += "\\";
             out.push_back(completion);
         }
     }
@@ -147,8 +151,32 @@ static std::vector<std::string> filesystem_matches(const std::string& partial) {
 }
 
 std::vector<std::string> completion_matches(const std::string& partial,
-                                            const Aliases& aliases)
+                                            const Aliases& aliases,
+                                            const std::string& line_prefix)
 {
+    // Extract the first word from line_prefix to detect command context.
+    std::string ctx_cmd;
+    {
+        size_t s = 0;
+        while (s < line_prefix.size() && line_prefix[s] == ' ') ++s;
+        size_t e = s;
+        while (e < line_prefix.size() && line_prefix[e] != ' ') ++e;
+        ctx_cmd = line_prefix.substr(s, e - s);
+        for (auto& c : ctx_cmd) c = (char)std::tolower((unsigned char)c);
+    }
+
+    // For "cd", skip builtins/PATH and return only directories.
+    if (ctx_cmd == "cd") {
+        std::vector<std::string> out;
+        if (!partial.empty()) {
+            for (auto& f : filesystem_matches(partial, /*dirs_only=*/true))
+                out.push_back(f);
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
+
     std::vector<std::string> out;
 
     // Builtins and aliases (useful as command completions for the first word).

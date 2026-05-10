@@ -218,6 +218,13 @@ int main(int argc, char *argv[]) {
     bool listed = false;
     int ret = 0;
 
+    /* when multiple targets are given, print "dirname:" headers like GNU ls */
+    int n_targets = 0;
+    for (int i = 1; i < argc; ++i)
+        if (argv[i][0] != '-') n_targets++;
+    bool need_header = (n_targets > 1);
+    bool first_dir = true;
+
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-') continue;
 
@@ -226,6 +233,11 @@ int main(int argc, char *argv[]) {
 
         if (stat(path, &st) == 0) {
             if (S_ISDIR(st.st_mode)) {
+                if (need_header) {
+                    if (!first_dir) printf("\n");
+                    printf("%s:\n", path);
+                    first_dir = false;
+                }
                 list_directory(path);
             } else {
                 const char *color = entry_color(path, path, &st);

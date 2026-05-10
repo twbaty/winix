@@ -63,7 +63,7 @@ LineEditor::LineEditor(CompletionFunc completer, const std::vector<std::string>*
 
 std::vector<std::string> LineEditor::suggest(const std::string& partial) const {
     if (!completer_) return {};
-    return completer_(partial);
+    return completer_(partial, "");
 }
 
 std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) {
@@ -135,7 +135,7 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
             cmd_cache_word  = first;
             cmd_cache_valid = false;
             if (!first.empty() && completer_) {
-                for (auto& m : completer_(first))
+                for (auto& m : completer_(first, ""))
                     if (m == first) { cmd_cache_valid = true; break; }
             }
         }
@@ -332,7 +332,7 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
 
             // Build match list once per Tab sequence.
             if (!tab_active) {
-                tab_matches = completer_(current_word);
+                tab_matches = completer_(current_word, buf.substr(0, word_start));
                 tab_active  = !tab_matches.empty();
             }
             if (!tab_active) continue;
