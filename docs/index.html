@@ -317,6 +317,15 @@
         Windows SmartScreen warning? Click <strong>"More info"</strong> → <strong>"Run anyway"</strong>.
         Winix is open source and built transparently by GitHub Actions CI.
       </p>
+      <p style="margin-top:0.75rem; color:#8b949e; font-size:0.9rem;">
+        <strong style="color:#c9d1d9;">PATH order matters.</strong>
+        The installer adds <code>C:\Winix\bin</code> to your PATH. If Winix appears <em>before</em>
+        <code>C:\Windows\System32</code>, GNU tools like <code>sort</code> and <code>find</code> will
+        shadow their Windows equivalents — which is usually what you want, but may affect Windows
+        scripts that rely on native behavior. If Winix appears <em>after</em>, Windows built-ins win
+        for any name conflict. Adjust PATH order in <strong>System Properties → Environment Variables</strong>
+        to match your preference.
+      </p>
     </div>
   </section>
 
