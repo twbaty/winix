@@ -165,11 +165,13 @@ std::vector<std::string> completion_matches(const std::string& partial,
         for (auto& c : ctx_cmd) c = (char)std::tolower((unsigned char)c);
     }
 
-    // For "cd", skip builtins/PATH and return only directories.
-    if (ctx_cmd == "cd") {
+    // For argument position (anything after the first word), only complete
+    // filesystem entries — PATH executables are not valid file arguments.
+    if (!ctx_cmd.empty()) {
+        bool dirs_only = (ctx_cmd == "cd");
         std::vector<std::string> out;
         if (!partial.empty()) {
-            for (auto& f : filesystem_matches(partial, /*dirs_only=*/true))
+            for (auto& f : filesystem_matches(partial, dirs_only))
                 out.push_back(f);
         }
         std::sort(out.begin(), out.end());
