@@ -269,6 +269,9 @@ target_link_libraries(wunzip winix_zstd)
 add_executable(wfetch    src/coreutils/wfetch.c)
 target_link_libraries(wfetch advapi32)
 
+add_executable(wsudo     src/coreutils/wsudo.c)
+target_link_libraries(wsudo shell32)
+
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)
 
@@ -301,5 +304,6 @@ install(TARGETS
     gzip gunzip
     wzip wunzip
     wfetch
+    wsudo
     DESTINATION bin
 )

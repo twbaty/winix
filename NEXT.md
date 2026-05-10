@@ -151,10 +151,61 @@ This is a stable, feature-complete release. Future work (if any) would be:
 - Expand man pages to remaining commands
 - `man -k KEYWORD` search (builds on `apropos`)
 - Additional wlint / wsim improvements as needs arise
-- **`sudo` builtin** — Win11 24H2+: delegate to `System32\sudo.exe` (same-terminal inline elevation); older Windows: `ShellExecuteEx runas` fallback (new elevated window). Bundle `gsudo` for same-terminal experience on all Windows versions.
 - **install.bat uses `copy /y` / `xcopy /y` — overwrites existing files but does not remove
   stale coreutils if a binary is ever dropped from a release. Fix if a coreutil is ever removed:
   wipe `C:\Winix\bin\` before copying, or diff against a manifest.**
+
+---
+
+## 🔐 v4.3 — wsudo (Winix-native elevation)
+
+**Goal:** Same-terminal elevated command execution — no new window, no dependency on Windows sudo.exe.
+
+### Architecture
+Two modes in one binary (`src/coreutils/wsudo.c`):
+
+**Client mode** (`wsudo <cmd> [args]` — runs non-elevated):
+1. Check if already elevated (`IsUserAnAdmin`) — if yes, run command directly
+2. Generate a unique named pipe name (`\\.\pipe\wsudo_<pid>_<tick>`)
+3. Launch self in broker mode via `ShellExecuteEx` with `runas` verb (triggers UAC)
+4. Connect to the named pipe as client
+5. Forward stdin → pipe, pipe → stdout/stderr in I/O loop
+6. Wait for broker to send exit code, exit with same code
+
+**Broker mode** (`wsudo --broker <pipe> <cmd> [args]` — runs elevated, no window):
+1. Create the named pipe and wait for client to connect
+2. `CreateProcess` for the target command with elevated token
+3. Bridge stdout/stderr → pipe, pipe → stdin
+4. Send exit code to client when command finishes
+
+### Flags (v1.0)
+- `wsudo <cmd> [args]` — elevate and run command
+- `wsudo --status` — print whether current session is elevated (exit 0=yes, 1=no)
+- `wsudo --version` — print version
+- `wsudo --help` — usage
+
+### Link libraries
+- `shell32` — `ShellExecuteEx`, `IsUserAnAdmin`
+- `kernel32` — named pipes, `CreateProcess`, I/O
+
+### CMakeLists entry
+```cmake
+add_executable(wsudo src/coreutils/wsudo.c)
+target_link_libraries(wsudo shell32)
+```
+
+### Scope / constraints
+- Winix-native implementation — no dependency on Windows sudo.exe or gsudo
+- Works on Windows 10+ (named pipes + ShellExecuteEx are universally available)
+- Broker window is hidden (`SW_HIDE`) — no flash of a console window
+- I/O is byte-forwarded — works for both interactive and non-interactive commands
+- Ctrl+C handling: client traps it and signals the elevated process via pipe protocol
+- Console raw mode: client reads current mode and sends to broker so interactive programs work
+
+### Not in v1.0
+- `wsudo !!` (re-run last command elevated) — shell integration needed, defer
+- Credential caching (like sudo timeout) — defer
+- `-u user` run as different user — defer
 
 ---
 
