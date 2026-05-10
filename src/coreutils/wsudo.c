@@ -23,10 +23,10 @@
 #  define WINIX_VERSION "0.0"
 #endif
 
-#define WSUDO_VERSION "1.0"
+#define WSUDO_VERSION "0.1"
 
 #define PIPE_BUF      4096
-#define PIPE_TIMEOUT  5000   /* ms to wait for broker to create pipe */
+#define PIPE_TIMEOUT  30000  /* ms to wait for broker — must cover UAC response time */
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -79,21 +79,13 @@ static void make_pipe_name(char *out, size_t sz) {
  * Forward I/O between the console and the named pipe until the pipe closes.
  * Returns the exit code sent by the broker as the last 4 bytes on the pipe.
  */
-static DWORD client_io_loop(HANDLE pipe) {
-    HANDLE con_in  = GetStdHandle(STD_INPUT_HANDLE);
+static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
     HANDLE con_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD  exit_code = 1;
     DWORD  avail = 0;
     DWORD  to_read = 0;
-    DWORD  events = 0;
-    DWORD  orig_mode = 0;
     DWORD  n = 0;
-    BOOL   is_console_in;
+    DWORD  exit_code = 1;
     char   buf[PIPE_BUF];
-
-    is_console_in = GetConsoleMode(con_in, &orig_mode);
-    if (is_console_in)
-        SetConsoleMode(con_in, orig_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT));
 
     for (;;) {
         /* Drain any output the broker has sent */
@@ -106,35 +98,24 @@ static DWORD client_io_loop(HANDLE pipe) {
             avail = 0;
         }
 
-        /* Check if pipe is still alive */
-        if (!PeekNamedPipe(pipe, NULL, 0, NULL, NULL, NULL))
+        /* Break when broker process exits — reliable termination signal */
+        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0)
             break;
-
-        /* Forward any pending stdin to the broker */
-        if (is_console_in) {
-            events = 0;
-            GetNumberOfConsoleInputEvents(con_in, &events);
-            if (events > 0) {
-                if (ReadFile(con_in, buf, PIPE_BUF, &n, NULL) && n > 0)
-                    WriteFile(pipe, buf, n, &n, NULL);
-            }
-        }
 
         Sleep(10);
     }
 
-done:
-    /* Read exit code — broker sends 4-byte DWORD as final message */
+    /* Drain any output that arrived just before broker exited */
     avail = 0;
-    if (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail >= 4) {
-        DWORD code = 0;
-        if (ReadFile(pipe, &code, 4, &n, NULL) && n == 4)
-            exit_code = code;
+    while (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+        to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
+        if (!ReadFile(pipe, buf, to_read, &n, NULL) || n == 0) break;
+        WriteFile(con_out, buf, n, &n, NULL);
+        avail = 0;
     }
 
-    if (is_console_in)
-        SetConsoleMode(con_in, orig_mode);
-
+done:
+    GetExitCodeProcess(broker_proc, &exit_code);
     return exit_code;
 }
 
@@ -172,7 +153,7 @@ static int run_client(int argc, char **argv) {
     /* Launch elevated broker — triggers UAC */
     SHELLEXECUTEINFOA sei = {0};
     sei.cbSize       = sizeof(sei);
-    sei.fMask        = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE;
+    sei.fMask        = SEE_MASK_NOCLOSEPROCESS;
     sei.lpVerb       = "runas";
     sei.lpFile       = self_path;
     sei.lpParameters = broker_args;
@@ -187,29 +168,30 @@ static int run_client(int argc, char **argv) {
         return 1;
     }
 
-    /* Wait for broker to create the pipe (up to PIPE_TIMEOUT ms) */
+    /* Poll until broker creates the pipe, or broker process exits (crash/cancel).
+       No fixed timeout — ShellExecuteEx returns before UAC is answered, so the
+       user can take as long as they need to respond to the prompt. */
     HANDLE pipe = INVALID_HANDLE_VALUE;
-    DWORD deadline = GetTickCount() + PIPE_TIMEOUT;
-    while (GetTickCount() < deadline) {
+    for (;;) {
         pipe = CreateFileA(pipe_name, GENERIC_READ | GENERIC_WRITE,
                            0, NULL, OPEN_EXISTING, 0, NULL);
         if (pipe != INVALID_HANDLE_VALUE) break;
+
+        /* Broker process exited without creating the pipe — it crashed */
+        if (sei.hProcess &&
+            WaitForSingleObject(sei.hProcess, 0) == WAIT_OBJECT_0) {
+            fprintf(stderr, "wsudo: elevated process failed to start\n");
+            CloseHandle(sei.hProcess);
+            return 1;
+        }
+
         Sleep(50);
     }
 
-    if (pipe == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "wsudo: timed out waiting for elevated process\n");
-        if (sei.hProcess) CloseHandle(sei.hProcess);
-        return 1;
-    }
-
-    DWORD exit_code = client_io_loop(pipe);
+    DWORD exit_code = client_io_loop(pipe, sei.hProcess);
 
     CloseHandle(pipe);
-    if (sei.hProcess) {
-        WaitForSingleObject(sei.hProcess, 3000);
-        CloseHandle(sei.hProcess);
-    }
+    CloseHandle(sei.hProcess);
 
     return (int)exit_code;
 }
@@ -226,22 +208,31 @@ static int run_client(int argc, char **argv) {
  */
 static int run_broker(const char *pipe_name, int argc, char **argv, int cmd_start) {
     /* Create the named pipe */
+    /* NULL DACL lets the non-elevated client connect across the elevation boundary */
+    SECURITY_DESCRIPTOR sd;
+    SECURITY_ATTRIBUTES pipe_sa;
+    InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);
+    pipe_sa.nLength              = sizeof(pipe_sa);
+    pipe_sa.lpSecurityDescriptor = &sd;
+    pipe_sa.bInheritHandle       = FALSE;
+
     HANDLE pipe = CreateNamedPipeA(
         pipe_name,
         PIPE_ACCESS_DUPLEX,
         PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1, PIPE_BUF, PIPE_BUF, 0, NULL);
+        1, PIPE_BUF, PIPE_BUF, PIPE_TIMEOUT, &pipe_sa);
 
     if (pipe == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "wsudo: failed to create pipe (error %lu)\n", GetLastError());
         return 1;
     }
 
-    /* Wait for client to connect */
+    /* Wait for client to connect — blocking, but client is already polling so
+       this returns almost immediately after the client calls CreateFileA */
     if (!ConnectNamedPipe(pipe, NULL)) {
         DWORD err = GetLastError();
         if (err != ERROR_PIPE_CONNECTED) {
-            fprintf(stderr, "wsudo: pipe connect failed (error %lu)\n", err);
             CloseHandle(pipe);
             return 1;
         }
@@ -332,11 +323,10 @@ child_done:
     while (ReadFile(child_stdout_r, buf, PIPE_BUF, &n, NULL) && n > 0)
         WriteFile(pipe, buf, n, &n, NULL);
 
-    /* Send exit code as final 4-byte DWORD */
+    FlushFileBuffers(pipe);
+
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
-    WriteFile(pipe, &exit_code, 4, &n, NULL);
-    FlushFileBuffers(pipe);
 
     CloseHandle(child_stdout_r);
     CloseHandle(child_stdin_w);
