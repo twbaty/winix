@@ -20,7 +20,11 @@ public:
 
     std::vector<std::string> suggest(const std::string& partial) const;
 
+    // True if the last read_line() call was cancelled by Ctrl+C.
+    bool last_ctrl_c() const { return last_ctrl_c_; }
+
 private:
     CompletionFunc completer_;
     const std::vector<std::string>* history_ = nullptr;
+    bool last_ctrl_c_ = false;
 };

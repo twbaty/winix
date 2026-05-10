@@ -1418,13 +1418,18 @@ static int block_depth_change(const std::string& line) {
     auto toks = shell_tokens(t);
     if (toks.empty()) return 0;
     const auto& kw = toks[0];
-    if (kw == "if" || kw == "for" || kw == "while" || kw == "case" || kw == "select") return 1;
-    if (kw == "fi" || kw == "done" || kw == "esac")                 return -1;
-    if (kw == "{")                                    return 1;
-    if (kw == "}")                                    return -1;
-    // "name() {" or "function foo {" — line ends with {
-    if (t.back() == '{') return 1;
-    return 0;
+    int depth = 0;
+    if (kw == "if" || kw == "for" || kw == "while" || kw == "case" || kw == "select") depth++;
+    else if (kw == "fi" || kw == "done" || kw == "esac") depth--;
+    else if (kw == "{") depth++;
+    else if (kw == "}") depth--;
+    else if (t.back() == '{') depth++;  // "name() {" or "function foo {"
+    // Scan remaining tokens for closing keywords so one-liners (for..done, if..fi, etc.)
+    // don't incorrectly enter continuation mode.
+    for (size_t i = 1; i < toks.size() && depth > 0; i++) {
+        if (toks[i] == "done" || toks[i] == "fi" || toks[i] == "esac" || toks[i] == "}") depth--;
+    }
+    return depth;
 }
 
 // Returns true if line is a function definition header; sets fname.
@@ -3162,7 +3167,7 @@ int main(int argc, char* argv[]) {
                 hd_lines.push_back(original);
                 for (;;) {
                     auto cont = editor.read_line("> ");
-                    if (!cont.has_value()) break;
+                    if (!cont.has_value() || editor.last_ctrl_c()) break;
                     hd_lines.push_back(*cont);
                     if (trim(*cont) == hd.delim) break;
                 }
@@ -3183,7 +3188,7 @@ int main(int argc, char* argv[]) {
                 block_lines.push_back(original);
                 while (depth > 0) {
                     auto cont = editor.read_line("> ");
-                    if (!cont.has_value()) break;
+                    if (!cont.has_value() || editor.last_ctrl_c()) break;
                     block_lines.push_back(*cont);
                     depth += block_depth_change(*cont);
                 }

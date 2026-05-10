@@ -67,6 +67,7 @@ std::vector<std::string> LineEditor::suggest(const std::string& partial) const {
 }
 
 std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) {
+    last_ctrl_c_ = false;
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
 
     // If stdin is not a real console (e.g. redirected pipe), fall back to
@@ -180,6 +181,7 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
         if (ctrl_held && vk == 'C') {
             std::cout << '\n';
             restore();
+            last_ctrl_c_ = true;
             return std::string{};   // empty → shell loops back to prompt
         }
 
