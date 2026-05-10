@@ -31,6 +31,8 @@
 
 That's it. Winix will be available from any terminal immediately.
 
+> **PATH order matters.** The installer adds `C:\Winix\bin` to your system PATH. If it appears *before* `C:\Windows\System32`, GNU tools like `sort` and `find` will shadow their Windows equivalents — usually what you want, but may affect Windows scripts that rely on native behavior. If it appears *after*, Windows built-ins win for any name conflict. Adjust PATH order in **System Properties → Environment Variables** to match your preference.
+
 ### What the installer does
 - Copies `winix.exe` to `C:\Winix\`
 - Copies all coreutils (`ls`, `grep`, `gzip`, etc.) to `C:\Winix\bin\`
