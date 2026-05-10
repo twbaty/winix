@@ -2687,9 +2687,11 @@ static int script_exec_lines(const std::vector<std::string>& lines,
             std::string var = (toks.size() >= 2) ? toks[1] : "";
             std::vector<std::string> items;
             bool in_list = false;
+            size_t do_idx = toks.size();
             for (size_t j = 2; j < toks.size(); ++j) {
-                if (toks[j] == "in")             { in_list = true; continue; }
-                if (toks[j] == "do" || toks[j] == ";") continue;
+                if (toks[j] == "in") { in_list = true; continue; }
+                if (toks[j] == "do") { do_idx = j; break; }
+                if (toks[j] == ";")  continue;
                 if (in_list) {
                     std::string tok = toks[j];
                     if (!tok.empty() && tok.back() == ';') tok.pop_back();
@@ -2708,6 +2710,20 @@ static int script_exec_lines(const std::vector<std::string>& lines,
 
             std::vector<std::string> body;
             size_t done_idx = collect_until_closed(lines, body_start, body);
+
+            // One-liner: body follows "do" on the same line before "done"
+            if (body.empty() && do_idx < toks.size()) {
+                size_t do_pos = l.find("; do ");
+                if (do_pos == std::string::npos) do_pos = l.find(" do ");
+                if (do_pos != std::string::npos) {
+                    size_t off = do_pos + (l[do_pos] == ';' ? 5 : 4);
+                    std::string body_text = trim(l.substr(off));
+                    size_t dp = body_text.rfind("; done");
+                    if (dp == std::string::npos) dp = body_text.rfind(" done");
+                    if (dp != std::string::npos) body_text = trim(body_text.substr(0, dp));
+                    if (!body_text.empty()) body.push_back(body_text);
+                }
+            }
 
             for (auto& item : items) {
                 g_shell_vars[var] = item;

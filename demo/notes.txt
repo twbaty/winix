@@ -1,0 +1,35 @@
+Project Notes - Winix Demo
+==========================
+
+Goals
+-----
+- Show off shell one-liners that are clean and readable
+- Use realistic log files and data
+- Keep commands short enough to fit in a terminal screenshot
+
+Useful one-liners
+-----------------
+Count errors per log file:
+  for f in *.log; do echo "$f:"; grep -c "ERROR" $f; done
+
+Show only failed HTTP responses:
+  grep " 4" access.log
+
+Sort scores highest to lowest:
+  sort -rn -k2 scores.txt
+
+Count word frequencies:
+  sort words.txt | uniq -c | sort -rn
+
+Find the top scorer:
+  sort -rn -k2 scores.txt | head -1
+
+Count log level totals:
+  for level in INFO WARNING ERROR; do echo -n "$level: "; grep -c $level server.log; done
+
+Tips
+----
+- Pipe chains are great for screenshots: they show composability
+- grep -c is satisfying because the output is clean numbers
+- sort | uniq -c | sort -rn is a classic and always looks good
+- head and tail with -n let you control exactly what fits on screen
