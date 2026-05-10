@@ -3183,6 +3183,10 @@ int main(int argc, char* argv[]) {
         // Multi-line block: if/for/while/function — buffer until depth reaches 0
         {
             int depth = block_depth_change(original);
+            auto toks0 = shell_tokens(original);
+            bool is_compound = !toks0.empty() &&
+                (toks0[0] == "if" || toks0[0] == "for" || toks0[0] == "while" ||
+                 toks0[0] == "case" || toks0[0] == "select");
             if (depth > 0) {
                 std::vector<std::string> block_lines;
                 block_lines.push_back(original);
@@ -3196,6 +3200,15 @@ int main(int argc, char* argv[]) {
                 hist.save(paths.history_file);
                 ScriptState ss;
                 last_exit = script_exec_lines(block_lines, paths, aliases,
+                                               &hist, &cfg, last_exit, ss);
+                continue;
+            }
+            // One-liner: compound command that opened and closed on the same line
+            if (depth == 0 && is_compound) {
+                hist.add(original);
+                hist.save(paths.history_file);
+                ScriptState ss;
+                last_exit = script_exec_lines({original}, paths, aliases,
                                                &hist, &cfg, last_exit, ss);
                 continue;
             }
