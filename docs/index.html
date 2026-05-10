@@ -197,6 +197,31 @@
 
     .principle strong { color: #58a6ff; display: block; margin-bottom: 0.25rem; }
 
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .demo-item {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .demo-item img {
+      width: 100%;
+      display: block;
+    }
+
+    .demo-item figcaption {
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+      color: #8b949e;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
     footer {
       text-align: center;
       padding: 2rem 1rem;
@@ -302,6 +327,32 @@
 cd winix
 build.bat
 install.bat   # run as Administrator</pre>
+  </section>
+
+  <section>
+    <h2>See It in Action</h2>
+    <div class="demo-grid">
+      <figure class="demo-item">
+        <img src="demo-pipeline.jpg" alt="Winix pipeline: echo | grep | sort">
+        <figcaption>echo -e "..." | grep "^a" | sort</figcaption>
+      </figure>
+      <figure class="demo-item">
+        <img src="demo-forloop.jpg" alt="Winix for loop counting log levels">
+        <figcaption>for level in INFO WARNING ERROR; do grep -c $level server.log; done</figcaption>
+      </figure>
+      <figure class="demo-item">
+        <img src="demo-grep-filter.jpg" alt="Winix grep -E filtering ERROR and WARNING lines">
+        <figcaption>grep -E "ERROR|WARNING" server.log</figcaption>
+      </figure>
+      <figure class="demo-item">
+        <img src="demo-wc.jpg" alt="Winix wc -l across multiple files">
+        <figcaption>wc -l server.log access.log words.txt</figcaption>
+      </figure>
+      <figure class="demo-item">
+        <img src="demo-wordfreq.jpg" alt="Winix word frequency pipeline">
+        <figcaption>sort words.txt | uniq -c | sort -rn | head -n 8</figcaption>
+      </figure>
+    </div>
   </section>
 
   <section>
