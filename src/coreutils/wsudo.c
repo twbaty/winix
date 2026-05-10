@@ -207,6 +207,10 @@ static int run_client(int argc, char **argv) {
  *   5. Sends the exit code as a final 4-byte DWORD
  */
 static int run_broker(const char *pipe_name, int argc, char **argv, int cmd_start) {
+    /* Detach from the shared console — broker communicates through the named
+       pipe only. Keeping the console handle causes state corruption on exit. */
+    FreeConsole();
+
     /* Create the named pipe */
     /* NULL DACL lets the non-elevated client connect across the elevation boundary */
     SECURITY_DESCRIPTOR sd;
