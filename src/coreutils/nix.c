@@ -1344,11 +1344,13 @@ int main(int argc, char *argv[]) {
     printf("\033[2J"); /* clear screen */
     fflush(stdout);
 
+    DWORD last_draw = 0;
     for (;;) {
-        /* Skip redraw while input is already waiting (paste batching). */
-        if (!_kbhit()) {
+        DWORD now = GetTickCount();
+        if (!_kbhit() || (now - last_draw) >= 16) {
             scroll_view(&e);
             draw(&e);
+            last_draw = GetTickCount();
         }
         int ch = _getch();
         if (!handle_key(&e, ch)) break;
