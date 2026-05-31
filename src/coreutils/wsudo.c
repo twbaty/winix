@@ -66,6 +66,17 @@ static char *join_args(int argc, char **argv, int start) {
     return buf;
 }
 
+/* Blocking copy thread: reads src, writes dst until src closes or write fails. */
+typedef struct { HANDLE src; HANDLE dst; } CopyArgs;
+static DWORD WINAPI copy_thread(LPVOID p) {
+    CopyArgs *a = (CopyArgs *)p;
+    char buf[PIPE_BUF];
+    DWORD n;
+    while (ReadFile(a->src, buf, PIPE_BUF, &n, NULL) && n > 0)
+        if (!WriteFile(a->dst, buf, n, &n, NULL)) break;
+    return 0;
+}
+
 /* Generate a unique pipe name based on PID + tick count */
 static void make_pipe_name(char *out, size_t sz) {
     snprintf(out, sz, "\\\\.\\pipe\\wsudo_%lu_%lu",
@@ -75,37 +86,63 @@ static void make_pipe_name(char *out, size_t sz) {
 
 /* ------------------------------------------------------------------ client */
 
-/*
- * Forward I/O between the console and the named pipe until the pipe closes.
- * Returns the exit code sent by the broker as the last 4 bytes on the pipe.
- */
 static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
+    HANDLE con_in  = GetStdHandle(STD_INPUT_HANDLE);
     HANDLE con_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD  avail = 0;
-    DWORD  to_read = 0;
-    DWORD  n = 0;
-    DWORD  exit_code = 1;
+    DWORD  avail = 0, to_read = 0, n = 0, written = 0, exit_code = 1;
     char   buf[PIPE_BUF];
+    DWORD  orig_mode = 0;
+    BOOL   is_console = GetConsoleMode(con_in, &orig_mode);
+
+    if (is_console) {
+        SetConsoleMode(con_in, ENABLE_PROCESSED_INPUT);
+        FlushConsoleInputBuffer(con_in);
+    }
 
     for (;;) {
-        /* Drain any output the broker has sent */
+        BOOL did_work = FALSE;
+
+        /* Drain pipe output first */
         avail = 0;
         while (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
             to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
-            if (!ReadFile(pipe, buf, to_read, &n, NULL) || n == 0)
-                goto done;
+            if (!ReadFile(pipe, buf, to_read, &n, NULL) || n == 0) goto done;
             WriteFile(con_out, buf, n, &n, NULL);
             avail = 0;
+            did_work = TRUE;
         }
 
-        /* Break when broker process exits — reliable termination signal */
-        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0)
-            break;
+        /* Forward keystrokes to the elevated process.
+           No local echo for printable chars: cmd.exe ECHO ON echoes the full
+           prompt+command line after receiving Enter, so local char echo would
+           garble the display.  On Enter we write \r (CR only) to rewind the
+           cursor to column 0; cmd.exe's echo "C:\...\demo>cmd\r\n" then
+           overwrites the prompt line cleanly. */
+        if (is_console) {
+            DWORD nevents = 0;
+            GetNumberOfConsoleInputEvents(con_in, &nevents);
+            if (nevents) did_work = TRUE;
+            for (; nevents > 0; nevents--) {
+                INPUT_RECORD ir;
+                if (!ReadConsoleInputA(con_in, &ir, 1, &n) || n == 0) break;
+                if (ir.EventType != KEY_EVENT || !ir.Event.KeyEvent.bKeyDown) continue;
+                WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
+                char c  = ir.Event.KeyEvent.uChar.AsciiChar;
+                if (vk == VK_RETURN) {
+                    WriteFile(pipe,    "\r\n", 2, &written, NULL);
+                    WriteFile(con_out, "\r",   1, &written, NULL);
+                } else if (vk == VK_BACK) {
+                    WriteFile(pipe, "\x08", 1, &written, NULL);
+                } else if (c >= 0x20 && (unsigned char)c < 0x7F) {
+                    WriteFile(pipe, &c, 1, &written, NULL);
+                }
+            }
+        }
 
-        Sleep(10);
+        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0) break;
+        if (!did_work) Sleep(5);
     }
 
-    /* Drain any output that arrived just before broker exited */
     avail = 0;
     while (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
         to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
@@ -115,6 +152,7 @@ static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
     }
 
 done:
+    if (is_console) SetConsoleMode(con_in, orig_mode);
     GetExitCodeProcess(broker_proc, &exit_code);
     return exit_code;
 }
@@ -292,40 +330,23 @@ static int run_broker(const char *pipe_name, int argc, char **argv, int cmd_star
     CloseHandle(child_stdin_r);
     CloseHandle(child_stdout_w);
 
-    /* I/O bridge loop */
-    char buf[PIPE_BUF];
-    DWORD n;
+    /* Blocking threads — no polling delay in either direction */
+    CopyArgs out_args = { child_stdout_r, pipe };   /* child stdout → named pipe  */
+    CopyArgs in_args  = { pipe, child_stdin_w };    /* named pipe  → child stdin  */
+    HANDLE out_thread = CreateThread(NULL, 0, copy_thread, &out_args, 0, NULL);
+    HANDLE in_thread  = CreateThread(NULL, 0, copy_thread, &in_args,  0, NULL);
 
-    for (;;) {
-        /* Forward child stdout → pipe */
-        DWORD avail = 0;
-        while (PeekNamedPipe(child_stdout_r, NULL, 0, NULL, &avail, NULL) && avail > 0) {
-            DWORD to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
-            if (!ReadFile(child_stdout_r, buf, to_read, &n, NULL) || n == 0)
-                goto child_done;
-            WriteFile(pipe, buf, n, &n, NULL);
-        }
+    /* Wait for the elevated command to finish */
+    WaitForSingleObject(pi.hProcess, INFINITE);
 
-        /* Check if child is still running */
-        DWORD status;
-        GetExitCodeProcess(pi.hProcess, &status);
-        if (status != STILL_ACTIVE) break;
+    /* Let the stdout thread drain any buffered output (child write-end just closed) */
+    WaitForSingleObject(out_thread, 2000);
+    TerminateThread(out_thread, 0);
+    CloseHandle(out_thread);
 
-        /* Forward pipe (client stdin) → child stdin */
-        avail = 0;
-        if (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
-            DWORD to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
-            if (ReadFile(pipe, buf, to_read, &n, NULL) && n > 0)
-                WriteFile(child_stdin_w, buf, n, &n, NULL);
-        }
-
-        Sleep(10);
-    }
-
-child_done:
-    /* Drain any remaining child output */
-    while (ReadFile(child_stdout_r, buf, PIPE_BUF, &n, NULL) && n > 0)
-        WriteFile(pipe, buf, n, &n, NULL);
+    /* Stdin thread is blocked on ReadFile(pipe) — terminate it cleanly */
+    TerminateThread(in_thread, 0);
+    CloseHandle(in_thread);
 
     FlushFileBuffers(pipe);
 
