@@ -1345,8 +1345,11 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
 
     for (;;) {
-        scroll_view(&e);
-        draw(&e);
+        /* Skip redraw while input is already waiting (paste batching). */
+        if (!_kbhit()) {
+            scroll_view(&e);
+            draw(&e);
+        }
         int ch = _getch();
         if (!handle_key(&e, ch)) break;
     }
