@@ -87,6 +87,14 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
 
     auto restore = [&]() { SetConsoleMode(hIn, orig_mode); };
 
+    // Record the prompt's starting screen row so redraw() can return to it
+    // accurately even when the prompt+buffer wraps across terminal rows.
+    HANDLE hOut_init = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi_init{};
+    int prompt_screen_row = 0;
+    if (GetConsoleScreenBufferInfo(hOut_init, &csbi_init))
+        prompt_screen_row = csbi_init.dwCursorPosition.Y;
+
     // Print prompt.
     std::cout << prompt_str;
     std::cout.flush();
@@ -118,11 +126,12 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
 
         size_t plen = visible_len(prompt_str);
 
-        // Move back to the start of the prompt row before redrawing.
-        // Without this, \r only goes to col 0 of the current wrapped row.
-        int cur_row = (int)((plen + cursor) / cols);
-        if (cur_row > 0)
-            std::cout << "\x1b[" << cur_row << "A";
+        // Move back to the prompt row using the actual console cursor position.
+        // Computing this from (plen+cursor)/cols misfires when plen+cursor is an
+        // exact multiple of cols, moving one row too high and overwriting content.
+        int rows_above = csbi.dwCursorPosition.Y - prompt_screen_row;
+        if (rows_above > 0)
+            std::cout << "\x1b[" << rows_above << "A";
         std::cout << '\r';
 
         // Split buf into first-word + rest.
