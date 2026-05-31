@@ -210,6 +210,7 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
             size_t back = buf.size() - cursor;
             if (back > 0) std::cout << "\x1b[" << back << "D";
             std::cout.flush();
+            prompt_screen_row = 0;  // screen cleared; prompt is now at row 0
             tab_active = false;
             continue;
         }
@@ -373,6 +374,19 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
                     redraw();
                 } else {
                     // Already at common prefix — show all candidates.
+                    // If any candidate's next character after the common prefix is a
+                    // space, auto-open a quote before the current word.  Without this,
+                    // the user would type a space to disambiguate and the next Tab
+                    // would see only the post-space fragment as the current word.
+                    if (!in_quote) {
+                        for (auto& m : tab_matches) {
+                            if (m.size() > pfx.size() && m[pfx.size()] == ' ') {
+                                buf.insert(word_start, 1, '"');
+                                ++cursor;
+                                break;
+                            }
+                        }
+                    }
                     std::cout << '\n';
                     for (auto& m : tab_matches) {
                         const char* col = candidate_color(m);
@@ -385,6 +399,17 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
                     size_t back = buf.size() - cursor;
                     if (back > 0) std::cout << "\x1b[" << back << "D";
                     std::cout.flush();
+                    // Candidate lines pushed the prompt to a new screen row; update
+                    // prompt_screen_row so redraw() doesn't overshoot on the next key.
+                    {
+                        HANDLE hOut_c = GetStdHandle(STD_OUTPUT_HANDLE);
+                        CONSOLE_SCREEN_BUFFER_INFO csbi_c{};
+                        if (GetConsoleScreenBufferInfo(hOut_c, &csbi_c) && csbi_c.dwSize.X > 0) {
+                            int w = csbi_c.dwSize.X;
+                            prompt_screen_row = csbi_c.dwCursorPosition.Y
+                                              - (int)((visible_len(prompt_str) + cursor) / w);
+                        }
+                    }
                 }
             }
             continue;
