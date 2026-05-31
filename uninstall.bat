@@ -19,7 +19,10 @@ set INSTALL_PREFIX=C:\Winix
 
 echo Winix Uninstaller
 echo =================
-echo This will remove Winix from your system.
+echo.
+echo  IMPORTANT: Close all Winix windows before continuing.
+echo  If winix.exe is running, Windows will lock the file and
+echo  it cannot be deleted until you reboot.
 echo.
 set /p CONFIRM=Type YES to continue:
 if /i not "!CONFIRM!"=="YES" (
@@ -31,7 +34,7 @@ echo.
 :: ==========================================================
 :: 1. Remove "Open Winix here" context menu
 :: ==========================================================
-echo [1/4] Removing "Open Winix here" context menu...
+echo [1/5] Removing "Open Winix here" context menu...
 reg delete "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"             /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Classes\Directory\Background\shell\OpenWinixHere" /f >nul 2>&1
 echo [CONTEXT] Done.
@@ -57,7 +60,7 @@ if exist "!SM_DIR!" (
 )
 
 :: ==========================================================
-:: 3. Remove C:\Winix and C:\Winix\bin from system PATH
+:: 4. Remove C:\Winix and C:\Winix\bin from system PATH
 :: ==========================================================
 echo [4/5] Removing %INSTALL_PREFIX% and %INSTALL_PREFIX%\bin from system PATH...
 powershell -NoProfile -Command ^
@@ -72,14 +75,30 @@ powershell -NoProfile -Command ^
     "}"
 
 :: ==========================================================
-:: 4. Delete C:\Winix directory
+:: 5. Delete C:\Winix directory
 :: ==========================================================
 echo [5/5] Removing %INSTALL_PREFIX%...
 if exist "%INSTALL_PREFIX%" (
     rmdir /s /q "%INSTALL_PREFIX%"
-    echo [FILES] %INSTALL_PREFIX% removed.
+)
+
+:: Check if anything remains (locked files left behind)
+if exist "%INSTALL_PREFIX%" (
+    echo [FILES] Some files are locked by a running process.
+    echo [FILES] Scheduling remaining files for deletion on next reboot...
+    powershell -NoProfile -Command ^
+        "Add-Type -Name MFE -Namespace Win32 -MemberDefinition '[DllImport(\"kernel32.dll\", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool MoveFileEx(string e, string n, uint f);';" ^
+        "$DELAY = 4;" ^
+        "Get-ChildItem -Path '%INSTALL_PREFIX%' -Recurse -Force | Sort-Object FullName -Descending | ForEach-Object {" ^
+        "    [Win32.MFE]::MoveFileEx($_.FullName, $null, $DELAY) | Out-Null;" ^
+        "    Write-Host ('[REBOOT-DELETE] ' + $_.FullName);" ^
+        "};" ^
+        "[Win32.MFE]::MoveFileEx('%INSTALL_PREFIX%', $null, $DELAY) | Out-Null;" ^
+        "Write-Host '[REBOOT-DELETE] %INSTALL_PREFIX%';"
+    echo.
+    echo [FILES] A reboot is required to complete removal of winix.exe.
 ) else (
-    echo [FILES] %INSTALL_PREFIX% not found, skipping.
+    echo [FILES] %INSTALL_PREFIX% removed.
 )
 
 :: ==========================================================
