@@ -87,6 +87,13 @@ std::optional<std::string> LineEditor::read_line(const std::string& prompt_str) 
 
     auto restore = [&]() { SetConsoleMode(hIn, orig_mode); };
 
+    // Flush buffered output (e.g. from built-ins that use std::cout without an
+    // explicit flush) before querying the cursor.  With sync_with_stdio(false),
+    // unwritten bytes sit in the C++ buffer and GetConsoleScreenBufferInfo would
+    // return a stale position one row too high, causing every redraw() to move
+    // the cursor into the previous line.
+    std::cout.flush();
+
     // Record the prompt's starting screen row so redraw() can return to it
     // accurately even when the prompt+buffer wraps across terminal rows.
     HANDLE hOut_init = GetStdHandle(STD_OUTPUT_HANDLE);

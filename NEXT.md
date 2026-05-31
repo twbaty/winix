@@ -129,6 +129,7 @@
 | **4.0** | Done | Release milestone: `wzip`/`wunzip` ✅ zstd 1.5.7 native compression (`.wz` format); `man` pages ✅ structured docs for 20 commands + upgraded builtin; cppcheck ✅ zero warnings with suppression file; install verified ✅ clean layout at `C:\Winix\` |
 | **4.1.5** | Done | Fix line-editor redraw corruption when pasting long paths that wrap across terminal rows ✅ |
 | **4.1.6** | Done | Fix tab completion failing to quote folder names that contain spaces ✅ |
+| **4.2.7** | Done | Fix prompt redraws one line too high — flush stdout before cursor snapshot in read_line ✅ |
 
 ---
 
