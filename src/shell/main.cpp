@@ -2432,6 +2432,8 @@ static bool handle_builtin(
         }
         toks.erase(toks.begin()); // drop "test" or "["
 
+        for (auto& tk : toks) tk = unquote(tk); // strip quotes from each token
+
         TestEval ev(toks);
         g_builtin_exit = ev.eval();
         return true;

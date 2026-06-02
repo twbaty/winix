@@ -930,27 +930,26 @@ _, _, code = run('seq', '--version')
 check('seq --version exits 0', code == 0)
 
 section('test')
-_, _, code = run('test', '1', '-eq', '1')
-check('test 1 -eq 1 -> 0', code == 0)
-_, _, code = run('test', '1', '-eq', '2')
-check('test 1 -eq 2 -> 1', code == 1)
-_, _, code = run('test', '-n', 'hello')
-check('test -n nonempty -> 0', code == 0)
-_, _, code = run('test', '-z', '')
-check('test -z empty -> 0', code == 0)
-_, _, code = run('test', 'a', '=', 'a')
-check('test string = -> 0', code == 0)
-_, _, code = run('test', 'a', '!=', 'b')
-check('test string != -> 0', code == 0)
-with tempfile.TemporaryDirectory() as d:
-    f = os.path.join(d, 'f.txt')
-    open(f, 'w').close()
-    _, _, code = run('test', '-f', f)
-    check('test -f file -> 0', code == 0)
-    _, _, code = run('test', '-d', d)
-    check('test -d dir -> 0', code == 0)
-_, _, code = run('test', '--version')
-check('test --version exits 0', code == 0)
+# test/[ are shell builtins — run each case as a tiny winix script so the
+# shell process exit code equals the test command's exit code directly.
+with tempfile.TemporaryDirectory() as _td:
+    _script = os.path.join(_td, '_t.sh')
+    def _sh(src):
+        with open(_script, 'w') as _f:
+            _f.write(src + '\n')
+        _, _, rc = run('winix', _script)
+        return rc
+    check('test 1 -eq 1 -> 0', _sh('test 1 -eq 1') == 0)
+    check('test 1 -eq 2 -> 1', _sh('test 1 -eq 2') == 1)
+    check('test -n nonempty -> 0', _sh('test -n hello') == 0)
+    check('test -z empty -> 0', _sh('test -z ""') == 0)
+    check('test string = -> 0', _sh('test a = a') == 0)
+    check('test string != -> 0', _sh('test a != b') == 0)
+    f = os.path.join(_td, 'f.txt').replace('\\', '/')
+    open(os.path.join(_td, 'f.txt'), 'w').close()
+    check('test -f file -> 0', _sh(f'test -f "{f}"') == 0)
+    check('test -d dir -> 0', _sh(f'test -d "{_td.replace(chr(92), "/")}"') == 0)
+    check('test --help exits 0', _sh('test --help') == 0)
 
 section('yes')
 out, _, code = run('yes', '--version')
