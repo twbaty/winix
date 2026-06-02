@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <shlwapi.h>
 #pragma comment(lib, "Shlwapi.lib")
+#include <io.h>
+#include <cstring>
 
 #include <algorithm>
 #include <cctype>
@@ -1588,6 +1590,187 @@ static void print_help() {
 }
 
 // --------------------------------------------------
+// test / [ builtin expression evaluator
+// --------------------------------------------------
+struct TestEval {
+    const std::vector<std::string>& args;
+    int  pos   = 0;
+    bool error = false;
+
+    explicit TestEval(const std::vector<std::string>& a) : args(a) {}
+
+    const char* peek()    const { return pos < (int)args.size() ? args[pos].c_str()   : nullptr; }
+    const char* consume()       { return pos < (int)args.size() ? args[pos++].c_str() : nullptr; }
+
+    static bool f_exists(const char* p)  { std::error_code e; return fs::exists(p, e); }
+    static bool f_regular(const char* p) { std::error_code e; return fs::is_regular_file(p, e); }
+    static bool f_dir(const char* p)     { std::error_code e; return fs::is_directory(p, e); }
+    static bool f_readable(const char* p){ return _access(p, 4) == 0; }
+    static bool f_writable(const char* p){
+        DWORD a = GetFileAttributesA(p);
+        return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_READONLY);
+    }
+    static bool f_executable(const char* p) {
+        std::error_code e;
+        if (!fs::is_regular_file(p, e)) return false;
+        const char* dot = strrchr(p, '.');
+        if (dot) {
+            if (_stricmp(dot, ".exe") == 0) return true;
+            if (_stricmp(dot, ".bat") == 0) return true;
+            if (_stricmp(dot, ".cmd") == 0) return true;
+            if (_stricmp(dot, ".com") == 0) return true;
+        }
+        return _access(p, 1) == 0;
+    }
+    static bool f_nonempty(const char* p) {
+        std::error_code e;
+        auto sz = fs::file_size(p, e);
+        return !e && sz > 0;
+    }
+    static bool f_symlink(const char* p) {
+        DWORD a = GetFileAttributesA(p);
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    }
+
+    int parse_primary() {
+        const char* t = peek();
+        if (!t) return 0;
+
+        if (strcmp(t, "(") == 0) {
+            consume();
+            int val = parse_or();
+            const char* cl = consume();
+            if (!cl || strcmp(cl, ")") != 0) {
+                std::cerr << "test: missing ')'\n";
+                error = true; return 0;
+            }
+            return val;
+        }
+
+        if (t[0] == '-' && t[1] != '\0' && t[2] == '\0') {
+            char op = t[1];
+            switch (op) {
+                case 'e': case 'f': case 'd': case 'r': case 'w':
+                case 'x': case 's': case 'L': case 'h': {
+                    consume();
+                    const char* file = consume();
+                    if (!file) {
+                        std::cerr << "test: missing argument after '-" << op << "'\n";
+                        error = true; return 0;
+                    }
+                    switch (op) {
+                        case 'e': return f_exists(file)      ? 1 : 0;
+                        case 'f': return f_regular(file)     ? 1 : 0;
+                        case 'd': return f_dir(file)         ? 1 : 0;
+                        case 'r': return f_readable(file)    ? 1 : 0;
+                        case 'w': return f_writable(file)    ? 1 : 0;
+                        case 'x': return f_executable(file)  ? 1 : 0;
+                        case 's': return (f_exists(file) && f_nonempty(file)) ? 1 : 0;
+                        case 'L': case 'h': return f_symlink(file) ? 1 : 0;
+                    }
+                    break;
+                }
+                case 'z': {
+                    consume();
+                    const char* s = consume();
+                    if (!s) { std::cerr << "test: missing argument after '-z'\n"; error = true; return 0; }
+                    return (strlen(s) == 0) ? 1 : 0;
+                }
+                case 'n': {
+                    consume();
+                    const char* s = consume();
+                    if (!s) { std::cerr << "test: missing argument after '-n'\n"; error = true; return 0; }
+                    return (strlen(s) > 0) ? 1 : 0;
+                }
+                default: break;
+            }
+        }
+
+        const char* lhs = consume();
+        const char* op  = peek();
+        if (!op) return (strlen(lhs) > 0) ? 1 : 0;
+
+        if (strcmp(op, "=") == 0) {
+            consume(); const char* rhs = consume();
+            if (!rhs) { std::cerr << "test: missing argument after '='\n"; error = true; return 0; }
+            return (strcmp(lhs, rhs) == 0) ? 1 : 0;
+        }
+        if (strcmp(op, "!=") == 0) {
+            consume(); const char* rhs = consume();
+            if (!rhs) { std::cerr << "test: missing argument after '!='\n"; error = true; return 0; }
+            return (strcmp(lhs, rhs) != 0) ? 1 : 0;
+        }
+        if (strcmp(op, "<") == 0) {
+            consume(); const char* rhs = consume();
+            if (!rhs) { std::cerr << "test: missing argument after '<'\n"; error = true; return 0; }
+            return (strcmp(lhs, rhs) < 0) ? 1 : 0;
+        }
+        if (strcmp(op, ">") == 0) {
+            consume(); const char* rhs = consume();
+            if (!rhs) { std::cerr << "test: missing argument after '>'\n"; error = true; return 0; }
+            return (strcmp(lhs, rhs) > 0) ? 1 : 0;
+        }
+
+        if (op[0] == '-' && op[1] != '\0') {
+            if (strcmp(op, "-eq") == 0 || strcmp(op, "-ne") == 0 ||
+                strcmp(op, "-lt") == 0 || strcmp(op, "-le") == 0 ||
+                strcmp(op, "-gt") == 0 || strcmp(op, "-ge") == 0) {
+                consume(); const char* rhs = consume();
+                if (!rhs) { std::cerr << "test: missing argument after '" << op << "'\n"; error = true; return 0; }
+                char *e1, *e2;
+                long l = strtol(lhs, &e1, 10);
+                long r = strtol(rhs, &e2, 10);
+                if (*e1) { std::cerr << "test: '" << lhs << "': integer expression expected\n"; error = true; return 0; }
+                if (*e2) { std::cerr << "test: '" << rhs << "': integer expression expected\n"; error = true; return 0; }
+                if (strcmp(op, "-eq") == 0) return (l == r) ? 1 : 0;
+                if (strcmp(op, "-ne") == 0) return (l != r) ? 1 : 0;
+                if (strcmp(op, "-lt") == 0) return (l <  r) ? 1 : 0;
+                if (strcmp(op, "-le") == 0) return (l <= r) ? 1 : 0;
+                if (strcmp(op, "-gt") == 0) return (l >  r) ? 1 : 0;
+                if (strcmp(op, "-ge") == 0) return (l >= r) ? 1 : 0;
+            }
+        }
+
+        return (strlen(lhs) > 0) ? 1 : 0;
+    }
+
+    int parse_not() {
+        const char* t = peek();
+        if (t && strcmp(t, "!") == 0) { consume(); return parse_not() ? 0 : 1; }
+        return parse_primary();
+    }
+
+    int parse_and() {
+        int left = parse_not();
+        while (peek() && strcmp(peek(), "-a") == 0) {
+            consume(); int right = parse_not();
+            left = (left && right) ? 1 : 0;
+        }
+        return left;
+    }
+
+    int parse_or() {
+        int left = parse_and();
+        while (peek() && strcmp(peek(), "-o") == 0) {
+            consume(); int right = parse_and();
+            left = (left || right) ? 1 : 0;
+        }
+        return left;
+    }
+
+    int eval() {
+        if (args.empty()) return 1;
+        int result = parse_or();
+        if (error) return 2;
+        if (pos < (int)args.size()) {
+            std::cerr << "test: too many arguments\n";
+            return 2;
+        }
+        return result ? 0 : 1;
+    }
+};
+
+// --------------------------------------------------
 // Builtins
 // --------------------------------------------------
 static bool handle_builtin(
@@ -2215,6 +2398,42 @@ static bool handle_builtin(
 
         aliases.set(name, val);
         aliases.save(paths.aliases_file);
+        return true;
+    }
+
+    // test EXPR  and  [ EXPR ]
+    if (starts("test ") || match("test") || starts("[ ") || match("[")) {
+        auto toks = shell_tokens(line);
+
+        // If the token stream contains bare chain operators the interactive loop
+        // called us before split_chain had a chance to run.  Return false so
+        // chain splitting dispatches each segment back through run_command_line,
+        // which will call handle_builtin again with just the test/[ fragment.
+        for (auto& tk : toks) {
+            if (tk == "&&" || tk == "||" || tk == ";") return false;
+        }
+
+        bool bracket = (!toks.empty() && toks[0] == "[");
+
+        if (!bracket && toks.size() >= 2 && toks[1] == "--help") {
+            std::cout << "Usage: test EXPR\n"
+                         "       [ EXPR ]\n"
+                         "Evaluate a conditional expression.\n"
+                         "Exit 0 if true, 1 if false, 2 on error.\n";
+            return true;
+        }
+
+        if (bracket) {
+            if (toks.size() < 2 || toks.back() != "]") {
+                std::cerr << "[: missing ']'\n";
+                g_builtin_exit = 2; return true;
+            }
+            toks.pop_back();
+        }
+        toks.erase(toks.begin()); // drop "test" or "["
+
+        TestEval ev(toks);
+        g_builtin_exit = ev.eval();
         return true;
     }
 

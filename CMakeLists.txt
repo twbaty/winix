@@ -143,16 +143,6 @@ endforeach()
 add_executable(grep src/coreutils/grep.cpp)
 target_link_libraries(grep winixcommon)
 
-# test — CMake reserves the name "test" as a built-in target, so we name the
-# CMake target "test_cmd" and set the output binary name to "test".
-add_executable(test_cmd src/coreutils/test.c)
-set_target_properties(test_cmd PROPERTIES OUTPUT_NAME "test")
-target_link_libraries(test_cmd winixcommon)
-
-# [ — second binary from the same source; "[.exe" is valid on Windows.
-add_executable(lbracket src/coreutils/test.c)
-set_target_properties(lbracket PROPERTIES OUTPUT_NAME "[")
-target_link_libraries(lbracket winixcommon)
 
 add_executable(id src/coreutils/id.c)
 target_link_libraries(id winixcommon advapi32)
@@ -290,7 +280,6 @@ install(TARGETS
     seq yes hostname
     paste comm base64 shuf
     md5sum sha256sum hexdump
-    test_cmd lbracket
     mktemp realpath cmp fold expand unexpand
     column time watch bc awk wlint wsim apropos
     strings xxd od split
