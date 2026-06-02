@@ -159,7 +159,7 @@ This is a stable, feature-complete release. Future work (if any) would be:
 
 ---
 
-## 🔐 v4.3 — wsudo (Winix-native elevation)
+## 🔐 v4.4 — wsudo (Winix-native elevation)
 
 **Goal:** Same-terminal elevated command execution — no new window, no dependency on Windows sudo.exe.
 
