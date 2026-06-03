@@ -53,8 +53,9 @@ echo.
 :: 2. Add C:\Winix and C:\Winix\bin to the system PATH
 :: ==========================================================
 echo [2/5] Checking system PATH...
-powershell -NoProfile -Command ^
-    "$p = [Environment]::GetEnvironmentVariable('Path','Machine');" ^
+powershell -NoProfile -NonInteractive -Command ^
+    "$regPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment';" ^
+    "$p = (Get-ItemProperty $regPath).Path;" ^
     "$changed = $false;" ^
     "if ($p -notlike '*%INSTALL_PREFIX%;*' -and $p -notlike '*%INSTALL_PREFIX%') {" ^
     "    $p = $p + ';%INSTALL_PREFIX%';" ^
@@ -66,14 +67,14 @@ powershell -NoProfile -Command ^
     "    $changed = $true;" ^
     "    Write-Host '[PATH] Added %INSTALL_PREFIX%\bin to system PATH.';" ^
     "} else { Write-Host '[PATH] %INSTALL_PREFIX%\bin already in system PATH.'; };" ^
-    "if ($changed) { [Environment]::SetEnvironmentVariable('Path', $p, 'Machine'); }"
+    "if ($changed) { Set-ItemProperty $regPath -Name Path -Value $p; Write-Host '[PATH] Done (open a new terminal to apply).' }"
 echo.
 
 :: ==========================================================
 :: 3. Start Menu shortcut
 :: ==========================================================
 echo [3/5] Creating Start Menu shortcut...
-powershell -NoProfile -Command ^
+powershell -NoProfile -NonInteractive -Command ^
     "$ws  = New-Object -ComObject WScript.Shell;" ^
     "$dir = '%ProgramData%\Microsoft\Windows\Start Menu\Programs\Winix';" ^
     "New-Item -ItemType Directory -Force $dir | Out-Null;" ^
@@ -116,7 +117,7 @@ echo.
 :: 6. Windows Terminal profile
 :: ==========================================================
 echo [6/7] Adding Windows Terminal profile...
-powershell -NoProfile -Command ^
+powershell -NoProfile -NonInteractive -Command ^
     "$wtPaths = @(" ^
     "  \"$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json\"," ^
     "  \"$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json\"," ^
@@ -146,7 +147,7 @@ echo.
 :: 7. Windows Defender exclusions
 :: ==========================================================
 echo [7/7] Adding Windows Defender exclusions...
-powershell -NoProfile -Command ^
+powershell -NoProfile -NonInteractive -Command ^
     "try {" ^
     "  Add-MpPreference -ExclusionPath '%INSTALL_PREFIX%' -ErrorAction Stop;" ^
     "  Add-MpPreference -ExclusionPath '%INSTALL_PREFIX%\bin' -ErrorAction Stop;" ^
