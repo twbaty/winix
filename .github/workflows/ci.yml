@@ -30,6 +30,7 @@ jobs:
             --platform=win64 \
             --std=c99 \
             --inline-suppr \
+            -DWINIX_VERSION=0 \
             -q \
             src/coreutils/ src/common/
         # missingIncludeSystem: windows.h and friends not present on Linux — expected
