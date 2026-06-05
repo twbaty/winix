@@ -10,6 +10,16 @@ _Changes in development, not yet in a formal release._
 
 ---
 
+## [4.3.2] – 2026-06-05
+### Fixed
+- **installer PATH not applied to open terminals**: `install.bat` now sends a
+  `SendMessageTimeout` broadcast (5-second cap) after writing the system PATH
+  so existing terminal sessions pick up `C:\Winix` and `C:\Winix\bin` without
+  a restart. PATH detection was also tightened from `-notlike` wildcard matching
+  to an exact `split`/`notcontains` check to prevent false positives.
+
+---
+
 ## [4.1.6] – 2026-04-30
 ### Fixed
 - **Tab completion with spaces in path**: completing a folder whose name contains

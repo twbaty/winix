@@ -54,20 +54,16 @@ echo.
 :: ==========================================================
 echo [2/5] Checking system PATH...
 powershell -NoProfile -NonInteractive -Command ^
-    "$regPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment';" ^
-    "$p = (Get-ItemProperty $regPath).Path;" ^
-    "$changed = $false;" ^
-    "if ($p -notlike '*%INSTALL_PREFIX%;*' -and $p -notlike '*%INSTALL_PREFIX%') {" ^
-    "    $p = $p + ';%INSTALL_PREFIX%';" ^
-    "    $changed = $true;" ^
-    "    Write-Host '[PATH] Added %INSTALL_PREFIX% to system PATH.';" ^
-    "} else { Write-Host '[PATH] %INSTALL_PREFIX% already in system PATH.'; };" ^
-    "if ($p -notlike '*%INSTALL_PREFIX%\bin*') {" ^
-    "    $p = $p + ';%INSTALL_PREFIX%\bin';" ^
-    "    $changed = $true;" ^
-    "    Write-Host '[PATH] Added %INSTALL_PREFIX%\bin to system PATH.';" ^
-    "} else { Write-Host '[PATH] %INSTALL_PREFIX%\bin already in system PATH.'; };" ^
-    "if ($changed) { Set-ItemProperty $regPath -Name Path -Value $p; Write-Host '[PATH] Done (open a new terminal to apply).' }"
+    "$r='HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment';" ^
+    "$p=(Get-ItemProperty $r).Path; $e=$p -split ';'; $c=$false;" ^
+    "if($e -notcontains '%INSTALL_PREFIX%'){$p=$p.TrimEnd(';')+';%INSTALL_PREFIX%';$c=$true;Write-Host '[PATH] Added %INSTALL_PREFIX%'}else{Write-Host '[PATH] %INSTALL_PREFIX% already present'};" ^
+    "if($e -notcontains '%INSTALL_PREFIX%\bin'){$p=$p.TrimEnd(';')+';%INSTALL_PREFIX%\bin';$c=$true;Write-Host '[PATH] Added %INSTALL_PREFIX%\bin'}else{Write-Host '[PATH] %INSTALL_PREFIX%\bin already present'};" ^
+    "if($c){Set-ItemProperty $r -Name Path -Value $p;" ^
+    "  try{$q=[char]34;$sig='[DllImport('+$q+'user32.dll'+$q+',CharSet=CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr h,uint m,UIntPtr w,string l,uint f,uint t,out UIntPtr r);';" ^
+    "  $t=Add-Type -MemberDefinition $sig -Name WEB -Namespace WEB -PassThru -EA Stop;" ^
+    "  $rv=[UIntPtr]::Zero;$null=$t::SendMessageTimeout([IntPtr]0xffff,0x1A,[UIntPtr]::Zero,'Environment',2,5000,[ref]$rv);Write-Host '[PATH] Change broadcast to open windows.'}catch{};" ^
+    "  Write-Host '[PATH] Done. Open a new terminal to apply.';}"
+if errorlevel 1 echo [WARN] PATH update reported an error. Run install.bat as Administrator.
 echo.
 
 :: ==========================================================
