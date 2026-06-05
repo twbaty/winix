@@ -1,6 +1,7 @@
 // src/shell/main.cpp
 // Winix Shell — Stable Edition (final, corrected)
 
+#include "winix_version.h"
 #include <windows.h>
 #include <shlwapi.h>
 #pragma comment(lib, "Shlwapi.lib")

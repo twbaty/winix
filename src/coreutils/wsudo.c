@@ -19,9 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef WINIX_VERSION
-#  define WINIX_VERSION "0.0"
-#endif
+#include "winix_version.h"
 
 #define WSUDO_VERSION "0.1"
 

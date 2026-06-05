@@ -31,9 +31,7 @@
 #include <regex>
 #include <string>
 
-#ifndef WINIX_VERSION
-#define WINIX_VERSION "unknown"
-#endif
+#include "winix_version.h"
 
 #define ANSI_RED   "\x1b[31m"
 #define ANSI_RESET "\x1b[0m"

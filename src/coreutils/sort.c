@@ -19,10 +19,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 
-/* WINIX_VERSION injected by CMake */
-#ifndef WINIX_VERSION
-#define WINIX_VERSION "unknown"
-#endif
+#include "winix_version.h"
 
 #define LINE_LEN 8192
 

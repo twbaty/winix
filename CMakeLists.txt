@@ -4,19 +4,27 @@ project(Winix C CXX)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
-# Single source of truth for version — edit VERSION file only.
-# configure_file makes CMake re-run configure automatically when VERSION changes.
-file(READ "${CMAKE_SOURCE_DIR}/VERSION" WINIX_VERSION)
-string(STRIP "${WINIX_VERSION}" WINIX_VERSION)
-configure_file("${CMAKE_SOURCE_DIR}/VERSION" "${CMAKE_BINARY_DIR}/VERSION.stamp" COPYONLY)
-add_compile_definitions(WINIX_VERSION="${WINIX_VERSION}")
+# Version header is regenerated at every build from the VERSION file.
+# No manual cmake reconfigure is needed after bumping VERSION.
+add_custom_command(
+    OUTPUT  "${CMAKE_BINARY_DIR}/winix_version.h"
+    COMMAND ${CMAKE_COMMAND}
+            -DVER_SRC=${CMAKE_SOURCE_DIR}/VERSION
+            -DVER_DST=${CMAKE_BINARY_DIR}/winix_version.h
+            -P ${CMAKE_SOURCE_DIR}/cmake/gen_version.cmake
+    DEPENDS "${CMAKE_SOURCE_DIR}/VERSION"
+    VERBATIM
+)
+add_custom_target(winix_version_h
+    DEPENDS "${CMAKE_BINARY_DIR}/winix_version.h"
+)
 
 # Default install location — override with cmake --install build --prefix <path>
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "C:/Winix" CACHE PATH "Winix install root" FORCE)
 endif()
 
-include_directories(src/include src/common src/shell src/third_party/zlib src/third_party/zstd)
+include_directories(src/include src/common src/shell src/third_party/zlib src/third_party/zstd "${CMAKE_BINARY_DIR}")
 
 # ------------------------------------------------------------
 # zlib (bundled, static — used by gzip/gunzip)
@@ -261,6 +269,11 @@ target_link_libraries(wfetch advapi32)
 
 add_executable(wsudo     src/coreutils/wsudo.c)
 target_link_libraries(wsudo shell32)
+
+# Targets that #include "winix_version.h" must wait for the generated header
+foreach(t ver sort tail nix grep wfetch wsudo winix)
+    add_dependencies(${t} winix_version_h)
+endforeach()
 
 # winix shell goes to the root of the install prefix (C:\Winix\winix.exe)
 install(TARGETS winix DESTINATION .)

@@ -39,10 +39,7 @@
 #include <conio.h>
 #include <windows.h>
 
-/* WINIX_VERSION is injected by CMake from the VERSION file */
-#ifndef WINIX_VERSION
-#define WINIX_VERSION "unknown"
-#endif
+#include "winix_version.h"
 #define VERSION       "nix 1.2 (Winix " WINIX_VERSION ")"
 #define MAX_PATH_LEN  MAX_PATH
 #define LINE_CAP_INIT 64

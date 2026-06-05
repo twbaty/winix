@@ -5,9 +5,7 @@
 #include <string.h>
 #include <windows.h>
 
-#ifndef WINIX_VERSION
-#  define WINIX_VERSION "0.0"
-#endif
+#include "winix_version.h"
 
 /* ANSI colors */
 #define RESET  "\033[0m"
