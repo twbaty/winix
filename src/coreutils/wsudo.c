@@ -64,17 +64,6 @@ static char *join_args(int argc, char **argv, int start) {
     return buf;
 }
 
-/* Blocking copy thread: reads src, writes dst until src closes or write fails. */
-typedef struct { HANDLE src; HANDLE dst; } CopyArgs;
-static DWORD WINAPI copy_thread(LPVOID p) {
-    CopyArgs *a = (CopyArgs *)p;
-    char buf[PIPE_BUF];
-    DWORD n;
-    while (ReadFile(a->src, buf, PIPE_BUF, &n, NULL) && n > 0)
-        if (!WriteFile(a->dst, buf, n, &n, NULL)) break;
-    return 0;
-}
-
 /* Generate a unique pipe name based on PID + tick count */
 static void make_pipe_name(char *out, size_t sz) {
     snprintf(out, sz, "\\\\.\\pipe\\wsudo_%lu_%lu",
@@ -97,17 +86,35 @@ static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
         FlushConsoleInputBuffer(con_in);
     }
 
+    /* Run until the broker calls DisconnectNamedPipe (or crashes), which
+       causes PeekNamedPipe to return FALSE.  We do NOT break on broker
+       process exit here — the broker keeps the pipe open until it has
+       flushed all output, so the process exit signal is meaningless for
+       flow control. */
     for (;;) {
         BOOL did_work = FALSE;
 
-        /* Drain pipe output first */
+        /* Drain all available pipe output */
         avail = 0;
-        while (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+        if (!PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL)) {
+            /* ERROR_PIPE_NOT_CONNECTED (233): client connected before the
+               broker called ConnectNamedPipe — race condition.  Retry while
+               broker is still alive; once broker calls ConnectNamedPipe the
+               pipe transitions to connected state and PeekNamedPipe works. */
+            if (GetLastError() == ERROR_PIPE_NOT_CONNECTED &&
+                WaitForSingleObject(broker_proc, 0) != WAIT_OBJECT_0) {
+                Sleep(10);
+                continue;
+            }
+            break; /* true disconnect or broker exited */
+        }
+        while (avail > 0) {
             to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
             if (!ReadFile(pipe, buf, to_read, &n, NULL) || n == 0) goto done;
-            WriteFile(con_out, buf, n, &n, NULL);
-            avail = 0;
+            WriteFile(con_out, buf, n, &written, NULL);
             did_work = TRUE;
+            avail = 0;
+            if (!PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL)) goto done;
         }
 
         /* Forward keystrokes to the elevated process.
@@ -137,20 +144,13 @@ static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
             }
         }
 
-        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0) {
-            /* Broker exited — give out_thread a moment to flush remaining
-               pipe data, then drain with ReadFile (PeekNamedPipe returns
-               FALSE on a closed pipe even if data is still buffered). */
-            Sleep(100);
-            while (ReadFile(pipe, buf, PIPE_BUF, &n, NULL) && n > 0)
-                WriteFile(con_out, buf, n, &written, NULL);
-            break;
-        }
         if (!did_work) Sleep(5);
     }
 
 done:
     if (is_console) SetConsoleMode(con_in, orig_mode);
+    /* Broker may still be closing handles — wait briefly for clean exit */
+    WaitForSingleObject(broker_proc, 3000);
     GetExitCodeProcess(broker_proc, &exit_code);
     return exit_code;
 }
@@ -313,8 +313,9 @@ static int run_broker(const char *pipe_name, int argc, char **argv, int cmd_star
     PROCESS_INFORMATION pi = {0};
     if (!CreateProcessA(NULL, cmd_line, NULL, NULL, TRUE,
                         CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        DWORD cperr = GetLastError();
         fprintf(stderr, "wsudo: failed to launch '%s' (error %lu)\n",
-                cmd_line, GetLastError());
+                cmd_line, cperr);
         free(cmd_line);
         CloseHandle(child_stdin_r);  CloseHandle(child_stdin_w);
         CloseHandle(child_stdout_r); CloseHandle(child_stdout_w);
@@ -328,25 +329,67 @@ static int run_broker(const char *pipe_name, int argc, char **argv, int cmd_star
     CloseHandle(child_stdin_r);
     CloseHandle(child_stdout_w);
 
-    /* Blocking threads — no polling delay in either direction */
-    CopyArgs out_args = { child_stdout_r, pipe };   /* child stdout → named pipe  */
-    CopyArgs in_args  = { pipe, child_stdin_w };    /* named pipe  → child stdin  */
-    HANDLE out_thread = CreateThread(NULL, 0, copy_thread, &out_args, 0, NULL);
-    HANDLE in_thread  = CreateThread(NULL, 0, copy_thread, &in_args,  0, NULL);
+    /* Single-threaded I/O bridge — avoids the deadlock caused by concurrent
+       synchronous ReadFile + WriteFile on the same named pipe server handle.
+       Windows serializes sync I/O on a single handle: if one thread blocks in
+       ReadFile(pipe) waiting for client input, a second thread's WriteFile(pipe)
+       can never proceed. Poll both directions with PeekNamedPipe instead. */
+    {
+        char iobuf[PIPE_BUF];
+        DWORD n, written, avail;
+        for (;;) {
+            BOOL did_work = FALSE;
 
-    /* Wait for the elevated command to finish */
-    WaitForSingleObject(pi.hProcess, INFINITE);
+            /* Forward any available child stdout → named pipe */
+            avail = 0;
+            PeekNamedPipe(child_stdout_r, NULL, 0, NULL, &avail, NULL);
+            while (avail > 0) {
+                DWORD to_read = avail < (DWORD)PIPE_BUF ? avail : (DWORD)PIPE_BUF;
+                if (!ReadFile(child_stdout_r, iobuf, to_read, &n, NULL) || n == 0)
+                    goto io_done;
+                WriteFile(pipe, iobuf, n, &written, NULL);
+                did_work = TRUE;
+                avail = 0;
+                PeekNamedPipe(child_stdout_r, NULL, 0, NULL, &avail, NULL);
+            }
 
-    /* Let the stdout thread drain any buffered output (child write-end just closed) */
-    WaitForSingleObject(out_thread, 2000);
-    TerminateThread(out_thread, 0);
-    CloseHandle(out_thread);
+            /* Forward any available client stdin → child stdin */
+            avail = 0;
+            PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL);
+            while (avail > 0) {
+                DWORD to_read = avail < (DWORD)PIPE_BUF ? avail : (DWORD)PIPE_BUF;
+                if (!ReadFile(pipe, iobuf, to_read, &n, NULL) || n == 0)
+                    goto io_done;
+                WriteFile(child_stdin_w, iobuf, n, &written, NULL);
+                did_work = TRUE;
+                avail = 0;
+                PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL);
+            }
 
-    /* Stdin thread is blocked on ReadFile(pipe) — terminate it cleanly */
-    TerminateThread(in_thread, 0);
-    CloseHandle(in_thread);
+            /* Once child exits, drain any remaining output then stop */
+            if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) {
+                avail = 0;
+                PeekNamedPipe(child_stdout_r, NULL, 0, NULL, &avail, NULL);
+                while (avail > 0) {
+                    DWORD to_read = avail < (DWORD)PIPE_BUF ? avail : (DWORD)PIPE_BUF;
+                    if (!ReadFile(child_stdout_r, iobuf, to_read, &n, NULL) || n == 0) break;
+                    WriteFile(pipe, iobuf, n, &written, NULL);
+                    avail = 0;
+                    PeekNamedPipe(child_stdout_r, NULL, 0, NULL, &avail, NULL);
+                }
+                break;
+            }
 
+            if (!did_work) Sleep(5);
+        }
+        io_done:;
+    }
+
+    /* FlushFileBuffers blocks until the client has read all buffered data.
+       DisconnectNamedPipe is the explicit "done" signal that causes the
+       client's PeekNamedPipe to return FALSE and exit its poll loop. */
     FlushFileBuffers(pipe);
+    DisconnectNamedPipe(pipe);
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
