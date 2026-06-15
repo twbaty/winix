@@ -137,16 +137,16 @@ static DWORD client_io_loop(HANDLE pipe, HANDLE broker_proc) {
             }
         }
 
-        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0) break;
+        if (WaitForSingleObject(broker_proc, 0) == WAIT_OBJECT_0) {
+            /* Broker exited — give out_thread a moment to flush remaining
+               pipe data, then drain with ReadFile (PeekNamedPipe returns
+               FALSE on a closed pipe even if data is still buffered). */
+            Sleep(100);
+            while (ReadFile(pipe, buf, PIPE_BUF, &n, NULL) && n > 0)
+                WriteFile(con_out, buf, n, &written, NULL);
+            break;
+        }
         if (!did_work) Sleep(5);
-    }
-
-    avail = 0;
-    while (PeekNamedPipe(pipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
-        to_read = avail < PIPE_BUF ? avail : PIPE_BUF;
-        if (!ReadFile(pipe, buf, to_read, &n, NULL) || n == 0) break;
-        WriteFile(con_out, buf, n, &n, NULL);
-        avail = 0;
     }
 
 done:
