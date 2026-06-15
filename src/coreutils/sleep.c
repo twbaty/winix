@@ -30,16 +30,30 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    int sec = atoi(argv[1]);
-    if (sec <= 0) {
-        fprintf(stderr, "sleep: invalid duration\n");
+    const char *arg = argv[1];
+    char *end;
+    double val = strtod(arg, &end);
+    if (end == arg || val < 0) {
+        fprintf(stderr, "sleep: invalid time interval '%s'\n", arg);
+        return 1;
+    }
+    double seconds = val;
+    if      (*end == 's' || *end == '\0') seconds = val;
+    else if (*end == 'm') seconds = val * 60;
+    else if (*end == 'h') seconds = val * 3600;
+    else if (*end == 'd') seconds = val * 86400;
+    else {
+        fprintf(stderr, "sleep: invalid time interval '%s'\n", arg);
         return 1;
     }
 
 #ifdef _WIN32
-    Sleep(sec * 1000);
+    Sleep((DWORD)(seconds * 1000));
 #else
-    sleep(sec);
+    unsigned long secs  = (unsigned long)seconds;
+    unsigned long usecs = (unsigned long)((seconds - secs) * 1e6);
+    sleep(secs);
+    if (usecs) usleep(usecs);
 #endif
     return 0;
 }

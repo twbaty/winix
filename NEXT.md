@@ -134,6 +134,7 @@
 | **4.3.1** | Done | Fix installer hang on "Checking system PATH" — replace `[Environment]::SetEnvironmentVariable` (broadcasts WM_SETTINGCHANGE, blocks on corporate machines) with direct registry write; add `-NonInteractive` to all PowerShell installer calls ✅ |
 | **4.3.2** | Done | Fix installer PATH detection and broadcast ✅ |
 | **4.3.3** | Done | Fix installer freeze at step 1 — add `/I` flag to `xcopy` so it never prompts for file-vs-directory when destination dir is absent ✅ |
+| **4.4.0** | Done | `sleep` suffix support (`1m`, `2h`, `1.5d`) ✅; `which` finds all matches in PATH and accepts multiple commands ✅; `startup_dir` in `.winixrc` (set via `set startup_dir=PATH`) ✅; `--help` for shell builtins `cd`, `alias`, `history`, `set` ✅; no-args error + `--help` hint standardized across 30 coreutils ✅ |
 
 ---
 

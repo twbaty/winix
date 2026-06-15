@@ -278,6 +278,7 @@ struct Config {
     // PS1 format string — expanded at each prompt render.
     // Supports: \u \h \w \W \$ \t \d \n \e \[ \]
     std::string ps1 = "\\[\\e[32m\\][Winix] \\w >\\[\\e[0m\\] ";
+    std::string startup_dir;  // if set, cd here on every launch
 };
 
 struct Paths {
@@ -332,6 +333,8 @@ static void load_rc(const Paths& paths, Config& cfg) {
             cfg.case_sensitive = (to_lower(v) == "on");
         } else if (k == "ps1") {
             cfg.ps1 = v;  // stored as raw format string
+        } else if (k == "startup_dir") {
+            cfg.startup_dir = v;
         }
     }
 }
@@ -342,6 +345,8 @@ static void save_rc(const Paths& paths, const Config& cfg) {
     out << "history_size=" << cfg.history_max << "\n";
     out << "case=" << (cfg.case_sensitive ? "on" : "off") << "\n";
     out << "ps1=" << cfg.ps1 << "\n";
+    if (!cfg.startup_dir.empty())
+        out << "startup_dir=" << cfg.startup_dir << "\n";
 }
 
 // --------------------------------------------------
@@ -1228,6 +1233,15 @@ static DWORD run_segment(const std::string& seg, const Paths& paths,
     // handle cd (builtin — redirection is a no-op for it)
     if (to_lower(t[0]) == "cd") {
         close_redirs();
+        if (t.size() >= 2 && (t[1] == "--help" || t[1] == "-h")) {
+            std::cout <<
+                "Usage: cd [DIR]\n"
+                "Change the current working directory.\n\n"
+                "  cd        change to home directory\n"
+                "  cd DIR    change to DIR\n\n"
+                "      --help  display this help\n";
+            return 0;
+        }
         if (t.size() == 1) {
             std::error_code ec;
             fs::current_path(user_home(), ec);
@@ -1799,6 +1813,19 @@ static bool handle_builtin(
     };
 
     // set NAME=VALUE  (intercept shell toggles before env-var fallthrough)
+    if (match("set --help") || match("set -h")) {
+        std::cout <<
+            "Usage: set NAME=VALUE\n"
+            "Set a shell option or environment variable.\n\n"
+            "  Shell options:\n"
+            "    case=on|off          toggle case-sensitive command matching\n"
+            "    PS1=<format>         set the prompt string\n"
+            "    startup_dir=<path>   cd to <path> on every shell launch\n"
+            "    startup_dir=         clear the startup directory\n\n"
+            "  Any other NAME=VALUE sets an environment variable.\n\n"
+            "      --help             display this help\n";
+        return true;
+    }
     if (starts("set ")) {
         auto rest = trim(line.substr(4));
         auto eq = rest.find('=');
@@ -1828,6 +1855,14 @@ static bool handle_builtin(
         if (name == "PS1" || to_lower(name) == "ps1") {
             cfg.ps1 = val;
             save_rc(paths, cfg);
+            return true;
+        }
+
+        // startup_dir
+        if (to_lower(name) == "startup_dir") {
+            cfg.startup_dir = val;
+            save_rc(paths, cfg);
+            std::cout << "startup_dir: " << (val.empty() ? "(cleared)" : val) << "\n";
             return true;
         }
 
@@ -1893,6 +1928,14 @@ static bool handle_builtin(
     }
 
     // history
+    if (match("history --help") || match("history -h")) {
+        std::cout <<
+            "Usage: history [-c]\n"
+            "Display the command history list.\n\n"
+            "  -c    clear the history list\n\n"
+            "      --help  display this help\n";
+        return true;
+    }
     if (match("history"))    { hist.print(); return true; }
     if (match("history -c")) {
         hist.clear();
@@ -1900,6 +1943,17 @@ static bool handle_builtin(
         return true;
     }
 
+    // alias
+    if (match("alias --help") || match("alias -h")) {
+        std::cout <<
+            "Usage: alias [name[=value]] ...\n"
+            "Define or display aliases.\n\n"
+            "  alias              list all aliases\n"
+            "  alias name=value   define alias 'name' to expand to 'value'\n"
+            "  unalias name       remove an alias\n\n"
+            "      --help         display this help\n";
+        return true;
+    }
     // alias print all
     if (match("alias")) {
         for (auto& name : aliases.names()) {
@@ -3368,6 +3422,11 @@ int main(int argc, char* argv[]) {
     Config cfg;
     auto paths = make_paths();
     load_rc(paths, cfg);
+
+    if (!cfg.startup_dir.empty()) {
+        if (!SetCurrentDirectoryA(cfg.startup_dir.c_str()))
+            std::cerr << "winix: startup_dir: cannot cd to '" << cfg.startup_dir << "'\n";
+    }
 
     // Export case setting so coreutils inherit the correct default.
     setenv_win("WINIX_CASE", cfg.case_sensitive ? "on" : "off");
