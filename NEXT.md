@@ -135,6 +135,7 @@
 | **4.3.2** | Done | Fix installer PATH detection and broadcast ✅ |
 | **4.3.3** | Done | Fix installer freeze at step 1 — add `/I` flag to `xcopy` so it never prompts for file-vs-directory when destination dir is absent ✅ |
 | **4.4.0** | Done | `sleep` suffix support (`1m`, `2h`, `1.5d`) ✅; `which` finds all matches in PATH and accepts multiple commands ✅; `startup_dir` in `.winixrc` (set via `set startup_dir=PATH`) ✅; `--help` for shell builtins `cd`, `alias`, `history`, `set` ✅; no-args error + `--help` hint standardized across 30 coreutils ✅ |
+| **4.4.1** | Done | `wsudo` ✅ — Winix-native same-terminal elevation via named pipe I/O bridge; fixed I/O deadlock (single-threaded poll loop replaces concurrent thread pair on shared handle); `whoami`, `ipconfig`, `net session`, multi-arg commands all verified |
 
 ---
 
