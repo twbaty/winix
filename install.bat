@@ -29,7 +29,7 @@ if exist "winix.exe" (
     if not exist "%INSTALL_PREFIX%\bin" mkdir "%INSTALL_PREFIX%\bin"
     copy /y "winix.exe" "%INSTALL_PREFIX%\winix.exe" >nul
     if exist "bin\" (
-        xcopy /y /q "bin\*" "%INSTALL_PREFIX%\bin\" >nul
+        xcopy /y /q /I "bin\*" "%INSTALL_PREFIX%\bin\" >nul
     )
     echo [FILES] Copied from zip layout.
 ) else if exist "build\winix.exe" (

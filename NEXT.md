@@ -132,6 +132,7 @@
 | **4.2.7** | Done | Fix prompt redraws one line too high — flush stdout before cursor snapshot in read_line ✅ |
 | **4.3.0** | Done | Promote `test`/`[` to shell builtins ✅ — drop `test.exe`/`[.exe` from bin; full expression support (-f/-d/-r/-w/-x/-s/-L/-z/-n, string =, !=, <, >, numeric -eq/-ne/-lt/-le/-gt/-ge, ! -a -o, parens); POSIX-near stance documented |
 | **4.3.1** | Done | Fix installer hang on "Checking system PATH" — replace `[Environment]::SetEnvironmentVariable` (broadcasts WM_SETTINGCHANGE, blocks on corporate machines) with direct registry write; add `-NonInteractive` to all PowerShell installer calls ✅ |
+| **4.3.2** | Done | Fix installer PATH detection and broadcast ✅ |
 
 ---
 
