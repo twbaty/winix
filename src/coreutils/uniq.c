@@ -9,6 +9,19 @@ static int opt_uniq  = 0;   /* -u: only print non-duplicate lines */
 int main(int argc, char *argv[]) {
     int argi = 1;
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0 || strcmp(argv[argi], "-h") == 0) {
+            puts("Usage: uniq [OPTION]... [INPUT [OUTPUT]]");
+            puts("Filter adjacent matching lines from INPUT (or stdin), writing to OUTPUT");
+            puts("(or stdout).  With no options, matching lines are merged to the first.");
+            puts("");
+            puts("  -c         prefix lines by the number of occurrences");
+            puts("  -d         only print duplicate lines, one for each group");
+            puts("  -u         only print unique lines");
+            puts("  -h, --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("uniq 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'c') opt_count = 1;
             else if (*p == 'd') opt_dup   = 1;

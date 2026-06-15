@@ -55,6 +55,17 @@ static int print_drive(const char *root) {
 int main(int argc, char *argv[]) {
     int argi = 1;
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0) {
+            puts("Usage: df [OPTION]... [FILE]...");
+            puts("Show information about the file system on which each FILE resides,");
+            puts("or all file systems by default.");
+            puts("");
+            puts("  -h, --human-readable  print sizes in human readable format (e.g., 1.4G)");
+            puts("      --help            display this help and exit");
+            puts("      --version         output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("df 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if (*p == 'h') human = 1;
             else {

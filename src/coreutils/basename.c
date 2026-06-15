@@ -1,9 +1,28 @@
 #include <stdio.h>
 #include <string.h>
 
+static void usage(void) {
+    puts("Usage: basename NAME [SUFFIX]");
+    puts("   or: basename OPTION... NAME...");
+    puts("Print NAME with any leading directory components removed.");
+    puts("If specified, also remove a trailing SUFFIX.");
+    puts("");
+    puts("      --help     display this help and exit");
+    puts("      --version  output version information and exit");
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 2 || argc > 3) {
-        fprintf(stderr, "Usage: basename <path> [suffix]\n");
+    if (argc >= 2 && strcmp(argv[1], "--help") == 0)    { usage(); return 0; }
+    if (argc >= 2 && strcmp(argv[1], "--version") == 0) { puts("basename 1.0 (Winix)"); return 0; }
+
+    if (argc < 2) {
+        fprintf(stderr, "basename: missing operand\n");
+        fprintf(stderr, "Try 'basename --help' for more information.\n");
+        return 1;
+    }
+    if (argc > 3) {
+        fprintf(stderr, "basename: extra operand '%s'\n", argv[3]);
+        fprintf(stderr, "Try 'basename --help' for more information.\n");
         return 1;
     }
 

@@ -5,8 +5,22 @@
 #include <io.h>
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: which <command>\n");
+    if (argc >= 2 && strcmp(argv[1], "--help") == 0) {
+        puts("Usage: which COMMAND...");
+        puts("Locate a command in the PATH.");
+        puts("");
+        puts("      --help     display this help and exit");
+        puts("      --version  output version information and exit");
+        return 0;
+    }
+    if (argc >= 2 && strcmp(argv[1], "--version") == 0) {
+        puts("which 1.0 (Winix)");
+        return 0;
+    }
+
+    if (argc < 2) {
+        fprintf(stderr, "which: missing operand\n");
+        fprintf(stderr, "Try 'which --help' for more information.\n");
         return 1;
     }
 
