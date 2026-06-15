@@ -21,6 +21,17 @@ static const char *fmt_mem(SIZE_T bytes, char *buf, size_t bufsz) {
 int main(int argc, char *argv[]) {
     int argi = 1;
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0 || strcmp(argv[argi], "-h") == 0) {
+            puts("Usage: ps [OPTION]...");
+            puts("Report a snapshot of the current processes.");
+            puts("");
+            puts("  -l         long format: show RSS and virtual memory");
+            puts("  -e, -a     show all processes (default)");
+            puts("  -h, --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("ps 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'l') show_long = 1;
             else if (*p == 'e' || *p == 'a') { /* default is all */ }

@@ -30,6 +30,19 @@ int main(int argc, char* argv[]) {
     int first_file = argc; // index of first non-flag arg
 
     for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            puts("Usage: wc [OPTION]... [FILE]...");
+            puts("Print newline, word, and byte counts for each FILE, and a total if more");
+            puts("than one FILE is specified.  With no FILE, read standard input.");
+            puts("");
+            puts("  -l         print the newline counts");
+            puts("  -w         print the word counts");
+            puts("  -c         print the byte counts");
+            puts("  -h, --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[i], "--version") == 0) { puts("wc 1.0 (Winix)"); return 0; }
         if (argv[i][0] == '-' && argv[i][1] != '\0') {
             for (char *p = argv[i] + 1; *p; ++p) {
                 if      (*p == 'l') show_l = true;

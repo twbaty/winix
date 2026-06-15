@@ -28,6 +28,22 @@ int main(int argc, char *argv[]) {
     int any = 0;
 
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            puts("Usage: uname [OPTION]...");
+            puts("Print certain system information.");
+            puts("With no OPTION, same as -s.");
+            puts("");
+            puts("  -a         print all information");
+            puts("  -s         print the kernel name (default)");
+            puts("  -n         print the network node hostname");
+            puts("  -r         print the kernel release");
+            puts("  -v         print the kernel version");
+            puts("  -m         print the machine hardware name");
+            puts("  -h, --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[i], "--version") == 0) { puts("uname 1.0 (Winix)"); return 0; }
         if (argv[i][0] == '-' && argv[i][1] != '\0') {
             for (const char *p = argv[i] + 1; *p; p++) {
                 switch (*p) {

@@ -14,6 +14,22 @@ int main(int argc, char *argv[]) {
     int n = 10;
     int argi = 1;
 
+    /* Handle --help / --version before other option parsing */
+    if (argi < argc && (strcmp(argv[argi], "--help") == 0 || strcmp(argv[argi], "-h") == 0)) {
+        puts("Usage: head [OPTION]... [FILE]...");
+        puts("Print the first 10 lines of each FILE to standard output.");
+        puts("With no FILE, or when FILE is -, read standard input.");
+        puts("");
+        puts("  -n, --lines=N  print the first N lines instead of the first 10");
+        puts("  -h, --help     display this help and exit");
+        puts("      --version  output version information and exit");
+        return 0;
+    }
+    if (argi < argc && strcmp(argv[argi], "--version") == 0) {
+        puts("head 1.0 (Winix)");
+        return 0;
+    }
+
     if (argi < argc && argv[argi][0] == '-' && argv[argi][1] == 'n') {
         // Accept -n N or -nN
         if (argv[argi][2] != '\0') {

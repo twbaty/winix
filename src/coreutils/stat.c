@@ -35,14 +35,32 @@ static void fmt_attrs(const char *path, char *buf, size_t bufsz) {
     else buf[i > 0 ? i - 1 : 0] = '\0';  /* trim trailing space */
 }
 
+static void usage(void) {
+    puts("Usage: stat [OPTION]... FILE...");
+    puts("Display file or file system status.");
+    puts("");
+    puts("      --help     display this help and exit");
+    puts("      --version  output version information and exit");
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: stat <file>...\n");
+    int argi = 1;
+
+    for (; argi < argc; argi++) {
+        if (strcmp(argv[argi], "--help") == 0)    { usage(); return 0; }
+        if (strcmp(argv[argi], "--version") == 0) { puts("stat 1.0 (Winix)"); return 0; }
+        if (strcmp(argv[argi], "--") == 0)        { argi++; break; }
+        if (argv[argi][0] != '-') break;
+    }
+
+    if (argi >= argc) {
+        fprintf(stderr, "stat: missing operand\n");
+        fprintf(stderr, "Try 'stat --help' for more information.\n");
         return 1;
     }
 
     int ret = 0;
-    for (int i = 1; i < argc; i++) {
+    for (int i = argi; i < argc; i++) {
         const char *path = argv[i];
         struct stat st;
         if (stat(path, &st) != 0) {

@@ -135,6 +135,20 @@ int main(int argc, char *argv[]) {
 
     /* Parse flags — supports combined flags like -rf, -rfv */
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0) {
+            puts("Usage: cp [OPTION]... SOURCE DEST");
+            puts("   or: cp [OPTION]... SOURCE... DIRECTORY");
+            puts("Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.");
+            puts("");
+            puts("  -f, --force      overwrite existing destination files");
+            puts("  -r, -R           copy directories recursively");
+            puts("  -v, --verbose    explain what is being done");
+            puts("  -p, --preserve   preserve timestamps");
+            puts("      --help       display this help and exit");
+            puts("      --version    output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("cp 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'v')           verbose   = 1;
             else if (*p == 'f')           force     = 1;
@@ -149,7 +163,11 @@ int main(int argc, char *argv[]) {
     }
 
     if (argc - argi < 2) {
-        fprintf(stderr, "Usage: cp [-rfvp] <source>... <destination>\n");
+        if (argc - argi < 1)
+            fprintf(stderr, "cp: missing operand\n");
+        else
+            fprintf(stderr, "cp: missing destination file operand after '%s'\n", argv[argi]);
+        fprintf(stderr, "Try 'cp --help' for more information.\n");
         return 1;
     }
 

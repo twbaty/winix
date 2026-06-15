@@ -33,9 +33,24 @@ static void print_escaped(const char *s) {
     }
 }
 
+static void usage(void) {
+    puts("Usage: printf FORMAT [ARGUMENT]...");
+    puts("Format and print ARGUMENT(s) according to FORMAT.");
+    puts("");
+    puts("  FORMAT controls output like C printf: \\n \\t %s %d %f etc.");
+    puts("  %b expands escape sequences in the corresponding argument.");
+    puts("");
+    puts("      --help     display this help and exit");
+    puts("      --version  output version information and exit");
+}
+
 int main(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "--help") == 0)    { usage(); return 0; }
+    if (argc >= 2 && strcmp(argv[1], "--version") == 0) { puts("printf 1.0 (Winix)"); return 0; }
+
     if (argc < 2) {
-        fprintf(stderr, "Usage: printf <format> [arg...]\n");
+        fprintf(stderr, "printf: missing operand\n");
+        fprintf(stderr, "Try 'printf --help' for more information.\n");
         return 1;
     }
 

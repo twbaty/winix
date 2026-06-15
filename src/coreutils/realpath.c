@@ -59,6 +59,7 @@ int main(int argc, char *argv[]) {
 
     if (first_file >= argc) {
         fprintf(stderr, "realpath: missing operand\n");
+        fprintf(stderr, "Try 'realpath --help' for more information.\n");
         return 1;
     }
 

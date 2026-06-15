@@ -26,9 +26,18 @@ int main(int argc, char *argv[]) {
     bool escape_seqs = false;
     int argi = 1;
 
-    // Parse leading flags (-n, -e, -ne, -en, etc.)
+    // Parse leading flags (-n, -e, -ne, -en, --help, -h)
     // Stop flag parsing on first arg that isn't a valid flag.
     for (; argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0'; argi++) {
+        if (strcmp(argv[argi], "--help") == 0 || strcmp(argv[argi], "-h") == 0) {
+            puts("Usage: echo [OPTION]... [STRING]...");
+            puts("Echo the STRING(s) to standard output.");
+            puts("");
+            puts("  -n       do not output the trailing newline");
+            puts("  -e       enable interpretation of backslash escapes");
+            puts("  -h, --help   display this help and exit");
+            return 0;
+        }
         bool valid = true;
         for (char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'n') no_newline  = true;

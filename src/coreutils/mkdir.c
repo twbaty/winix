@@ -64,10 +64,24 @@ static int make_parents_fn(const char *path) {
     return 0;
 }
 
+static void usage(void) {
+    puts("Usage: mkdir [OPTION]... DIRECTORY...");
+    puts("Create the DIRECTORY(ies), if they do not already exist.");
+    puts("");
+    puts("  -p, --parents  no error if existing, make parent directories as needed");
+    puts("  -v, --verbose  print a message for each created directory");
+    puts("      --help     display this help and exit");
+    puts("      --version  output version information and exit");
+}
+
 int main(int argc, char *argv[]) {
     int argi = 1;
 
     for (; argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0'; argi++) {
+        if (strcmp(argv[argi], "--help") == 0)    { usage(); return 0; }
+        if (strcmp(argv[argi], "--version") == 0) { puts("mkdir 1.0 (Winix)"); return 0; }
+        if (strcmp(argv[argi], "--parents") == 0) { make_parents = true; continue; }
+        if (strcmp(argv[argi], "--verbose") == 0) { verbose      = true; continue; }
         for (char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'p') make_parents = true;
             else if (*p == 'v') verbose      = true;
@@ -79,7 +93,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (argi >= argc) {
-        fprintf(stderr, "Usage: mkdir [-pv] <directory>...\n");
+        fprintf(stderr, "mkdir: missing operand\n");
+        fprintf(stderr, "Try 'mkdir --help' for more information.\n");
         return 1;
     }
 

@@ -74,6 +74,19 @@ static long long du_path(const char *path) {
 int main(int argc, char *argv[]) {
     int argi = 1;
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0) {
+            puts("Usage: du [OPTION]... [FILE]...");
+            puts("Summarize disk usage of the set of FILEs, recursively for directories.");
+            puts("With no FILE, report usage of the current directory.");
+            puts("");
+            puts("  -h, --human-readable  print sizes in human readable format (e.g., 1.4G)");
+            puts("  -s, --summarize       display only a total for each argument");
+            puts("  -a, --all             write counts for all files, not just directories");
+            puts("      --help            display this help and exit");
+            puts("      --version         output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("du 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'h') human   = 1;
             else if (*p == 's') summary = 1;

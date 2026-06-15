@@ -19,7 +19,18 @@ int main(int argc, char *argv[]) {
     int argi = 1;
 
     for (; argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0'; argi++) {
-        if (argv[argi][1] == '-') { argi++; break; }  // -- ends option parsing; --xxx ignored
+        if (strcmp(argv[argi], "--help") == 0 || strcmp(argv[argi], "-h") == 0) {
+            puts("Usage: cat [OPTION]... [FILE]...");
+            puts("Concatenate FILE(s) to standard output.");
+            puts("With no FILE, or when FILE is -, read standard input.");
+            puts("");
+            puts("  -n         number all output lines");
+            puts("  -h, --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("cat 1.0 (Winix)"); return 0; }
+        if (argv[argi][1] == '-') { argi++; break; }  // -- ends option parsing
         for (char *p = argv[argi] + 1; *p; p++) {
             if (*p == 'n') number_lines = true;
             else {

@@ -152,6 +152,17 @@ int main(int argc, char *argv[]) {
     int argi = 1;
 
     while (argi < argc && argv[argi][0] == '-' && argv[argi][1] != '\0') {
+        if (strcmp(argv[argi], "--help") == 0) {
+            puts("Usage: chown [OPTION]... OWNER FILE...");
+            puts("Change the owner of each FILE to OWNER.");
+            puts("");
+            puts("  -R           operate recursively on directories");
+            puts("  -v           output a diagnostic for every file processed");
+            puts("      --help   display this help and exit");
+            puts("      --version  output version information and exit");
+            return 0;
+        }
+        if (strcmp(argv[argi], "--version") == 0) { puts("chown 1.0 (Winix)"); return 0; }
         for (const char *p = argv[argi] + 1; *p; p++) {
             if      (*p == 'v') verbose   = 1;
             else if (*p == 'R') recursive = 1;
@@ -164,7 +175,11 @@ int main(int argc, char *argv[]) {
     }
 
     if (argc - argi < 2) {
-        fprintf(stderr, "Usage: chown [-Rv] <user> <file>...\n");
+        if (argc - argi < 1)
+            fprintf(stderr, "chown: missing operand\n");
+        else
+            fprintf(stderr, "chown: missing operand after '%s'\n", argv[argi]);
+        fprintf(stderr, "Try 'chown --help' for more information.\n");
         return 1;
     }
 
