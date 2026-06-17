@@ -21,7 +21,7 @@ set INSTALL_PREFIX=C:\Winix
 :: ==========================================================
 :: 1. Copy files - detect zip layout vs dev build layout
 :: ==========================================================
-echo [1/5] Installing Winix to %INSTALL_PREFIX% ...
+echo [1/8] Installing Winix to %INSTALL_PREFIX% ...
 
 if exist "winix.exe" (
     :: ---- ZIP / pre-built layout: winix.exe is right here ----
@@ -52,7 +52,7 @@ echo.
 :: ==========================================================
 :: 2. Add C:\Winix and C:\Winix\bin to the system PATH
 :: ==========================================================
-echo [2/5] Checking system PATH...
+echo [2/8] Checking system PATH...
 powershell -NoProfile -NonInteractive -Command ^
     "$r='HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment';" ^
     "$p=(Get-ItemProperty $r).Path; $e=$p -split ';'; $c=$false;" ^
@@ -69,7 +69,7 @@ echo.
 :: ==========================================================
 :: 3. Start Menu shortcut
 :: ==========================================================
-echo [3/5] Creating Start Menu shortcut...
+echo [3/8] Creating Start Menu shortcut...
 powershell -NoProfile -NonInteractive -Command ^
     "$ws  = New-Object -ComObject WScript.Shell;" ^
     "$dir = '%ProgramData%\Microsoft\Windows\Start Menu\Programs\Winix';" ^
@@ -85,7 +85,7 @@ echo.
 :: ==========================================================
 :: 4. "Open Winix here" Explorer context menu
 :: ==========================================================
-echo [4/5] Registering "Open Winix here" context menu...
+echo [4/8] Registering "Open Winix here" context menu...
 
 reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"          /ve /d "Open Winix here"                                                    /f >nul
 reg add "HKLM\SOFTWARE\Classes\Directory\shell\OpenWinixHere"          /v Icon /t REG_SZ /d "%INSTALL_PREFIX%\winix.exe"                           /f >nul
@@ -101,7 +101,7 @@ echo.
 :: ==========================================================
 :: 5. .sh file association
 :: ==========================================================
-echo [5/6] Registering .sh file association...
+echo [5/8] Registering .sh file association...
 reg add "HKLM\SOFTWARE\Classes\.sh"                               /ve /d "WinixScript"                                          /f >nul
 reg add "HKLM\SOFTWARE\Classes\WinixScript"                       /ve /d "Winix Shell Script"                                   /f >nul
 reg add "HKLM\SOFTWARE\Classes\WinixScript\DefaultIcon"           /ve /d "%INSTALL_PREFIX%\winix.exe,0"                         /f >nul
@@ -110,9 +110,35 @@ echo [SH] Done. Double-clicking .sh files will now run them with Winix.
 echo.
 
 :: ==========================================================
-:: 6. Windows Terminal profile
+:: 6. Register with Add / Remove Programs (Apps & Features)
 :: ==========================================================
-echo [6/7] Adding Windows Terminal profile...
+echo [6/8] Registering with Apps ^& Features...
+
+:: Read version from VERSION file if present, otherwise leave blank
+set WINIX_VER=
+if exist "%~dp0VERSION" (
+    for /f "usebackq tokens=*" %%V in ("%~dp0VERSION") do (
+        if "!WINIX_VER!"=="" set WINIX_VER=%%V
+    )
+)
+if "!WINIX_VER!"=="" set WINIX_VER=current
+
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "DisplayName"     /t REG_SZ    /d "Winix"                                              /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "DisplayVersion"  /t REG_SZ    /d "!WINIX_VER!"                                        /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "Publisher"       /t REG_SZ    /d "Tom Baty"                                           /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "InstallLocation" /t REG_SZ    /d "%INSTALL_PREFIX%"                                   /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "DisplayIcon"     /t REG_SZ    /d "%INSTALL_PREFIX%\winix.exe,0"                       /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "UninstallString" /t REG_SZ    /d "cmd.exe /c \"%INSTALL_PREFIX%\uninstall.bat\""      /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "URLInfoAbout"    /t REG_SZ    /d "https://github.com/twbaty/winix"                    /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "NoModify"        /t REG_DWORD /d 1                                                    /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Winix" /v "NoRepair"        /t REG_DWORD /d 1                                                    /f >nul
+echo [ARP] Winix !WINIX_VER! will appear in Apps ^& Features.
+echo.
+
+:: ==========================================================
+:: 7. Windows Terminal profile
+:: ==========================================================
+echo [7/8] Adding Windows Terminal profile...
 powershell -NoProfile -NonInteractive -Command ^
     "$wtPaths = @(" ^
     "  \"$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json\"," ^
@@ -124,25 +150,31 @@ powershell -NoProfile -NonInteractive -Command ^
     "if ($wtPath -eq $null) { Write-Host '[WT] Windows Terminal not found - skipping.'; exit 0 };" ^
     "$guid = '{b5e89994-a1b8-4e6f-8e37-5e3e4e4e4e4e}';" ^
     "$exists = $wtJson.profiles.list | Where-Object { $_.guid -eq $guid };" ^
-    "if ($exists) { Write-Host '[WT] Winix profile already present.'; exit 0 };" ^
-    "$prof = [PSCustomObject]@{" ^
-    "  guid             = $guid;" ^
-    "  name             = 'Winix';" ^
-    "  commandline      = 'C:\Winix\winix.exe';" ^
-    "  startingDirectory= '%USERPROFILE%';" ^
-    "  icon             = 'C:\Winix\winix.exe';" ^
-    "  colorScheme      = 'One Half Dark';" ^
-    "  hidden           = $false" ^
+    "if ($exists) { Write-Host '[WT] Winix profile already present.' } else {" ^
+    "  $prof = [PSCustomObject]@{" ^
+    "    guid             = $guid;" ^
+    "    name             = 'Winix';" ^
+    "    commandline      = 'C:\Winix\winix.exe';" ^
+    "    startingDirectory= '%USERPROFILE%';" ^
+    "    icon             = 'C:\Winix\winix.exe';" ^
+    "    colorScheme      = 'One Half Dark';" ^
+    "    hidden           = $false" ^
+    "  };" ^
+    "  $wtJson.profiles.list += $prof;" ^
+    "  Write-Host '[WT] Winix profile added.';" ^
     "};" ^
-    "$wtJson.profiles.list += $prof;" ^
+    "if ($wtJson.defaultProfile -ne $guid) {" ^
+    "  $wtJson.defaultProfile = $guid;" ^
+    "  Write-Host '[WT] Winix set as default profile.';" ^
+    "} else { Write-Host '[WT] Winix is already the default profile.' };" ^
     "$wtJson | ConvertTo-Json -Depth 20 | Set-Content $wtPath -Encoding UTF8;" ^
-    "Write-Host '[WT] Winix profile added. Restart Windows Terminal to see it.'"
+    "Write-Host '[WT] Restart Windows Terminal to apply changes.'"
 echo.
 
 :: ==========================================================
 :: 7. Windows Defender exclusions
 :: ==========================================================
-echo [7/7] Adding Windows Defender exclusions...
+echo [8/8] Adding Windows Defender exclusions...
 powershell -NoProfile -NonInteractive -Command ^
     "try {" ^
     "  Add-MpPreference -ExclusionPath '%INSTALL_PREFIX%' -ErrorAction Stop;" ^

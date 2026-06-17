@@ -1230,6 +1230,21 @@ static DWORD run_segment(const std::string& seg, const Paths& paths,
         if (h_err != INVALID_HANDLE_VALUE) CloseHandle(h_err);
     };
 
+    // Windows bare drive-letter: "U:" or "U:\" changes to that drive
+    // (mirrors cmd.exe — U: remembers your last directory on that drive)
+    if (t.size() == 1 && !bg) {
+        const std::string& tok = t[0];
+        size_t tlen = tok.size();
+        if ((tlen == 2 || (tlen == 3 && (tok[2] == '\\' || tok[2] == '/'))) &&
+            std::isalpha((unsigned char)tok[0]) && tok[1] == ':') {
+            close_redirs();
+            std::error_code ec;
+            fs::current_path(tok, ec);
+            if (ec) std::cerr << "cd: " << tok << ": " << ec.message() << "\n";
+            return ec ? 1 : 0;
+        }
+    }
+
     // handle cd (builtin — redirection is a no-op for it)
     if (to_lower(t[0]) == "cd") {
         close_redirs();
