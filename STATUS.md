@@ -23,7 +23,7 @@ The v4.5.0 package is already installable and useful; the remaining steps are ma
 - **Why it matters:** The administrator-run installer excludes the Winix folders from Defender scanning, and the current uninstaller does not remove those exclusions.
 - **Options:** A) Keep the current automatic exclusions. B) Remove them by default or ask the user before adding them.
 - **Recommended:** B — users should choose whether to reduce scanning for installed programs.
-- **Answer:** _(author writes here)_
+- **Answer (2026-10-10, via HQ):** B — Remove them by default or ask the user before adding them
 
 ## ⚠️ Security
 - A local pattern scan of tracked text files found no likely plaintext passwords, API keys, access tokens, or private keys. GitHub’s secret-alert list could not be checked in this review because the API denied access.
